@@ -5,7 +5,7 @@ import sys
 import threading
 from datetime import datetime
 
-from src.config import load_config, T, currency_sym, log, APP_ID
+from src.config import load_config, T, log, APP_ID
 
 
 class AppState:
@@ -25,14 +25,7 @@ class AppState:
     def lang(self):
         return self.config.get("language", "zh")
 
-    @property
-    def preferred_currency(self):
-        return self.config.get("preferred_currency", "CNY")
-
     def get_preferred_balance(self):
-        code = self.preferred_currency
-        if code in self.balances:
-            return {**self.balances[code], "currency": code}
         for c, b in self.balances.items():
             return {**b, "currency": c}
         return None
@@ -44,8 +37,8 @@ class AppState:
             b = self.get_preferred_balance()
             if b:
                 return T("tooltip_balance", self.lang,
-                         sym=currency_sym(b["currency"]),
-                         total=f"{b['total_balance']:,.2f}")
+                         total=f"{b['total_balance']:,.2f}",
+                         code=b["currency"])
             return T("tooltip_checking", self.lang)
 
     def is_low_balance(self):

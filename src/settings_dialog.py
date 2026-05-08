@@ -1,6 +1,6 @@
 """
 Settings dialog — tkinter window for configuring API key, interval, threshold,
-preferred currency, language, auto-start, and alert toggle.
+language, auto-start, and alert toggle.
 """
 import threading
 
@@ -23,7 +23,7 @@ def open_settings(app):
         import tkinter as tk
         from tkinter import ttk, messagebox
 
-        from src.config import T, save_config, log, currency_sym
+        from src.config import T, save_config, log
 
         lang = app.lang
 
@@ -49,7 +49,7 @@ def open_settings(app):
             pass
 
         root.title(T("settings_title", lang))
-        root.geometry("560x520")
+        root.geometry("580x520")
         root.resizable(True, True)
         root.minsize(480, 400)
         root.update_idletasks()
@@ -141,8 +141,7 @@ def open_settings(app):
         interval_sb.pack(side="left")
         ttk.Label(ifr, text=T("interval_hint", lang)).pack(side="left")
 
-        thresh_unit = "元" if lang == "zh" else "¥"
-        ttk.Label(scroll_frame, text=T("threshold_label", lang, unit=thresh_unit)).pack(anchor="w")
+        ttk.Label(scroll_frame, text=T("threshold_label", lang)).pack(anchor="w")
         threshold_var = tk.DoubleVar(value=app.config.get("threshold_yuan", 1.0))
         tfr = ttk.Frame(scroll_frame)
         tfr.pack(fill="x", pady=(0, 8))
@@ -155,20 +154,6 @@ def open_settings(app):
             value=app.config.get("enable_alerts", True))
         ttk.Checkbutton(scroll_frame, text=T("enable_alerts_label", lang),
                         variable=enable_alerts_var).pack(anchor="w", pady=(6, 6))
-
-        ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=5)
-
-        ttk.Label(scroll_frame, text=T("currency_label", lang)).pack(anchor="w")
-        currency_var = tk.StringVar(value=app.config.get("preferred_currency", "CNY"))
-        currency_list = ["CNY", "USD", "EUR", "JPY", "GBP", "HKD", "KRW",
-                         "SGD", "AUD", "CAD", "CHF", "INR", "TWD", "RUB", "BRL"]
-        if currency_var.get() not in currency_list:
-            currency_list.insert(0, currency_var.get())
-        cur_combo = ttk.Combobox(scroll_frame, textvariable=currency_var, values=currency_list,
-                                  state="readonly", width=14)
-        cur_combo.pack(anchor="w", pady=(0, 2))
-        ttk.Label(scroll_frame, text=T("currency_hint", lang), foreground="gray").pack(
-            anchor="w", pady=(0, 10))
 
         ttk.Label(scroll_frame, text=T("language_label", lang)).pack(anchor="w", pady=(2, 0))
         LANG_OPTIONS = {"中文": "zh", "English": "en"}
@@ -183,7 +168,7 @@ def open_settings(app):
         # Prevent accidental value changes via mousewheel on spinboxes and
         # comboboxes — these are too easy to bump while scrolling the dialog.
         _no_scroll = lambda e: "break"
-        for w in (interval_sb, threshold_sb, cur_combo, lang_combo):
+        for w in (interval_sb, threshold_sb, lang_combo):
             w.bind("<MouseWheel>", _no_scroll)
 
         from src.app_state import get_auto_start_state
@@ -213,8 +198,8 @@ def open_settings(app):
 
         b = app.get_preferred_balance()
         if b:
-            sym = currency_sym(b["currency"])
-            bal_text = T("total_balance", lang) + ": " + sym + f"{b['total_balance']:,.2f}"
+            code = b["currency"]
+            bal_text = T("total_balance", lang) + ": " + f"{b['total_balance']:,.2f} {code}"
         else:
             bal_text = T("not_checked", lang)
         ttk.Label(footer, text=bal_text, foreground="gray").pack(anchor="w", pady=(0, 8))
@@ -234,7 +219,6 @@ def open_settings(app):
             app.config["interval_minutes"] = interval_var.get()
             app.config["threshold_yuan"] = threshold_var.get()
             app.config["language"] = LANG_OPTIONS.get(lang_var.get(), "zh")
-            app.config["preferred_currency"] = currency_var.get()
             app.config["auto_start"] = auto_start_var.get()
             app.config["enable_alerts"] = enable_alerts_var.get()
             from src.app_state import set_auto_start

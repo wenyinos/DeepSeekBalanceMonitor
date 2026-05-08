@@ -35,22 +35,9 @@ DEFAULT_CONFIG = {
     "interval_minutes": 10,
     "threshold_yuan": 1.0,
     "language": "zh",
-    "preferred_currency": "CNY",
     "auto_start": False,
     "enable_alerts": True,
 }
-
-# ─── Currency symbols ─────────────────────────────────────────────
-CURRENCY_SYMBOLS = {
-    "CNY": "¥", "USD": "$", "EUR": "€", "JPY": "¥",
-    "GBP": "£", "KRW": "₩", "HKD": "HK$", "TWD": "NT$",
-    "SGD": "S$", "AUD": "A$", "CAD": "C$", "CHF": "CHF ",
-    "INR": "₹", "RUB": "₽", "BRL": "R$", "MXN": "MX$",
-    "TRY": "₺", "AED": "AED ", "SAR": "SAR ", "NGN": "₦",
-}
-
-def currency_sym(code: str) -> str:
-    return CURRENCY_SYMBOLS.get(code, code + " ")
 
 # ─── i18n ─────────────────────────────────────────────────────────
 _T = {
@@ -73,7 +60,7 @@ _T = {
         "show_key":         "显示 API Key",
         "interval_label":   "查询间隔（分钟）：",
         "interval_hint":    "  （1 ~ 1440 分钟）",
-        "threshold_label":  "余额预警线（{unit}）：",
+        "threshold_label":  "余额预警线：",
         "threshold_hint":   "  低于此值时托盘图标显示红色预警",
         "language_label":   "语言 / Language：",
         "save":             "保存",
@@ -88,15 +75,13 @@ _T = {
         "bal_empty_msg":    "尚未查询到余额，请稍后或点击「立即查询」",
         "bal_title":        "DeepSeek 余额: {balance}",
         "bal_msg":          "总余额:   {total}\n充值余额: {topped}\n赠送余额: {granted}\n货币:     {currency}\n上次查询: {time}",
-        "tooltip_balance":  "总余额: {sym}{total}",
+        "tooltip_balance":  "总余额: {total} {code}",
         "tooltip_error":    "错误: {error}",
         "tooltip_checking": "查询中…",
-        "status_line":      "上次查询: {last}  |  当前余额: {sym}{total}",
+        "status_line":      "上次查询: {last}  |  当前余额: {total} {code}",
         "status_line_no":   "上次查询: {last}",
-        "currency_label":   "首选货币 / Currency：",
-        "currency_hint":    "若账户无此币种余额，自动使用现有币种",
         "bal_error_msg":    "查询出错: {error}",
-        "bal_currency_line": "{code}: {sym}{total}  (充值 {topped}, 赠送 {granted})",
+        "bal_currency_line": "{code}: {total}  (充值 {topped}, 赠送 {granted})",
         "auto_start_label": "开机自动启动",
         "enable_alerts_label": "开启预警提醒",
     },
@@ -119,7 +104,7 @@ _T = {
         "show_key":         "Show API Key",
         "interval_label":   "Check Interval (min):",
         "interval_hint":    "  (1 ~ 1440 min)",
-        "threshold_label":  "Low Balance Threshold ({unit}):",
+        "threshold_label":  "Low Balance Threshold:",
         "threshold_hint":   "  Icon turns red when balance drops below this value",
         "language_label":   "Language / 语言：",
         "save":             "Save",
@@ -134,15 +119,13 @@ _T = {
         "bal_empty_msg":    "No balance data yet. Please wait or click 'Check Now'.",
         "bal_title":        "DeepSeek Balance: {balance}",
         "bal_msg":          "Total:    {total}\nTopped Up: {topped}\nGranted:   {granted}\nCurrency:  {currency}\nLast Check: {time}",
-        "tooltip_balance":  "Balance: {sym}{total}",
+        "tooltip_balance":  "Balance: {total} {code}",
         "tooltip_error":    "Error: {error}",
         "tooltip_checking": "Checking…",
-        "status_line":      "Last: {last}  |  Balance: {sym}{total}",
+        "status_line":      "Last: {last}  |  Balance: {total} {code}",
         "status_line_no":   "Last: {last}",
-        "currency_label":   "Preferred Currency / 首选货币：",
-        "currency_hint":    "Falls back to available currency if preferred not found",
         "bal_error_msg":    "Fetch error: {error}",
-        "bal_currency_line": "{code}: {sym}{total}  (Topped {topped}, Granted {granted})",
+        "bal_currency_line": "{code}: {total}  (Topped {topped}, Granted {granted})",
         "auto_start_label": "Auto-start on boot",
         "enable_alerts_label": "Enable balance alerts",
     },

@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pystray
 
-from src.config import T, log, CONFIG_DIR, APP_NAME, APP_ID, currency_sym
+from src.config import T, log, CONFIG_DIR, APP_NAME, APP_ID
 from src.api_client import fetch_balance
 from src.icon_renderer import create_icon_image
 from src.app_state import AppState
@@ -76,9 +76,9 @@ def notify_user(app: AppState):
         return
     lang = app.lang
     t = app.config.get("threshold_yuan", 1.0)
-    sym = currency_sym(b["currency"])
-    bal_str = f"{sym}{b['total_balance']:,.2f}"
-    thr_str = f"{sym}{t:,.2f}"
+    code = b["currency"]
+    bal_str = f"{b['total_balance']:,.2f} {code}"
+    thr_str = f"{t:,.2f} {code}"
     title = T("low_bal_title", lang)
     msg = T("low_bal_msg", lang, balance=bal_str, threshold=thr_str)
     try:
@@ -116,9 +116,8 @@ def on_show_balance(icon, item):
         time_str = last.strftime("%Y-%m-%d %H:%M:%S") if last else "-"
         lines = []
         for code, b in balances.items():
-            sym = currency_sym(code)
             lines.append(T("bal_currency_line", lang,
-                           code=code, sym=sym,
+                           code=code,
                            total=f"{b['total_balance']:,.2f}",
                            topped=f"{b['topped_up_balance']:,.2f}",
                            granted=f"{b['granted_balance']:,.2f}"))
@@ -129,11 +128,11 @@ def on_show_balance(icon, item):
         pb = app.get_preferred_balance()
         if pb:
             title = T("bal_title", lang,
-                      balance=f"{currency_sym(pb['currency'])}{pb['total_balance']:,.2f}")
+                      balance=f"{pb['total_balance']:,.2f} {pb['currency']}")
         else:
             first_code = next(iter(balances))
             title = T("bal_title", lang,
-                      balance=f"{currency_sym(first_code)}{balances[first_code]['total_balance']:,.2f}")
+                      balance=f"{balances[first_code]['total_balance']:,.2f} {first_code}")
 
     try:
         icon.notify(msg, title=title)
