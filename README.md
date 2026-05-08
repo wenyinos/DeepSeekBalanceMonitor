@@ -8,16 +8,32 @@ A Windows system tray application that periodically queries the DeepSeek API for
 
 ## English
 
+### Screenshot
+
+![Taskbar preview](preview_taskbar.png)
+
 ### Features
 
-- **Dynamic Tray Icon** — Shows integer balance on a coloured rounded rectangle: teal when OK, red when low, gray when unknown. Values above 99 display as "OK", errors as "!".
-- **Currency Display** — Shows the actual currency returned by the API alongside each balance.
-- **Bilingual UI** — Chinese and English for all menus, dialogs, notifications, and tooltips. Switch from the settings window.
-- **Configurable Interval** — Set from 1 to 1440 minutes (24 hours). Default: 10 minutes.
-- **Low Balance Alert** — Desktop notification when balance drops below a user-defined threshold (default 1.00). Can be disabled independently; the tray icon still turns red as a visual warning.
-- **Settings Window** — Configure API key, interval, threshold, language, auto-start, and alert toggle.
-- **Auto-Start** — Optional: register to launch on Windows boot.
-- **High-DPI Aware** — Renders sharp on high-resolution displays.
+- **Tray icon with balance** — Your current balance is shown as a number on a coloured rounded rectangle in the taskbar. Teal when above threshold, red when low or errored, gray before the first check.
+- **Low balance notification** — A desktop notification fires when balance drops below your configured threshold. Alerts can be disabled in settings; the icon still turns red regardless.
+- **Balance details** — Left-click the icon (or right-click → View Balance) to see a full breakdown: total, topped-up, and granted balance per currency, plus last check time.
+- **Settings** — API key, check interval (1–1440 min), alert threshold, language (Chinese / English), and auto-start on boot — all in one dialog. Opens automatically on first launch if no key is configured.
+
+#### Notification Previews
+
+**Normal balance view:**
+
+> DeepSeek Balance: 12.34 CNY
+> 
+> CNY: 12.34  (Topped 10.00, Granted 2.34)
+> Last Check: 2026-05-08 14:30:00
+
+**Low balance alert:**
+
+> ⚠ DeepSeek Low Balance
+> 
+> Balance is only 0.50, below your alert threshold of 1.00.
+> Please top up!
 
 ### Requirements
 
@@ -74,7 +90,6 @@ Settings are stored in `%APPDATA%\DeepSeek Balance Monitor\config.json`:
   "interval_minutes": 10,
   "threshold_yuan": 1.0,
   "language": "zh",
-
   "auto_start": false,
   "enable_alerts": true
 }
@@ -107,16 +122,32 @@ MIT
 
 ## 中文
 
+### 截图
+
+![任务栏预览](preview_taskbar.png)
+
 ### 功能
 
-- **动态托盘图标** — 在圆角矩形底色上显示余额整数：青色表示正常，红色表示低于阈值，灰色表示未完成首次查询。超过 99 显示 "OK"，出错显示 "!"。
-- **货币显示** — 余额标注实际币种，查出来是什么就显示什么。
-- **双语界面** — 所有菜单、对话框、通知、提示均支持中文和英文，在设置窗口中切换。
-- **可调查询间隔** — 1 至 1440 分钟（24 小时）自由设置，默认 10 分钟。
-- **低余额提醒** — 余额低于设定阈值（默认 1.00）时弹出桌面通知。提醒可独立关闭，关闭后托盘图标仍会变红作为视觉预警。
-- **设置窗口** — 配置 API Key、查询间隔、阈值、语言、开机自启、提醒开关。
-- **开机自启** — 可选：注册到 Windows 启动项。
-- **高分屏适配** — 在高分辨率显示器上画质清晰。
+- **托盘图标显示余额** — 当前余额以数字形式显示在任务栏圆角矩形图标上。青色表示高于阈值，红色表示低于阈值或出错，灰色表示尚未完成首次查询。
+- **低余额通知** — 余额低于设定阈值时弹出桌面通知。可在设置中关闭通知，关闭后图标仍会变红作为视觉提醒。
+- **余额详情** — 左键单击图标（或右键 → 查看余额）可查看完整明细：每种币种的总余额、充值余额、赠送余额，以及上次查询时间。
+- **设置** — API Key、查询间隔（1–1440 分钟）、预警阈值、语言（中文 / English）、开机自启，集中在一个设置窗口中配置。首次启动若未配置 Key 会自动弹出。
+
+#### 通知预览
+
+**查看余额：**
+
+> DeepSeek 余额: 12.34 CNY
+> 
+> CNY: 12.34  (充值 10.00, 赠送 2.34)
+> 上次查询: 2026-05-08 14:30:00
+
+**低余额告警：**
+
+> ⚠ DeepSeek 余额不足
+> 
+> 当前余额仅剩 0.50，已低于您设置的提醒阈值 1.00。
+> 请及时充值！
 
 ### 运行要求
 
@@ -173,7 +204,6 @@ DeepSeekBalance/
   "interval_minutes": 10,
   "threshold_yuan": 1.0,
   "language": "zh",
-
   "auto_start": false,
   "enable_alerts": true
 }
