@@ -10,6 +10,11 @@ def fetch_balance(api_key: str) -> dict:
     Raises PermissionError on 401, requests.HTTPError on other HTTP errors,
     ValueError if the response contains no balance_infos.
     """
+    # HTTP headers must be Latin-1 (RFC 7230 §3.2).  Any character
+    # outside Latin-1 in the API key will crash http.client.putheader()
+    # with UnicodeEncodeError before the request ever leaves the machine.
+    api_key = api_key.encode("latin-1", errors="ignore").decode("latin-1")
+
     url = "https://api.deepseek.com/user/balance"
     headers = {"Accept": "application/json", "Authorization": f"Bearer {api_key}"}
     resp = requests.get(url, headers=headers, timeout=15)

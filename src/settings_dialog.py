@@ -1,12 +1,21 @@
 """
 Settings dialog — tkinter window for configuring API key, interval, threshold,
-preferred currency, and language.
+preferred currency, language, auto-start, and alert toggle.
 """
 import threading
 
 
 def open_settings(app):
-    """Open the settings dialog (blocking)."""
+    """Open the settings dialog.  If already open, bring it to the foreground."""
+    if app._settings_open and app._settings_window is not None:
+        try:
+            app._settings_window.deiconify()
+            app._settings_window.lift()
+            app._settings_window.focus_force()
+        except Exception:
+            pass
+        return
+    app._settings_open = True
 
     def _dialog():
         import os
@@ -19,99 +28,179 @@ def open_settings(app):
         lang = app.lang
 
         root = tk.Tk()
-        # Set window icon — looks for app_icon.ico next to the exe (frozen) or script (dev)
+        app._settings_window = root
+
+        def _cleanup():
+            app._settings_open = False
+            app._settings_window = None
+            root.destroy()
+
+        root.protocol("WM_DELETE_WINDOW", _cleanup)
+
         try:
-            if getattr(sys, 'frozen', False):
-                icon_path = os.path.join(sys._MEIPASS, 'app_icon.ico')
+            if getattr(sys, "frozen", False):
+                icon_path = os.path.join(sys._MEIPASS, "app_icon.ico")
             else:
                 icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                         'app_icon.ico')
+                                         "app_icon.ico")
             if os.path.isfile(icon_path):
                 root.iconbitmap(icon_path)
         except Exception:
             pass
 
         root.title(T("settings_title", lang))
-        root.geometry("490x710")
+        root.geometry("560x520")
         root.resizable(True, True)
-        root.minsize(460, 500)
+        root.minsize(480, 400)
         root.update_idletasks()
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
         w, h = root.winfo_width(), root.winfo_height()
         root.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
 
-        frame = ttk.Frame(root, padding=(20, 20, 20, 10))
-        frame.pack(fill="both", expand=True)
+        # Remove the maximise button — a settings dialog never needs it.
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+                GWL_STYLE = -16
+                WS_MAXIMIZEBOX = 0x00010000
+                style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE,
+                                                    style & ~WS_MAXIMIZEBOX)
+            except Exception:
+                pass
 
-        # --- API Key ---
-        ttk.Label(frame, text=T("api_key_label", lang)).pack(anchor="w")
+        # Settings window can launch without foreground activation from a
+        # tray-icon callback — force focus so minimise / close respond.
+        root.after(50, root.focus_force)
+
+        # Fixed footer MUST pack before the expanding canvas area
+        footer = ttk.Frame(root, padding=(20, 10, 20, 10))
+        footer.pack(fill="x", side="bottom")
+
+        # Scrollable canvas area takes remaining space
+        outer = ttk.Frame(root)
+        outer.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(outer, borderwidth=0, highlightthickness=0)
+        scrollbar = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+
+        # canvas.bbox("all") does NOT include create_window items on most
+        # tk builds — use the frame's actual requested size instead.
+        def _update_scrollregion(*_args):
+            canvas.configure(
+                scrollregion=(0, 0,
+                              scroll_frame.winfo_reqwidth(),
+                              scroll_frame.winfo_reqheight()))
+
+        scroll_frame.bind("<Configure>", _update_scrollregion)
+
+        canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        def _on_canvas_resize(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_resize)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        scrollbar.pack(side="right", fill="y", pady=(20, 0), padx=(0, 4))
+        canvas.pack(side="left", fill="both", expand=True, padx=(20, 0), pady=(20, 0))
+
+        # === Settings widgets inside scroll_frame ===
+
+        ttk.Label(scroll_frame, text=T("api_key_label", lang)).pack(anchor="w")
         api_var = tk.StringVar(value=app.config.get("api_key", ""))
-        api_entry = ttk.Entry(frame, textvariable=api_var, show="•", width=54)
-        api_entry.pack(fill="x", pady=(0, 2))
+        api_entry = ttk.Entry(scroll_frame, textvariable=api_var, show="•", width=36)
+        api_entry.pack(anchor="w", pady=(0, 2))
         show_var = tk.BooleanVar(value=False)
 
-        def toggle_show():
-            api_entry.config(show="" if show_var.get() else "•")
+        def _toggle_key_visibility(*_args):
+            if show_var.get():
+                # ttk.Entry may ignore show='' via .config(); go through Tcl.
+                api_entry.tk.call(api_entry._w, "configure", "-show", "")
+            else:
+                api_entry.configure(show="•")
 
-        ttk.Checkbutton(frame, text=T("show_key", lang), variable=show_var,
-                        command=toggle_show).pack(anchor="w", pady=(0, 8))
+        show_var.trace_add("write", _toggle_key_visibility)
 
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=5)
+        ttk.Checkbutton(scroll_frame, text=T("show_key", lang), variable=show_var).pack(
+            anchor="w", pady=(0, 8))
 
-        # --- Interval ---
-        ttk.Label(frame, text=T("interval_label", lang)).pack(anchor="w")
+        ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=5)
+
+        ttk.Label(scroll_frame, text=T("interval_label", lang)).pack(anchor="w")
         interval_var = tk.IntVar(value=app.config.get("interval_minutes", 10))
-        ifr = ttk.Frame(frame)
+        ifr = ttk.Frame(scroll_frame)
         ifr.pack(fill="x", pady=(0, 8))
-        ttk.Spinbox(ifr, from_=1, to=1440, textvariable=interval_var, width=8).pack(side="left")
+        interval_sb = ttk.Spinbox(ifr, from_=1, to=1440, textvariable=interval_var, width=8)
+        interval_sb.pack(side="left")
         ttk.Label(ifr, text=T("interval_hint", lang)).pack(side="left")
 
-        # --- Threshold ---
         thresh_unit = "元" if lang == "zh" else "¥"
-        ttk.Label(frame, text=T("threshold_label", lang, unit=thresh_unit)).pack(anchor="w")
+        ttk.Label(scroll_frame, text=T("threshold_label", lang, unit=thresh_unit)).pack(anchor="w")
         threshold_var = tk.DoubleVar(value=app.config.get("threshold_yuan", 1.0))
-        tfr = ttk.Frame(frame)
+        tfr = ttk.Frame(scroll_frame)
         tfr.pack(fill="x", pady=(0, 8))
-        ttk.Spinbox(tfr, from_=0.1, to=10000.0, increment=0.5,
-                    textvariable=threshold_var, width=8).pack(side="left")
+        threshold_sb = ttk.Spinbox(tfr, from_=0.0, to=10000.0, increment=0.5,
+                                   textvariable=threshold_var, width=8)
+        threshold_sb.pack(side="left")
         ttk.Label(tfr, text=T("threshold_hint", lang)).pack(side="left")
 
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=5)
+        enable_alerts_var = tk.BooleanVar(
+            value=app.config.get("enable_alerts", True))
+        ttk.Checkbutton(scroll_frame, text=T("enable_alerts_label", lang),
+                        variable=enable_alerts_var).pack(anchor="w", pady=(6, 6))
 
-        # --- Preferred Currency ---
-        ttk.Label(frame, text=T("currency_label", lang)).pack(anchor="w")
+        ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=5)
+
+        ttk.Label(scroll_frame, text=T("currency_label", lang)).pack(anchor="w")
         currency_var = tk.StringVar(value=app.config.get("preferred_currency", "CNY"))
         currency_list = ["CNY", "USD", "EUR", "JPY", "GBP", "HKD", "KRW",
                          "SGD", "AUD", "CAD", "CHF", "INR", "TWD", "RUB", "BRL"]
         if currency_var.get() not in currency_list:
             currency_list.insert(0, currency_var.get())
-        cur_combo = ttk.Combobox(frame, textvariable=currency_var, values=currency_list,
+        cur_combo = ttk.Combobox(scroll_frame, textvariable=currency_var, values=currency_list,
                                   state="readonly", width=14)
         cur_combo.pack(anchor="w", pady=(0, 2))
-        ttk.Label(frame, text=T("currency_hint", lang), foreground="gray").pack(
+        ttk.Label(scroll_frame, text=T("currency_hint", lang), foreground="gray").pack(
             anchor="w", pady=(0, 10))
 
-        # --- Language ---
-        ttk.Label(frame, text=T("language_label", lang)).pack(anchor="w", pady=(2, 0))
+        ttk.Label(scroll_frame, text=T("language_label", lang)).pack(anchor="w", pady=(2, 0))
         LANG_OPTIONS = {"中文": "zh", "English": "en"}
         LANG_DISPLAY = list(LANG_OPTIONS.keys())
         cur_lang_display = {v: k for k, v in LANG_OPTIONS.items()}.get(
             app.config.get("language", "zh"), "中文")
         lang_var = tk.StringVar(value=cur_lang_display)
-        lang_combo = ttk.Combobox(frame, textvariable=lang_var, values=LANG_DISPLAY,
+        lang_combo = ttk.Combobox(scroll_frame, textvariable=lang_var, values=LANG_DISPLAY,
                                   state="readonly", width=14)
         lang_combo.pack(anchor="w", pady=(0, 12))
 
-        # --- Auto-Start ---
+        # Prevent accidental value changes via mousewheel on spinboxes and
+        # comboboxes — these are too easy to bump while scrolling the dialog.
+        _no_scroll = lambda e: "break"
+        for w in (interval_sb, threshold_sb, cur_combo, lang_combo):
+            w.bind("<MouseWheel>", _no_scroll)
+
         from src.app_state import get_auto_start_state
         auto_start_var = tk.BooleanVar(
             value=app.config.get("auto_start", False) or get_auto_start_state())
-        ttk.Checkbutton(frame, text=T("auto_start_label", lang),
-                        variable=auto_start_var).pack(anchor="w", pady=(0, 12))
+        ttk.Checkbutton(scroll_frame, text=T("auto_start_label", lang),
+                        variable=auto_start_var).pack(anchor="w", pady=(0, 2))
 
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=5)
+        # Force initial scrollregion now that all children are packed.
+        # Must happen before the footer's own pack to avoid a zero-height frame.
+        scroll_frame.update_idletasks()
+        _update_scrollregion()
 
-        # --- Status ---
+        # === Fixed footer widgets ===
+
+        ttk.Separator(footer, orient="horizontal").pack(fill="x", pady=(0, 8))
+
         with app._lock:
             last = app.last_check
 
@@ -119,23 +208,22 @@ def open_settings(app):
             last_str = last.strftime("%Y-%m-%d %H:%M:%S")
         else:
             last_str = T("not_checked", lang)
+        ttk.Label(footer, text=T("last_check", lang) + ": " + last_str,
+                  foreground="gray").pack(anchor="w")
 
         b = app.get_preferred_balance()
         if b:
             sym = currency_sym(b["currency"])
-            status = T("status_line", lang, last=last_str, sym=sym,
-                       total=f"{b['total_balance']:,.2f}")
+            bal_text = T("total_balance", lang) + ": " + sym + f"{b['total_balance']:,.2f}"
         else:
-            status = T("status_line_no", lang, last=last_str)
-        ttk.Label(frame, text=status, foreground="gray").pack(anchor="w", pady=(8, 12))
+            bal_text = T("not_checked", lang)
+        ttk.Label(footer, text=bal_text, foreground="gray").pack(anchor="w", pady=(0, 8))
 
-        # --- Buttons ---
-        btn_frame = ttk.Frame(frame)
+        btn_frame = ttk.Frame(footer)
         btn_frame.pack(fill="x")
 
         def on_save():
-            # Lazy import to avoid circular dependency with tray_app
-            from src.tray_app import do_balance_check
+            from src.tray_app import do_balance_check, make_menu
 
             key = api_var.get().strip()
             if not key:
@@ -148,23 +236,25 @@ def open_settings(app):
             app.config["language"] = LANG_OPTIONS.get(lang_var.get(), "zh")
             app.config["preferred_currency"] = currency_var.get()
             app.config["auto_start"] = auto_start_var.get()
-            # Apply auto-start immediately
+            app.config["enable_alerts"] = enable_alerts_var.get()
             from src.app_state import set_auto_start
             set_auto_start(app.config["auto_start"])
             save_config(app.config)
             app.cancel_timer()
-            # Language change: menu updates on next app launch;
-            # settings dialog itself refreshes on next open.
+            # Language may have changed — rebuild the tray menu so it
+            # reflects the new locale immediately.
+            if app.icon:
+                app.icon.menu = make_menu(app)
             threading.Thread(target=do_balance_check, args=(app,), daemon=True).start()
             log("Settings saved")
-            root.destroy()
+            _cleanup()
 
         ttk.Button(btn_frame, text=T("save", lang), command=on_save).pack(
             side="right", padx=(5, 0))
-        ttk.Button(btn_frame, text=T("cancel", lang), command=root.destroy).pack(
+        ttk.Button(btn_frame, text=T("cancel", lang), command=_cleanup).pack(
             side="right")
         root.bind("<Return>", lambda e: on_save())
-        root.bind("<Escape>", lambda e: root.destroy())
+        root.bind("<Escape>", lambda e: _cleanup())
         api_entry.focus_set()
         root.mainloop()
 

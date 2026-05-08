@@ -13,7 +13,24 @@ from src.icon_renderer import create_icon_image
 from src.app_state import AppState
 
 
-# ─── Balance Check ──────────────────────────────────────────────────
+# pystray on Windows uses Shell_NotifyIconA whose NOTIFYICONDATA.szTip / szInfo
+# fields are ANSI (code-page dependent).  On Chinese Windows the system code page
+# is GBK which handles Chinese natively — but any character outside the current
+# code page will raise UnicodeEncodeError at the ctypes boundary.
+# We only sanitise the *exception message* (which may contain arbitrary Unicode
+# from API error bodies) before it reaches a tooltip or notification.
+def _sanitise_error(text):
+    """Strip characters that cannot be encoded in the system ANSI code page."""
+    if text is None:
+        return ""
+    try:
+        text.encode("mbcs")
+        return text
+    except (UnicodeEncodeError, LookupError):
+        return text.encode("mbcs", errors="replace").decode("mbcs")
+
+
+# --- Balance Check --------------------------------------------------
 
 def do_balance_check(app: AppState):
     api_key = app.config.get("api_key", "").strip()
@@ -32,8 +49,11 @@ def do_balance_check(app: AppState):
             if b:
                 log(f"Balance OK: {b['total_balance']:.2f} {b['currency']}")
         except Exception as e:
+            # Only the exception text is risky — API error bodies may carry
+            # characters outside the system ANSI code page.
+            raw = str(e).split("\n")[0]
             with app._lock:
-                app.error = str(e).split("\n")[0]
+                app.error = _sanitise_error(raw)
                 app.balances = {}
             log(f"Check failed: {e}")
 
@@ -41,14 +61,14 @@ def do_balance_check(app: AppState):
         app.icon.title = app.balance_tooltip()
         app.icon.icon = create_icon_image(app)
 
-    if app.is_low_balance():
+    if app.is_low_balance() and app.config.get("enable_alerts", True):
         notify_user(app)
 
     interval_sec = int(app.config.get("interval_minutes", 10)) * 60
     app.schedule_next_check(lambda: do_balance_check(app), interval_sec)
 
 
-# ─── Low-Balance Notification ───────────────────────────────────────
+# --- Low-Balance Notification ---------------------------------------
 
 def notify_user(app: AppState):
     b = app.get_preferred_balance()
@@ -74,7 +94,7 @@ def notify_user(app: AppState):
             pass
 
 
-# ─── Tray Menu Actions ──────────────────────────────────────────────
+# --- Tray Menu Actions ----------------------------------------------
 
 def on_show_balance(icon, item):
     app = getattr(icon, "_app", None)
@@ -93,7 +113,7 @@ def on_show_balance(icon, item):
         title = T("bal_empty_title", lang)
         msg = T("bal_empty_msg", lang)
     else:
-        time_str = last.strftime("%Y-%m-%d %H:%M:%S") if last else "—"
+        time_str = last.strftime("%Y-%m-%d %H:%M:%S") if last else "-"
         lines = []
         for code, b in balances.items():
             sym = currency_sym(code)
@@ -163,7 +183,7 @@ def make_menu(app: AppState):
     )
 
 
-# ─── Entry Point ────────────────────────────────────────────────────
+# --- Entry Point ----------------------------------------------------
 
 def main():
     log("=" * 50)
@@ -171,9 +191,9 @@ def main():
 
     app = AppState()
 
-    # First run — force settings if no API key
+    # First run -- force settings if no API key
     if not app.config.get("api_key", "").strip():
-        log("No API key — opening settings")
+        log("No API key -- opening settings")
         try:
             from src.settings_dialog import open_settings
             open_settings(app)
@@ -182,7 +202,7 @@ def main():
             log(f"Settings failed: {e}")
 
         if not app.config.get("api_key", "").strip():
-            log("No API key provided — exiting")
+            log("No API key provided -- exiting")
             print(T("exit_no_key", app.config.get("language", "zh")))
             sys.exit(0)
 

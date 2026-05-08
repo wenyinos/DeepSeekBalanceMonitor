@@ -37,6 +37,7 @@ DEFAULT_CONFIG = {
     "language": "zh",
     "preferred_currency": "CNY",
     "auto_start": False,
+    "enable_alerts": True,
 }
 
 # ─── Currency symbols ─────────────────────────────────────────────
@@ -72,8 +73,8 @@ _T = {
         "show_key":         "显示 API Key",
         "interval_label":   "查询间隔（分钟）：",
         "interval_hint":    "  （1 ~ 1440 分钟）",
-        "threshold_label":  "低余额提醒阈值（{unit}）：",
-        "threshold_hint":   "  余额低于此值时弹窗提醒",
+        "threshold_label":  "余额预警线（{unit}）：",
+        "threshold_hint":   "  低于此值时托盘图标显示红色预警",
         "language_label":   "语言 / Language：",
         "save":             "保存",
         "cancel":           "取消",
@@ -93,10 +94,11 @@ _T = {
         "status_line":      "上次查询: {last}  |  当前余额: {sym}{total}",
         "status_line_no":   "上次查询: {last}",
         "currency_label":   "首选货币 / Currency：",
-        "currency_hint":    "  若账户无此币种余额，自动使用现有币种",
+        "currency_hint":    "若账户无此币种余额，自动使用现有币种",
         "bal_error_msg":    "查询出错: {error}",
         "bal_currency_line": "{code}: {sym}{total}  (充值 {topped}, 赠送 {granted})",
         "auto_start_label": "开机自动启动",
+        "enable_alerts_label": "开启预警提醒",
     },
     "en": {
         "total_balance":    "Total Balance",
@@ -117,8 +119,8 @@ _T = {
         "show_key":         "Show API Key",
         "interval_label":   "Check Interval (min):",
         "interval_hint":    "  (1 ~ 1440 min)",
-        "threshold_label":  "Low Balance Alert ({unit}):",
-        "threshold_hint":   "  Notify when balance drops below this value",
+        "threshold_label":  "Low Balance Threshold ({unit}):",
+        "threshold_hint":   "  Icon turns red when balance drops below this value",
         "language_label":   "Language / 语言：",
         "save":             "Save",
         "cancel":           "Cancel",
@@ -138,10 +140,11 @@ _T = {
         "status_line":      "Last: {last}  |  Balance: {sym}{total}",
         "status_line_no":   "Last: {last}",
         "currency_label":   "Preferred Currency / 首选货币：",
-        "currency_hint":    "  Falls back to available currency if preferred not found",
+        "currency_hint":    "Falls back to available currency if preferred not found",
         "bal_error_msg":    "Fetch error: {error}",
         "bal_currency_line": "{code}: {sym}{total}  (Topped {topped}, Granted {granted})",
         "auto_start_label": "Auto-start on boot",
+        "enable_alerts_label": "Enable balance alerts",
     },
 }
 

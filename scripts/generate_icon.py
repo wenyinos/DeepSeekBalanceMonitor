@@ -3,7 +3,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 _BASE = 256
 _R = 28
-_FILL = (55, 135, 75, 255)
+_FILL = (60, 105, 102, 255)  # darker teal
 _OUTLINE = (255, 255, 255, 60)
 
 img = Image.new("RGBA", (_BASE, _BASE), (0, 0, 0, 0))

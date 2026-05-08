@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.config import log
 
-_ICON_GREEN  = (55, 135, 75, 255)
+_ICON_OK     = (60, 105, 102, 255)  # darker teal
 _ICON_RED    = (185, 70, 60, 255)
 _ICON_GRAY   = (105, 105, 110, 255)
 _ICON_RADIUS = 12
@@ -48,7 +48,7 @@ def _create_icon_image_impl(app):
         label = "..."
     else:
         val = int(b["total_balance"])
-        fill = _ICON_RED if app.is_low_balance() else _ICON_GREEN
+        fill = _ICON_RED if app.is_low_balance() else _ICON_OK
         label = str(val) if val <= 99 else "OK"
 
     margin = 0

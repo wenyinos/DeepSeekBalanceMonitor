@@ -10,7 +10,7 @@ A Windows system tray application that periodically queries the DeepSeek API for
 
 ### Features
 
-- **Dynamic Tray Icon** — Shows integer balance on a coloured rounded rectangle: green when OK, red when low, gray when unknown. Values above 99 display as "OK", errors as "!".
+- **Dynamic Tray Icon** — Shows integer balance on a coloured rounded rectangle: teal when OK, red when low, gray when unknown. Values above 99 display as "OK", errors as "!".
 - **Multi-Currency** — Supports CNY, USD, EUR, JPY, GBP, and 10+ other currencies from the API response. User selects a preferred currency; falls back to first available if not found.
 - **Bilingual UI** — Chinese and English for all menus, dialogs, notifications, and tooltips. Switch from the settings window.
 - **Configurable Interval** — Set from 1 to 1440 minutes (24 hours). Default: 10 minutes.
@@ -124,9 +124,13 @@ Logs are written to `%APPDATA%\DeepSeek Balance Monitor\app.log`.
 
 | Colour | Meaning |
 |---|---|
-| Green | Balance is above the alert threshold |
+| Teal | Balance is above the alert threshold |
 | Red | Balance is below threshold, or an API error occurred |
 | Gray | First check not yet completed, or no API key configured |
+
+### Planned
+
+- **Mute / Snooze alerts** — "Remind later" / "Mute until balance recovers" options on low-balance notifications, so you are not pinged every interval while the balance stays under threshold.
 
 ### License
 
@@ -138,7 +142,7 @@ MIT
 
 ### 功能
 
-- **动态托盘图标** — 在圆角矩形底色上显示余额整数：绿色表示正常，红色表示低于阈值，灰色表示未完成首次查询。超过 99 显示 "OK"，出错显示 "!"。
+- **动态托盘图标** — 在圆角矩形底色上显示余额整数：青色表示正常，红色表示低于阈值，灰色表示未完成首次查询。超过 99 显示 "OK"，出错显示 "!"。
 - **多币种支持** — 支持 CNY、USD、EUR、JPY、GBP 等 10 余种 API 返回的币种。用户可选择首选货币，若账户无此币种则自动回退到第一个可用币种。
 - **双语界面** — 所有菜单、对话框、通知、提示均支持中文和英文，在设置窗口中切换。
 - **可调查询间隔** — 1 至 1440 分钟（24 小时）自由设置，默认 10 分钟。
@@ -252,9 +256,13 @@ DeepSeekBalance/
 
 | 颜色 | 含义 |
 |---|---|
-| 绿色 | 余额高于预警阈值 |
+| 青色 | 余额高于预警阈值 |
 | 红色 | 余额低于阈值，或 API 查询出错 |
 | 灰色 | 尚未完成首次查询，或未配置 Key |
+
+### 计划更新
+
+- **预警免打扰** — 低余额通知中增加「稍后提醒」与「余额恢复前不再提醒」选项，避免余额持续低于阈值时每个间隔都弹窗。
 
 ### 协议
 

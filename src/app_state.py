@@ -18,6 +18,8 @@ class AppState:
         self._timer = None
         self.running = True
         self._lock = threading.Lock()
+        self._settings_open = False
+        self._settings_window = None
 
     @property
     def lang(self):
