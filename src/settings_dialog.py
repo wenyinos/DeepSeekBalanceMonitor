@@ -171,7 +171,7 @@ def open_settings(app):
         for w in (interval_sb, threshold_sb, lang_combo):
             w.bind("<MouseWheel>", _no_scroll)
 
-        from src.app_state import get_auto_start_state
+        from src.app_state import get_auto_start_state, set_auto_start
         auto_start_var = tk.BooleanVar(
             value=app.config.get("auto_start", False) or get_auto_start_state())
         ttk.Checkbutton(scroll_frame, text=T("auto_start_label", lang),
@@ -227,7 +227,6 @@ def open_settings(app):
             app.config["language"] = LANG_OPTIONS.get(lang_var.get(), "zh")
             app.config["auto_start"] = auto_start_var.get()
             app.config["enable_alerts"] = enable_alerts_var.get()
-            from src.app_state import set_auto_start
             set_auto_start(app.config["auto_start"])
             save_config(app.config)
             app.cancel_timer()
@@ -239,4 +238,13 @@ def open_settings(app):
             log("Settings saved")
             _cleanup()
 
-        ttk.Button(btn_frame, text=T("save",
+        ttk.Button(btn_frame, text=T("save", lang), command=on_save).pack(
+            side="right", padx=(5, 0))
+        ttk.Button(btn_frame, text=T("cancel", lang), command=_cleanup).pack(
+            side="right")
+        root.bind("<Return>", lambda e: on_save())
+        root.bind("<Escape>", lambda e: _cleanup())
+        api_entry.focus_set()
+        root.mainloop()
+
+    _dialog()
