@@ -171,14 +171,14 @@ def open_settings(app):
         for w in (interval_sb, threshold_sb, lang_combo):
             w.bind("<MouseWheel>", _no_scroll)
 
-        from src.app_state import get_auto_start_state
+        from src.app_state import get_auto_start_state, set_auto_start
         auto_start_var = tk.BooleanVar(
             value=app.config.get("auto_start", False) or get_auto_start_state())
         ttk.Checkbutton(scroll_frame, text=T("auto_start_label", lang),
                         variable=auto_start_var).pack(anchor="w", pady=(0, 2))
 
         ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=(12, 8))
-        ttk.Label(scroll_frame, text="V1.0_260508",
+        ttk.Label(scroll_frame, text="V1.0.1_260508",
                   foreground="gray").pack(anchor="w")
         ttk.Label(scroll_frame, text="GitHub @SrtaEstrella  |  RedNote @Estella_han",
                   foreground="gray").pack(anchor="w", pady=(2, 0))
@@ -227,7 +227,6 @@ def open_settings(app):
             app.config["language"] = LANG_OPTIONS.get(lang_var.get(), "zh")
             app.config["auto_start"] = auto_start_var.get()
             app.config["enable_alerts"] = enable_alerts_var.get()
-            from src.app_state import set_auto_start
             set_auto_start(app.config["auto_start"])
             save_config(app.config)
             app.cancel_timer()

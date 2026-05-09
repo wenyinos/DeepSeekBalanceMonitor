@@ -3,7 +3,6 @@ Application state - holds balances, config, timer, and helper methods.
 """
 import sys
 import threading
-from datetime import datetime
 
 from src.config import load_config, T, log, APP_ID
 
@@ -48,16 +47,6 @@ class AppState:
                 return False
             t = float(self.config.get("threshold_yuan", 1.0))
             return b["total_balance"] < t
-
-    def is_ok(self):
-        with self._lock:
-            if self.error:
-                return False
-            b = self.get_preferred_balance()
-            if b is None:
-                return False
-            t = float(self.config.get("threshold_yuan", 1.0))
-            return b["total_balance"] >= t
 
     def schedule_next_check(self, cb, interval_sec):
         with self._lock:

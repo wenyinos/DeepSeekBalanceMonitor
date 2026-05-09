@@ -4,13 +4,11 @@ A Windows system tray application that periodically queries the DeepSeek API for
 
 一个 Windows 系统托盘应用，定时查询 DeepSeek API 账户余额，以动态图标形式显示在任务栏，余额过低时弹窗提醒。
 
+![preview](preview.png)
+
 ---
 
 ## English
-
-### Screenshot
-
-![Taskbar preview](preview_taskbar.png)
 
 ### Features
 
@@ -36,12 +34,18 @@ A Windows system tray application that periodically queries the DeepSeek API for
 > Balance is only 0.50, below your alert threshold of 1.00.
 > Please top up!
 
+### Direct Download
+
+Grab the latest executable from [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases). Use `DeepSeekBalanceMonitor.exe` for the Python-packaged build or `deepseek-balance-monitor.exe` for the Rust Windows build. No Python is required for release executables.
+
 ### Requirements
 
 - Python build: Windows 10 or later, Python 3.10+
 - Rust build: Windows 7 SP1 / Server 2008 R2 SP1 with all official updates, Windows 8.1 / Server 2012 R2, Windows 10, or Windows 11
 
 ### Run from Source
+
+Requires Python 3.10+.
 
 ```bash
 pip install -r requirements.txt
@@ -52,12 +56,14 @@ On first launch the settings window opens automatically — enter your DeepSeek 
 
 ### Building the EXE
 
+Requires Python 3.10+ and PyInstaller.
+
 ```bash
 pip install pyinstaller
 scripts\build_exe.bat
 ```
 
-The script generates the static icon, builds a single-file `dist\DeepSeekBalanceMonitor.exe`, and launches it.
+Builds `dist\DeepSeekBalanceMonitor.exe` as a single-file executable.
 
 ### Rust Windows Build
 
@@ -96,7 +102,6 @@ DeepSeekBalance/
 │   └── tray_app.py
 ├── scripts/                   # Build & utility scripts
 │   ├── generate_icon.py
-│   ├── test_api.py
 │   ├── build_exe.bat
 │   ├── setup.bat
 │   └── run_silent.vbs
@@ -153,10 +158,6 @@ MIT
 
 ## 中文
 
-### 截图
-
-![任务栏预览](preview_taskbar.png)
-
 ### 功能
 
 - **托盘图标显示余额** — 当前余额以数字形式显示在任务栏圆角矩形图标上。青色表示高于阈值，红色表示低于阈值或出错，灰色表示尚未完成首次查询。
@@ -181,12 +182,18 @@ MIT
 > 当前余额仅剩 0.50，已低于您设置的提醒阈值 1.00。
 > 请及时充值！
 
+### 直接下载
+
+从 [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases) 下载最新可执行文件。Python 打包版使用 `DeepSeekBalanceMonitor.exe`，Rust Windows 版使用 `deepseek-balance-monitor.exe`；发布版无需 Python 环境。
+
 ### 运行要求
 
 - Python 版：Windows 10 及以上，Python 3.10+
 - Rust 版：安装所有官方更新的 Windows 7 SP1 / Server 2008 R2 SP1、Windows 8.1 / Server 2012 R2、Windows 10 或 Windows 11
 
 ### 源码运行
+
+需要 Python 3.10+。
 
 ```bash
 pip install -r requirements.txt
@@ -197,12 +204,14 @@ python main.py
 
 ### 构建 EXE
 
+需要 Python 3.10+ 和 PyInstaller。
+
 ```bash
 pip install pyinstaller
 scripts\build_exe.bat
 ```
 
-脚本会生成静态图标、构建单文件 `dist\DeepSeekBalanceMonitor.exe` 并自动启动。
+构建为单文件 `dist\DeepSeekBalanceMonitor.exe`。
 
 ### Rust Windows 构建
 
@@ -241,7 +250,6 @@ DeepSeekBalance/
 │   └── tray_app.py
 ├── scripts/                   # 构建与工具脚本
 │   ├── generate_icon.py
-│   ├── test_api.py
 │   ├── build_exe.bat
 │   ├── setup.bat
 │   └── run_silent.vbs
