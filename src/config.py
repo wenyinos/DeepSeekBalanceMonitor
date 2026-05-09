@@ -26,7 +26,12 @@ _set_dpi_awareness()
 # ─── Constants ────────────────────────────────────────────────────
 APP_NAME = "DeepSeek Balance Monitor"
 APP_ID   = "deepseek-balance-monitor"
-CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / APP_NAME
+
+if sys.platform == "darwin":
+    CONFIG_DIR = Path.home() / "Library" / "Application Support" / APP_NAME
+else:
+    CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / APP_NAME
+
 CONFIG_FILE = CONFIG_DIR / "config.json"
 LOG_FILE    = CONFIG_DIR / "app.log"
 DB_FILE     = CONFIG_DIR / "balance_history.db"

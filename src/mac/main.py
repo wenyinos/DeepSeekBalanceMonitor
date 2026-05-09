@@ -5,19 +5,13 @@ from datetime import datetime
 from pathlib import Path
 
 # --- MAC OS PATH ADAPTATION ---
-# Monkey-patch config paths before importing deep dependencies
+# Ensure root directory is in sys.path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 import src.config
-mac_dir = Path.home() / "Library" / "Application Support" / src.config.APP_NAME
-mac_dir.mkdir(parents=True, exist_ok=True)
-src.config.CONFIG_DIR = mac_dir
-src.config.CONFIG_FILE = mac_dir / "config.json"
-src.config.LOG_FILE = mac_dir / "app.log"
-
-import rumps
 from PIL import Image, ImageDraw, ImageFont
 import tempfile
+import rumps
 
 try:
     from AppKit import NSImage
@@ -25,7 +19,7 @@ try:
 except ImportError:
     HAS_PYOBJC = False
 
-from src.config import load_config, save_config, T as _T, log
+from src.config import load_config, save_config, T as _T, log, CONFIG_DIR
 
 # --- macOS Local Translations ---
 _MAC_T = {
@@ -73,6 +67,8 @@ def _get_bundle_path(rel_path):
 local_font = _get_bundle_path("assets/font/ShareTech-Regular.ttf")
 if os.path.exists(local_font):
     _FONTS.append(local_font)
+else:
+    log(f"Warning: Bundled font not found at {local_font}")
 
 # 2. Search user directories
 _FONTS += glob.glob(os.path.expanduser("~/Library/Fonts/*Share*Tech*.ttf"))
@@ -359,7 +355,7 @@ class DeepSeekBalanceMacApp(rumps.App):
 
     def _do_check(self):
         # Try encrypted key first, then fall back to legacy plain-text
-        api_key = decrypt_api_key(self.config.get("api_key_enc", ""), mac_dir).strip()
+        api_key = decrypt_api_key(self.config.get("api_key_enc", ""), CONFIG_DIR).strip()
         if not api_key:
             api_key = self.config.get("api_key", "").strip()
         if not api_key:

@@ -4,15 +4,12 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 
+# --- MAC OS PATH ADAPTATION ---
+# Ensure root directory is in sys.path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-import src.config
-mac_dir = Path.home() / "Library" / "Application Support" / src.config.APP_NAME
-mac_dir.mkdir(parents=True, exist_ok=True)
-src.config.CONFIG_DIR = mac_dir
-src.config.CONFIG_FILE = mac_dir / "config.json"
-src.config.LOG_FILE = mac_dir / "app.log"
 
-from src.config import load_config, save_config, T as _T
+import src.config
+from src.config import load_config, save_config, T as _T, CONFIG_DIR
 
 # --- macOS Local Translations ---
 _MAC_T = {
@@ -88,6 +85,21 @@ def run_settings():
     root.title(T("settings_title", lang))
     root.resizable(False, False)
 
+    # Force geometry update to get accurate winfo_width/height
+    root.update_idletasks()
+    # For macOS, winfo_reqwidth/height are often more accurate for fixed-size windows before they are drawn
+    w = root.winfo_reqwidth()
+    h = root.winfo_reqheight()
+    # Fallback to defaults if req is too small
+    w = max(w, 420)
+    h = max(h, 480)
+    
+    sw = root.winfo_screenwidth()
+    sh = root.winfo_screenheight()
+    x = (sw - w) // 2
+    y = (sh - h) // 2
+    root.geometry(f"{w}x{h}+{x}+{y}")
+
     root.lift()
     root.attributes('-topmost', True)
     root.after_idle(root.attributes, '-topmost', False)
@@ -131,7 +143,7 @@ def run_settings():
     # API Key row: Entry + eye-icon button side-by-side
     ttk.Label(content, text=T("api_key_label", lang)).pack(anchor="w")
 
-    decrypted_key = decrypt_api_key(config.get("api_key_enc", ""), mac_dir)
+    decrypted_key = decrypt_api_key(config.get("api_key_enc", ""), CONFIG_DIR)
     if not decrypted_key:
         decrypted_key = config.get("api_key", "")  # migrate plain-text legacy
 
@@ -202,7 +214,7 @@ def run_settings():
         if not key:
             messagebox.showwarning(T("warn_title", lang), T("warn_no_key", lang), parent=root)
             return
-        config["api_key_enc"] = encrypt_api_key(key, mac_dir)
+        config["api_key_enc"] = encrypt_api_key(key, CONFIG_DIR)
         config.pop("api_key", None)           # remove any legacy plain-text
         config["interval_minutes"] = interval_var.get()
         config["threshold_yuan"] = threshold_var.get()

@@ -17,8 +17,7 @@ echo -e "${BLUE}  DeepSeek Balance Monitor — macOS Build   ${NC}"
 echo -e "${BLUE}============================================${NC}"
 
 # ── Python ────────────────────────────────────────────────────────────────────
-PYTHON="/Users/chwong/miniforge3/envs/opencode/bin/python"
-[ ! -f "$PYTHON" ] && PYTHON="$(which python3 || true)"
+PYTHON="$(which python3 || true)"
 [ -z "$PYTHON"  ] && { echo -e "${RED}Error: python3 not found${NC}"; exit 1; }
 echo -e " - Python : ${GREEN}$PYTHON${NC}"
 
