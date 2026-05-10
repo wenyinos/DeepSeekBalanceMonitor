@@ -94,10 +94,10 @@ def get_history_page(limit: int = 100, offset: int = 0):
 
 
 def get_consumption_rate(days=7):
-    """Calculate average daily consumption from topped-up balance.
-    Finds all non-increasing sub-intervals, computes per-interval rate,
-    averages them, and returns (daily_rate, hours_remaining) or None.
-    Assumes one currency — first seen currency wins."""
+    """Calculate weighted daily consumption from topped-up balance.
+    Splits on real top-ups (>5 CNY increase), weights each interval
+    by its duration to avoid short-interval rate distortion.
+    Returns (daily_rate, hours_remaining, currency) or None."""
     try:
         conn = _connect()
         cur = conn.execute(
@@ -121,15 +121,14 @@ def get_consumption_rate(days=7):
         for i in range(1, len(rows)):
             val = rows[i][2]
             if val > prev_val:
-                # Top-up — close current interval
                 intervals.append((start_val, start_ts, prev_val, rows[i-1][0]))
                 start_val = val
                 start_ts = rows[i][0]
             prev_val = val
-        # Last interval
         intervals.append((start_val, start_ts, prev_val, rows[-1][0]))
 
-        rates = []
+        total_weight = 0.0
+        weighted_sum = 0.0
         for sv, st, ev, et in intervals:
             if ev >= sv:
                 continue
@@ -140,18 +139,19 @@ def get_consumption_rate(days=7):
                 if delta_h < 0.1:
                     continue
                 rate_24h = (sv - ev) / delta_h * 24
-                rates.append(rate_24h)
+                weighted_sum += rate_24h * delta_h
+                total_weight += delta_h
             except ValueError:
                 continue
 
-        if not rates:
+        if total_weight == 0:
             return None
 
-        daily_rate = sum(rates) / len(rates)
+        daily_rate = weighted_sum / total_weight
         if daily_rate <= 0:
             return None
 
-        remaining = rows[-1][2]  # current topped balance
+        remaining = rows[-1][2]
         hours_left = remaining / daily_rate * 24
         return daily_rate, hours_left, currency
     except Exception as e:
