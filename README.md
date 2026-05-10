@@ -1,21 +1,29 @@
 # DeepSeek Balance Monitor
 
-A Windows system tray application that periodically queries the DeepSeek API for account balance, displays it as a dynamic tray icon, and alerts on low balance.
+A Windows tray app and Linux CLI/Plasma widget that periodically query the DeepSeek API for account balance and alert on low balance.
 
 [中文版](README_zh.md)
 
 ![preview](preview.png)
 
+**Linux Plasma widget preview**
+The desktop widget is only supported on KDE Plasma 6.
+
+![Linux preview](preview_linux.png)
+
 ---
 
 ## Features
 
-- **Tray icon with balance** - Balance shown as a number on a coloured rounded rectangle. Teal (OK), red (low balance), warm gray (API service degraded), gray (no data yet).
-- **Low balance notification** - Three modes: never, always, or once per drop (default). The icon turns red regardless.
-- **Balance details** - Left-click the icon to see balance, API service status, and last check time.
-- **Settings** - API key, check interval, alert threshold, alert mode, API status alerts, language, and auto-start on boot.
-- **Rust-Win** - Community-contributed native Rust build (`rust-windows/`). Smaller binary, Win7/Win8.1 support, startup-folder auto-start.
-- **Py-Mac** - Community-contributed MacOS port (`src/mac/`). Native look-and-feel, Keychain-secured API key storage.
+- **Tray icon with balance** — Balance shown as a number on a coloured rounded rectangle. Teal (OK), red (low balance), warm gray (API service degraded), gray (no data yet).
+- **Low balance notification** — Three modes in the Python build: never, always, or once per drop (default). The icon turns red regardless.
+- **Balance details** — Left-click the Windows tray icon to see balance, API service status, and last check time.
+- **Settings** — API key, check interval, alert threshold, alert mode, API status alerts, language, and auto-start on boot.
+- **Rust Windows build** — Native Rust build (`rust-windows/`) with Win7/Win8.1 support, bundled icon, and startup-folder auto-start.
+- **Rust Linux build** — `dsmon` CLI daemon (`rust-linux/`) with systemd user service support, log retention, and an optional KDE Plasma 6 widget.
+- **Balance history** — Rust builds store SQLite balance history, show trend summaries in settings, and export CSV.
+- **Plasma widget integration** — The Linux widget reads `dsmon` command output, can start/stop the daemon, and reports command errors through desktop notifications.
+- **macOS build** — Community-contributed macOS port (`src/mac/`). Native look-and-feel, Keychain-secured API key storage.
 
 ### Notification Previews
 
@@ -36,13 +44,20 @@ A Windows system tray application that periodically queries the DeepSeek API for
 
 ### Direct Download
 
-Grab the latest executable from [Releases](https://github.com/SrtaEstrella/DeepSeekBalanceMonitor/releases). No Python required - just double-click to run. On first launch you'll be prompted to enter your API key.
+Grab the latest files from [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases). Use `DeepSeekBalanceMonitor.exe` for the Python-packaged build, `deepseek-balance-monitor.exe` for the Rust Windows build, or `deepseek-balance-monitor-*-linux-x86_64.tar.gz` for Linux. Release builds do not require Python.
 
 ### Requirements
 
-- Py-Win: Windows 10+, Python 3.10+
-- Rust-Win: Windows 7 SP1+, 8.1, 10, or 11
-- Py-Mac: macOS 10.14+, Python 3.10+
+- Python build: Windows 10+, Python 3.10+
+- Rust Windows build: Windows 7 SP1 / Server 2008 R2 SP1 with all official updates, Windows 8.1 / Server 2012 R2, Windows 10, or Windows 11
+- Rust Linux build: RHEL 8 / Ubuntu 20.04 era glibc or newer; KDE Plasma 6.0+ for the optional widget
+- macOS build: macOS 10.14+, Python 3.10+
+
+### Windows 7/8.1 Root Certificates
+
+For Windows 7/8.1 systems that cannot query `status.deepseek.com`, run `scripts\update_windows_root_certs.bat` as administrator to update the Windows root certificate store from Windows Update. The script does not bundle certificates and does not change the app TLS backend.
+
+Even after updating root certificates, old Windows systems may still fail to fetch the API service status because DeepSeek's status page uses a different TLS endpoint from the balance API. Common causes include missing TLS 1.2 or Windows Update patches, outdated Schannel cipher support, stale system trust settings, incorrect system time, or HTTPS inspection by a proxy/security product. Balance checks may still work when service-status checks fail. This project treats API service-status checks on Windows 7/8.1 as best-effort and does not plan a program-side workaround.
 
 ### Run from Source (Python)
 
@@ -64,7 +79,7 @@ scripts\build_exe.bat
 
 Builds `dist\DeepSeekBalanceMonitor.exe`. GitHub Actions auto-builds and attaches the EXE to each release.
 
-**Rust (`rust-windows/`):**
+**Rust Windows (`rust-windows/`):**
 
 ```powershell
 cd rust-windows
@@ -72,7 +87,33 @@ rustup toolchain install 1.77.2-x86_64-pc-windows-msvc
 cargo +1.77.2 build --release --target x86_64-pc-windows-msvc --locked
 ```
 
-**MacOS (`src/mac/`):**
+**Rust Linux (`rust-linux/`):**
+
+```bash
+cd rust-linux
+cargo +1.77.2 build --release --locked
+```
+
+Release tarballs install `/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`, and, on Plasma 6 systems, the optional Plasma widget:
+
+```bash
+tar -xzf deepseek-balance-monitor-1.1-linux-x86_64.tar.gz
+cd deepseek-balance-monitor-1.1-linux-x86_64
+sudo ./install.sh
+```
+
+Useful Linux CLI commands:
+
+```bash
+dsmon init-config
+dsmon check
+dsmon daemon
+dsmon history [days]
+dsmon history export [days] [currency|all] [path|-]
+dsmon widget-status
+```
+
+**macOS (`src/mac/`):**
 
 ```bash
 cd src/mac
@@ -80,15 +121,15 @@ pip install -r requirements.txt
 bash ../scripts/build_mac.sh
 ```
 
-### Comparison
+### Python vs Rust
 
-| | Py-Win | Rust-Win | Py-Mac |
-|---|---|---|---|
-| Runtime | Python + pystray + Tkinter | Native Rust | Python + rumps + tkinter |
-| Min OS | Windows 10+ | Windows 7 SP1+ | macOS 10.14+ |
-| First launch (no key) | Opens settings dialog | Opens `config.json` in editor | Opens settings window |
-| Auto-start | Registry Run key | Startup folder shortcut | Login items |
-| API key storage | config.json | config.json | macOS Keychain |
+| | Python Windows | Rust Windows | Rust Linux | Python macOS |
+|---|---|---|---|---|
+| Runtime | Python + pystray + Tkinter | Native Rust + native-windows-gui | Native Rust CLI | Python + rumps + tkinter |
+| Min OS | Windows 10+ | Windows 7 SP1+ | RHEL 8 / Ubuntu 20.04 era glibc | macOS 10.14+ |
+| First launch (no key) | Opens settings dialog | Opens `config.json` in editor | Prints config path and creates config | Opens settings window |
+| Auto-start | Registry Run key | Startup folder shortcut | systemd user service | Login items |
+| API key storage | config.json | config.json | config.json | macOS Keychain |
 
 ## Project Structure
 
@@ -105,16 +146,21 @@ DeepSeekBalance/
 │   ├── main.py
 │   ├── settings.py
 │   └── keystore.py
-├── scripts/
+├── scripts/                    # Build & utility scripts
 │   ├── build_exe.bat
 │   ├── build_mac.sh
 │   ├── setup.bat
+│   ├── update_windows_root_certs.bat
 │   └── run_silent.vbs
 ├── rust-windows/               # Native Rust Windows port
 │   ├── src/main.rs
 │   ├── app.ico
 │   ├── app.manifest
 │   └── build.rs
+├── rust-linux/                # Rust Linux CLI and Plasma 6 widget
+│   ├── src/main.rs
+│   ├── package/
+│   └── plasmoid/
 ├── main.py
 ├── requirements.txt
 └── README.md
@@ -122,7 +168,7 @@ DeepSeekBalance/
 
 ## Configuration
 
-Settings are stored in `%APPDATA%\DeepSeek Balance Monitor\config.json`:
+Windows builds store settings in `%APPDATA%\DeepSeek Balance Monitor\config.json`:
 
 ```json
 {
@@ -137,7 +183,11 @@ Settings are stored in `%APPDATA%\DeepSeek Balance Monitor\config.json`:
 }
 ```
 
-Logs are written to `%APPDATA%\DeepSeek Balance Monitor\app.log`.
+Linux `dsmon` stores settings in `~/.config/deepseek-balance-monitor/config.json` and logs in `~/.local/state/deepseek-balance-monitor/app.log`.
+
+Windows logs are written to `%APPDATA%\DeepSeek Balance Monitor\app.log`.
+
+Rust Windows and Rust Linux store balance history in `balance_history.db` next to their app data. History uses the same `retention_days` setting as log cleanup. The Windows settings dialog and Plasma widget settings include a History tab with days/currency filters, trend summary, chart, and CSV export. Linux CLI output stays English-only and `dsmon history` prints text statistics instead of raw rows.
 
 ## Tray Menu
 
@@ -165,6 +215,11 @@ Logs are written to `%APPDATA%\DeepSeek Balance Monitor\app.log`.
 - API service status polling with dedicated icon colour and change notifications
 - Three alert modes: never, always, or once per drop (default: once)
 - Top-up menu item
+- SQLite balance history for Rust Windows and Rust Linux
+- History chart, days/currency filters, and CSV export in Rust Windows settings and the Plasma widget
+- `dsmon history` summary and `dsmon history export` for Linux CLI
+- Plasma widget daemon start/stop action with command-error notifications
+- Win7/8.1 root certificate update helper script
 - Log & record retention with configurable cleanup
 - GitHub Actions auto-build for Python releases
 - Community ports: Rust-Win (Win7+), Py-Mac
