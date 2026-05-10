@@ -11,7 +11,7 @@ def open_settings(app):
         try:
             app._settings_window.deiconify()
             app._settings_window.lift()
-            app._settings_window.focus_force()
+            app._settings_window.after(50, app._settings_window.focus_force)
         except Exception:
             pass
         return
@@ -27,7 +27,11 @@ def open_settings(app):
 
         lang = app.lang
 
-        root = tk.Tk()
+        if app._tk_root is None:
+            app._tk_root = tk.Tk()
+            app._tk_root.withdraw()
+        top = app._tk_root
+        root = tk.Toplevel(top)
         app._settings_window = root
 
         def _cleanup():
@@ -399,6 +403,6 @@ def open_settings(app):
         root.bind("<Return>", lambda e: on_save())
         root.bind("<Escape>", lambda e: _cleanup())
         api_entry.focus_set()
-        root.mainloop()
+        top.mainloop()
 
     _dialog()

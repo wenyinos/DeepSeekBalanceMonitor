@@ -239,12 +239,35 @@ def _on_history(icon, item):
     if app is None:
         return
 
+    if app._history_open:
+        try:
+            app._history_window.deiconify()
+            app._history_window.lift()
+            app._history_window.after(50, app._history_window.focus_force)
+        except Exception:
+            pass
+        return
+
     import tkinter as tk
     from tkinter import ttk
     from src.storage import get_history_page
 
     lang = app.lang
-    win = tk.Tk()
+
+    if app._tk_root is None:
+        app._tk_root = tk.Tk()
+        app._tk_root.withdraw()
+    root = app._tk_root
+    win = tk.Toplevel(root)
+    app._history_open = True
+    app._history_window = win
+
+    def _cleanup():
+        app._history_open = False
+        app._history_window = None
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", _cleanup)
     win.title(T("history", lang))
     win.geometry("850x640")
     win.minsize(500, 400)
@@ -426,9 +449,9 @@ def _on_history(icon, item):
         ttk.Button(btn_frame, text="关闭", command=win.destroy).pack(side="right")
 
     _load_page()
-    win.protocol("WM_DELETE_WINDOW", win.destroy)
+    win.protocol("WM_DELETE_WINDOW", lambda: (win.destroy(), setattr(app, '_history_open', False)))
     win.focus_force()
-    win.mainloop()
+    root.mainloop()
 
 
 def on_settings(icon, item):
@@ -467,7 +490,10 @@ def _on_dev_tools(icon, item):
     from tkinter import ttk
 
     lang = app.lang
-    win = tk.Tk()
+    if app._tk_root is None:
+        app._tk_root = tk.Tk()
+        app._tk_root.withdraw()
+    win = tk.Toplevel(app._tk_root)
     win.title("Dev Tools")
     win.geometry("300x380")
     win.resizable(False, False)
@@ -517,7 +543,7 @@ def _on_dev_tools(icon, item):
 
     win.protocol("WM_DELETE_WINDOW", win.destroy)
     win.focus_force()
-    win.mainloop()
+    app._tk_root.mainloop()
 
 
 def make_menu(app: AppState):
