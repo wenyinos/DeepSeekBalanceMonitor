@@ -40,8 +40,11 @@ Kirigami.FormLayout {
             language: "语言 / Language:",
             autoStart: "开机自启动",
             autoStartHint: "请保持开启，使 dsmon 登录后自动启动；Plasma 小工具需要该进程持续运行。",
-            alerts: "启用余额预警提醒",
-            logRetention: "日志保留：",
+            alerts: "低余额提醒：",
+            alertNever: "不提醒",
+            alertAlways: "持续提醒",
+            alertOnce: "仅提醒一次",
+            logRetention: "日志和记录保留天数：",
             days: "天",
             save: "保存"
         }
@@ -60,8 +63,11 @@ Kirigami.FormLayout {
             language: "Language / 语言:",
             autoStart: "Auto-start on boot",
             autoStartHint: "Keep this enabled so dsmon starts after login; the Plasma widget needs this process to stay updated.",
-            alerts: "Enable balance alerts",
-            logRetention: "Log retention:",
+            alerts: "Low Balance Alert:",
+            alertNever: "Never",
+            alertAlways: "Always",
+            alertOnce: "Once",
+            logRetention: "Log & record retention (days):",
             days: "days",
             save: "Save"
         }
@@ -89,7 +95,7 @@ Kirigami.FormLayout {
             + " " + shellQuote(threshold)
             + " " + shellQuote(languageCombo.currentValue)
             + " " + (autoStartCheck.checked ? "true" : "false")
-            + " " + (alertsCheck.checked ? "true" : "false")
+            + " " + shellQuote(alertModeCombo.currentValue)
             + " " + logRetentionSpin.value)
     }
 
@@ -99,9 +105,10 @@ Kirigami.FormLayout {
         intervalSpin.value = config.interval_minutes || 10
         thresholdField.text = Number(config.threshold_yuan === undefined ? 1.0 : config.threshold_yuan).toFixed(2)
         autoStartCheck.checked = !!config.auto_start
-        alertsCheck.checked = config.enable_alerts !== false
-        logRetentionSpin.value = config.log_retention_days || 7
-        var defaultLanguage = config.api_key ? (cfg_language || "en") : systemLanguage()
+        var alertIndex = alertModeCombo.indexOfValue(config.alert_mode || "once")
+        alertModeCombo.currentIndex = alertIndex >= 0 ? alertIndex : 0
+        logRetentionSpin.value = config.retention_days || 30
+        var defaultLanguage = config.api_key ? (cfg_language || "zh") : systemLanguage()
         var index = languageCombo.indexOfValue(config.language === "en" && !config.api_key
             ? defaultLanguage
             : (config.language || defaultLanguage))
@@ -191,9 +198,16 @@ Kirigami.FormLayout {
         wrapMode: Text.WordWrap
     }
 
-    QtControls.CheckBox {
-        id: alertsCheck
-        text: tr("alerts")
+    QtControls.ComboBox {
+        id: alertModeCombo
+        Kirigami.FormData.label: tr("alerts")
+        textRole: "text"
+        valueRole: "value"
+        model: [
+            { text: tr("alertOnce"), value: "once" },
+            { text: tr("alertAlways"), value: "always" },
+            { text: tr("alertNever"), value: "never" }
+        ]
     }
 
     QtControls.SpinBox {
@@ -203,7 +217,7 @@ Kirigami.FormLayout {
         to: 3650
         editable: true
         textFromValue: function(value) { return value + " " + tr("days") }
-        valueFromText: function(text) { return parseInt(text) || 7 }
+        valueFromText: function(text) { return parseInt(text) || 30 }
     }
 
     QtControls.Button {

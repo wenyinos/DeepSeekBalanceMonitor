@@ -62,6 +62,11 @@ PlasmoidItem {
             balances: "余额明细",
             toppedUp: "充值",
             granted: "赠送",
+            balTitle: "DeepSeek 余额：",
+            queryError: "查询出错",
+            notChecked: "尚未查询",
+            serviceStatus: "DeepSeek API 服务状态：",
+            serviceNormal: "🟢 服务正常",
             viewBalance: "查看余额",
             checkNow: "立即查询",
             quit: "退出",
@@ -83,6 +88,11 @@ PlasmoidItem {
             balances: "Balances",
             toppedUp: "topped up",
             granted: "granted",
+            balTitle: "DeepSeek Balance:",
+            queryError: "Query error",
+            notChecked: "Not checked",
+            serviceStatus: "DeepSeek API Status:",
+            serviceNormal: "🟢 All Systems Operational",
             viewBalance: "View Balance",
             checkNow: "Check Now",
             quit: "Quit",
@@ -109,34 +119,34 @@ PlasmoidItem {
     }
 
     function notificationTitle() {
-        if (ok && Object.keys(balances).length > 0) {
-            return "DeepSeek: " + totalBalance + " " + totalCurrency
-        }
-        return ok ? tr("title") : tr("balanceErrorTitle")
+        return tr("balTitle")
     }
 
     function balanceMessage() {
-        var prefix = daemonChecked && !daemonRunning ? tr("daemonStopped") + "\n" : ""
-        if (!configured) {
-            return prefix + tr("noKey")
-        }
-        if (!ok) {
-            return prefix + (errorText || tr("noOutput"))
-        }
         var keys = Object.keys(balances)
-        if (keys.length === 0) {
-            return prefix + tr("balanceEmpty")
-        }
         var lines = []
-        for (var i = 0; i < keys.length; i++) {
-            var code = keys[i]
+        if (ok && keys.length > 0) {
+            var code = balances[totalCurrency] ? totalCurrency : keys[0]
             var item = balances[code]
-            lines.push(code + ": " + Number(item.total_balance).toFixed(2)
-                + " (" + tr("toppedUp") + " " + Number(item.topped_up_balance).toFixed(2)
-                + ", " + tr("granted") + " " + Number(item.granted_balance).toFixed(2) + ")")
+            lines.push(Number(item.total_balance).toFixed(2) + " " + code
+                + (language === "zh" ? "（充值 " : " (Topped ")
+                + Number(item.topped_up_balance).toFixed(2)
+                + (language === "zh" ? "，赠送 " : ", Granted ")
+                + Number(item.granted_balance).toFixed(2)
+                + (language === "zh" ? "）" : ")"))
         }
-        lines.push(tr("lastCheck") + ": " + lastCheck)
-        return prefix + lines.join("\n")
+        if (!configured) {
+            lines.push(tr("queryError") + ": " + tr("noKey"))
+        } else if (!ok || (daemonChecked && !daemonRunning)) {
+            lines.push(tr("queryError") + ": "
+                + (daemonChecked && !daemonRunning ? tr("daemonStopped") : (errorText || tr("noOutput"))))
+        } else if (lastCheck && lastCheck.length > 0) {
+            lines.push(tr("lastCheck") + ": " + lastCheck)
+        } else {
+            lines.push(tr("notChecked"))
+        }
+        lines.push(tr("serviceStatus") + tr("serviceNormal"))
+        return lines.join("\n")
     }
 
     function showBalanceNotification() {
