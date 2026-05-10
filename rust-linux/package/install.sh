@@ -11,6 +11,8 @@ BIN_SRC="$SCRIPT_DIR/dsmon"
 SERVICE_SRC="$SCRIPT_DIR/dsmon.service"
 PLASMOID_SRC="$SCRIPT_DIR/plasmoid"
 PLASMOID_DST="/usr/share/plasma/plasmoids/com.github.wenyinos.deepseek-balance-monitor"
+ICON_SRC="$PLASMOID_SRC/contents/images/deepseek-balance-monitor.png"
+ICON_DST="/usr/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
 
 is_plasma6_session() {
     if [ "${KDE_SESSION_VERSION:-}" = "6" ]; then
@@ -60,19 +62,28 @@ if should_install_plasmoid; then
         echo "Missing Plasma widget package next to install.sh" >&2
         exit 1
     fi
+    if [ ! -f "$ICON_SRC" ]; then
+        echo "Missing Plasma widget icon next to install.sh" >&2
+        exit 1
+    fi
 fi
 
 install -D -m 755 "$BIN_SRC" /usr/local/bin/dsmon
 install -D -m 644 "$SERVICE_SRC" /etc/systemd/user/dsmon.service
 if [ "$INSTALL_PLASMOID" -eq 1 ]; then
+    install -D -m 644 "$ICON_SRC" "$ICON_DST"
     install -d -m 755 "$PLASMOID_DST"
     cp -R "$PLASMOID_SRC/." "$PLASMOID_DST/"
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+    fi
 fi
 
 echo "Installed /usr/local/bin/dsmon"
 echo "Installed /etc/systemd/user/dsmon.service"
 if [ "$INSTALL_PLASMOID" -eq 1 ]; then
     echo "Installed Plasma widget: $PLASMOID_DST"
+    echo "Installed Plasma widget icon: $ICON_DST"
 else
     echo "Skipped Plasma widget installation"
 fi
@@ -83,5 +94,5 @@ echo "  systemctl --user daemon-reload"
 echo "  systemctl --user enable --now dsmon.service"
 if [ "$INSTALL_PLASMOID" -eq 1 ]; then
     echo "Add widget: right-click panel/desktop -> Add Widgets -> DeepSeek Balance Monitor"
-    echo "After installing or upgrading the Plasma widget, log out and log back in if the old widget UI is still shown."
+    echo "If the old Plasma widget UI or icon is still shown, restart plasmashell or log out and log back in."
 fi

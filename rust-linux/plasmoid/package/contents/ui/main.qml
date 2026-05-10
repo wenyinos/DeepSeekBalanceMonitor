@@ -24,13 +24,14 @@ PlasmoidItem {
     property string language: systemLanguage()
     property bool daemonChecked: false
     property bool daemonRunning: true
+    readonly property string notificationIconPath: "/usr/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
 
-    Plasmoid.icon: lowBalance || !ok || !daemonRunning ? "dialog-warning" : "wallet-open"
+    Plasmoid.icon: !ok || !daemonRunning ? "dialog-warning" : "wallet-open"
     Plasmoid.title: tr("title")
     toolTipMainText: compactLabel
     preferredRepresentation: compactRepresentation
 
-    readonly property string compactLabel: ok ? totalBalance : (checking ? "..." : "!")
+    readonly property string compactLabel: daemonChecked && !daemonRunning ? "!" : (ok ? totalBalance : (checking ? "..." : "!"))
     readonly property string balanceStatusLine: ok
         ? tr("totalBalance") + ": " + totalBalance + " " + totalCurrency
         : (configured ? errorText : tr("noKey"))
@@ -151,7 +152,7 @@ PlasmoidItem {
 
     function showBalanceNotification() {
         runCommand("/usr/bin/notify-send --app-name " + shellQuote(tr("title"))
-            + " --icon " + shellQuote(Plasmoid.icon)
+            + " --icon " + shellQuote(notificationIconPath)
             + " " + shellQuote(notificationTitle())
             + " " + shellQuote(balanceMessage()))
     }

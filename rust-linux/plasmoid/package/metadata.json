@@ -8,7 +8,7 @@
     ],
     "Category": "System Information",
     "Description": "DeepSeek balance monitor for Plasma 6",
-    "Icon": "wallet-open",
+    "Icon": "deepseek-balance-monitor",
     "Id": "com.github.wenyinos.deepseek-balance-monitor",
     "License": "MIT",
     "Name": "DeepSeek Balance Monitor",
