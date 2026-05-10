@@ -21,6 +21,8 @@
 - **设置** — API Key、查询间隔、预警阈值、提醒模式、API 状态提醒、语言、开机自启。
 - **Rust Windows 版** — 原生 Rust 构建（`rust-windows/`），支持 Win7/Win8.1，使用启动文件夹快捷方式实现开机自启。
 - **Rust Linux 版** — `dsmon` 命令行守护进程（`rust-linux/`），支持 systemd 用户服务、日志保留和可选 KDE Plasma 6 小组件。
+- **余额历史** — Rust 版使用 SQLite 保存余额历史，在设置页展示趋势统计，并支持 CSV 导出。
+- **Plasma 小组件集成** — Linux 小组件从 `dsmon` 命令读取状态，可启动 / 退出守护进程，并通过桌面通知显示命令错误。
 - **macOS 版** — 社区贡献的 macOS 移植（`src/mac/`）。原生外观，Keychain 加密存储 API Key。
 
 ### 通知预览
@@ -50,6 +52,12 @@
 - Rust Windows 版：安装所有官方更新的 Windows 7 SP1 / Server 2008 R2 SP1、Windows 8.1 / Server 2012 R2、Windows 10 或 Windows 11
 - Rust Linux 版：RHEL 8 / Ubuntu 20.04 同时代或更新 glibc；可选小组件需要 KDE Plasma 6.0+
 - macOS 版：macOS 10.14+，Python 3.10+
+
+### Windows 7/8.1 根证书说明
+
+如果 Windows 7/8.1 无法查询 `status.deepseek.com`，可以右键 `scripts\update_windows_root_certs.bat` 并选择“以管理员身份运行”，通过 Windows Update 更新系统根证书库。该脚本不内置证书，也不会修改程序 TLS 后端。
+
+旧版 Windows 即使更新根证书后，仍可能无法获取 API 服务状态，因为 DeepSeek 状态页和余额接口使用不同的 TLS 端点。常见原因包括缺少 TLS 1.2 或 Windows Update 相关补丁、Schannel 密码套件支持过旧、系统信任设置陈旧、系统时间不正确，或代理 / 安全软件进行 HTTPS 检查。余额查询可能仍然正常。项目将 Windows 7/8.1 上的 API 服务状态查询视为尽力而为，不准备在程序侧增加绕过方案。
 
 ### 源码运行（Python）
 
@@ -94,6 +102,17 @@ cd deepseek-balance-monitor-1.1-linux-x86_64
 sudo ./install.sh
 ```
 
+常用 Linux CLI 命令：
+
+```bash
+dsmon init-config
+dsmon check
+dsmon daemon
+dsmon history [days]
+dsmon history export [days] [currency|all] [path|-]
+dsmon widget-status
+```
+
 **macOS（`src/mac/`）：**
 
 ```bash
@@ -131,6 +150,7 @@ DeepSeekBalance/
 │   ├── build_exe.bat
 │   ├── build_mac.sh
 │   ├── setup.bat
+│   ├── update_windows_root_certs.bat
 │   └── run_silent.vbs
 ├── rust-windows/              # 原生 Rust Windows 版
 │   ├── src/main.rs
@@ -167,6 +187,8 @@ Linux `dsmon` 配置路径：`~/.config/deepseek-balance-monitor/config.json`，
 
 Windows 日志路径：`%APPDATA%\DeepSeek Balance Monitor\app.log`
 
+Rust Windows 和 Rust Linux 会在各自应用数据目录保存 `balance_history.db`。历史记录使用与日志清理相同的 `retention_days` 保留天数。Windows 设置窗口和 Plasma 小组件设置页提供“历史”选项卡，支持天数 / 币种筛选、趋势统计、图表和 CSV 导出。Linux CLI 固定英文输出，`dsmon history` 显示文字统计，不直接展示原始行。
+
 ## 托盘菜单
 
 | 操作 | 方式 |
@@ -193,6 +215,11 @@ Windows 日志路径：`%APPDATA%\DeepSeek Balance Monitor\app.log`
 - API 服务状态轮询，独立图标配色与变化提醒
 - 低余额提醒三选一：不提醒 / 持续提醒 / 仅提醒一次（默认）
 - 充值直达
+- Rust Windows 和 Rust Linux 使用 SQLite 保存余额历史
+- Rust Windows 设置页和 Plasma 小组件支持历史图表、天数 / 币种筛选与 CSV 导出
+- Linux CLI 新增 `dsmon history` 统计和 `dsmon history export` 导出
+- Plasma 小组件右键可启动 / 退出守护进程，并在失败时显示命令错误通知
+- Win7/8.1 根证书更新辅助脚本
 - 日志与记录可配置自动清理
 - GitHub Actions 自动构建
 - 社区移植：Rust-Win（Win7+）、Py-Mac

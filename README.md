@@ -21,6 +21,8 @@ The desktop widget is only supported on KDE Plasma 6.
 - **Settings** — API key, check interval, alert threshold, alert mode, API status alerts, language, and auto-start on boot.
 - **Rust Windows build** — Native Rust build (`rust-windows/`) with Win7/Win8.1 support, bundled icon, and startup-folder auto-start.
 - **Rust Linux build** — `dsmon` CLI daemon (`rust-linux/`) with systemd user service support, log retention, and an optional KDE Plasma 6 widget.
+- **Balance history** — Rust builds store SQLite balance history, show trend summaries in settings, and export CSV.
+- **Plasma widget integration** — The Linux widget reads `dsmon` command output, can start/stop the daemon, and reports command errors through desktop notifications.
 - **macOS build** — Community-contributed macOS port (`src/mac/`). Native look-and-feel, Keychain-secured API key storage.
 
 ### Notification Previews
@@ -50,6 +52,12 @@ Grab the latest files from [Releases](https://github.com/wenyinos/DeepSeekBalanc
 - Rust Windows build: Windows 7 SP1 / Server 2008 R2 SP1 with all official updates, Windows 8.1 / Server 2012 R2, Windows 10, or Windows 11
 - Rust Linux build: RHEL 8 / Ubuntu 20.04 era glibc or newer; KDE Plasma 6.0+ for the optional widget
 - macOS build: macOS 10.14+, Python 3.10+
+
+### Windows 7/8.1 Root Certificates
+
+For Windows 7/8.1 systems that cannot query `status.deepseek.com`, run `scripts\update_windows_root_certs.bat` as administrator to update the Windows root certificate store from Windows Update. The script does not bundle certificates and does not change the app TLS backend.
+
+Even after updating root certificates, old Windows systems may still fail to fetch the API service status because DeepSeek's status page uses a different TLS endpoint from the balance API. Common causes include missing TLS 1.2 or Windows Update patches, outdated Schannel cipher support, stale system trust settings, incorrect system time, or HTTPS inspection by a proxy/security product. Balance checks may still work when service-status checks fail. This project treats API service-status checks on Windows 7/8.1 as best-effort and does not plan a program-side workaround.
 
 ### Run from Source (Python)
 
@@ -94,6 +102,17 @@ cd deepseek-balance-monitor-1.1-linux-x86_64
 sudo ./install.sh
 ```
 
+Useful Linux CLI commands:
+
+```bash
+dsmon init-config
+dsmon check
+dsmon daemon
+dsmon history [days]
+dsmon history export [days] [currency|all] [path|-]
+dsmon widget-status
+```
+
 **macOS (`src/mac/`):**
 
 ```bash
@@ -131,6 +150,7 @@ DeepSeekBalance/
 │   ├── build_exe.bat
 │   ├── build_mac.sh
 │   ├── setup.bat
+│   ├── update_windows_root_certs.bat
 │   └── run_silent.vbs
 ├── rust-windows/               # Native Rust Windows port
 │   ├── src/main.rs
@@ -167,6 +187,8 @@ Linux `dsmon` stores settings in `~/.config/deepseek-balance-monitor/config.json
 
 Windows logs are written to `%APPDATA%\DeepSeek Balance Monitor\app.log`.
 
+Rust Windows and Rust Linux store balance history in `balance_history.db` next to their app data. History uses the same `retention_days` setting as log cleanup. The Windows settings dialog and Plasma widget settings include a History tab with days/currency filters, trend summary, chart, and CSV export. Linux CLI output stays English-only and `dsmon history` prints text statistics instead of raw rows.
+
 ## Tray Menu
 
 | Action | Trigger |
@@ -193,6 +215,11 @@ Windows logs are written to `%APPDATA%\DeepSeek Balance Monitor\app.log`.
 - API service status polling with dedicated icon colour and change notifications
 - Three alert modes: never, always, or once per drop (default: once)
 - Top-up menu item
+- SQLite balance history for Rust Windows and Rust Linux
+- History chart, days/currency filters, and CSV export in Rust Windows settings and the Plasma widget
+- `dsmon history` summary and `dsmon history export` for Linux CLI
+- Plasma widget daemon start/stop action with command-error notifications
+- Win7/8.1 root certificate update helper script
 - Log & record retention with configurable cleanup
 - GitHub Actions auto-build for Python releases
 - Community ports: Rust-Win (Win7+), Py-Mac

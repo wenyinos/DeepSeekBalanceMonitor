@@ -75,10 +75,20 @@ jobs:
           name: deepseek-balance-monitor-linux-x86_64
           path: rust-linux/target/package/*.tar.gz
 
+      - name: Prepare release metadata
+        if: startsWith(github.ref, 'refs/tags/rust-v')
+        id: release_metadata
+        run: echo "release_name=v${GITHUB_REF_NAME#rust-v}" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/rust-v')
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ steps.release_metadata.outputs.release_name }}
           files: rust-linux/target/package/*.tar.gz
-          body: Rust Linux CLI build.
+          body: |
+            ## Rust builds
+            - Windows: native x86_64 and i686 executables.
+            - Linux: x86_64 CLI daemon package with systemd user service and KDE Plasma widget.
+          generate_release_notes: true
           overwrite_files: true
