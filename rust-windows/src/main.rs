@@ -534,7 +534,8 @@ mod windows_app {
                                     state.last_check = Some(Local::now());
                                     state.error = None;
                                     let low_balance = is_low_balance(&state);
-                                    should_notify = should_low_balance_alert(&mut state, low_balance);
+                                    should_notify =
+                                        should_low_balance_alert(&mut state, low_balance);
                                     log_line("Balance check succeeded");
                                 }
                                 Err(error) => {
@@ -617,7 +618,11 @@ mod windows_app {
                 } else {
                     lines.push(tr(lang, "not_checked").to_string());
                 }
-                lines.push(format!("{}{}", tr(lang, "service_status"), tr(lang, "status_none")));
+                lines.push(format!(
+                    "{}{}",
+                    tr(lang, "service_status"),
+                    tr(lang, "status_none")
+                ));
                 (tr(lang, "bal_title").to_string(), lines.join("\n"))
             };
             self.tray.show(&message, Some(&title), None, None);

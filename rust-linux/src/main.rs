@@ -134,7 +134,11 @@ fn check_once() -> Result<(), (i32, String)> {
     let key = config.api_key.trim();
     if key.is_empty() {
         ensure_config_file().map_err(fail)?;
-        print_status(None, Some("DeepSeek API key is not configured."), checked_at);
+        print_status(
+            None,
+            Some("DeepSeek API key is not configured."),
+            checked_at,
+        );
         return Err((2, String::new()));
     }
     let api_key = key.chars().filter(|c| c.is_ascii()).collect::<String>();
@@ -439,7 +443,12 @@ fn parse_bool_arg(value: &str) -> Result<bool, String> {
 fn parse_alert_mode_arg(value: &str) -> Result<String, String> {
     match value {
         "never" | "always" | "once" => Ok(value.to_string()),
-        _ => Ok((if parse_bool_arg(value)? { "once" } else { "never" }).to_string()),
+        _ => Ok((if parse_bool_arg(value)? {
+            "once"
+        } else {
+            "never"
+        })
+        .to_string()),
     }
 }
 
