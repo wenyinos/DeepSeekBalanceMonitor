@@ -10,12 +10,12 @@ A Windows system tray application that periodically queries the DeepSeek API for
 
 ## Features
 
-- **Tray icon with balance** — Balance shown as a number on a coloured rounded rectangle. Teal (OK), red (low balance), warm gray (API service degraded), gray (no data yet).
-- **Low balance notification** — Three modes: never, always, or once per drop (default). The icon turns red regardless.
-- **Balance details** — Left-click the icon to see balance, API service status, and last check time.
-- **Settings** — API key, check interval, alert threshold, alert mode, API status alerts, language, and auto-start on boot.
-- **Rust Windows build** — Community-contributed native Rust build (`rust-windows/`). Smaller binary, Win7/Win8.1 support, startup-folder auto-start.
-- **macOS build** — Community-contributed macOS port (`src/mac/`). Native look-and-feel, Keychain-secured API key storage.
+- **Tray icon with balance** - Balance shown as a number on a coloured rounded rectangle. Teal (OK), red (low balance), warm gray (API service degraded), gray (no data yet).
+- **Low balance notification** - Three modes: never, always, or once per drop (default). The icon turns red regardless.
+- **Balance details** - Left-click the icon to see balance, API service status, and last check time.
+- **Settings** - API key, check interval, alert threshold, alert mode, API status alerts, language, and auto-start on boot.
+- **Rust-Win** - Community-contributed native Rust build (`rust-windows/`). Smaller binary, Win7/Win8.1 support, startup-folder auto-start.
+- **Py-Mac** - Community-contributed MacOS port (`src/mac/`). Native look-and-feel, Keychain-secured API key storage.
 
 ### Notification Previews
 
@@ -36,13 +36,13 @@ A Windows system tray application that periodically queries the DeepSeek API for
 
 ### Direct Download
 
-Grab the latest executable from [Releases](https://github.com/SrtaEstrella/DeepSeekBalanceMonitor/releases). No Python required — just double-click to run. On first launch you'll be prompted to enter your API key.
+Grab the latest executable from [Releases](https://github.com/SrtaEstrella/DeepSeekBalanceMonitor/releases). No Python required - just double-click to run. On first launch you'll be prompted to enter your API key.
 
 ### Requirements
 
-- Python build: Windows 10+, Python 3.10+
-- Rust build: Windows 7 SP1+, 8.1, 10, or 11
-- macOS build: see `src/mac/`
+- Py-Win: Windows 10+, Python 3.10+
+- Rust-Win: Windows 7 SP1+, 8.1, 10, or 11
+- Py-Mac: macOS 10.14+, Python 3.10+
 
 ### Run from Source (Python)
 
@@ -72,14 +72,23 @@ rustup toolchain install 1.77.2-x86_64-pc-windows-msvc
 cargo +1.77.2 build --release --target x86_64-pc-windows-msvc --locked
 ```
 
-### Python vs Rust
+**MacOS (`src/mac/`):**
 
-| | Python | Rust |
-|---|---|---|
-| Runtime | Python + pystray + Tkinter | Native Rust |
-| Min OS | Windows 10+ | Windows 7 SP1+ |
-| First launch (no key) | Opens settings dialog | Opens `config.json` in editor |
-| Auto-start | Registry Run key | Startup folder shortcut |
+```bash
+cd src/mac
+pip install -r requirements.txt
+bash ../scripts/build_mac.sh
+```
+
+### Comparison
+
+| | Py-Win | Rust-Win | Py-Mac |
+|---|---|---|---|
+| Runtime | Python + pystray + Tkinter | Native Rust | Python + rumps + tkinter |
+| Min OS | Windows 10+ | Windows 7 SP1+ | macOS 10.14+ |
+| First launch (no key) | Opens settings dialog | Opens `config.json` in editor | Opens settings window |
+| Auto-start | Registry Run key | Startup folder shortcut | Login items |
+| API key storage | config.json | config.json | macOS Keychain |
 
 ## Project Structure
 
@@ -92,11 +101,16 @@ DeepSeekBalance/
 │   ├── app_state.py
 │   ├── settings_dialog.py
 │   └── tray_app.py
-├── scripts/                   # Build & utility scripts
+├── src/mac/                    # Native MacOS port
+│   ├── main.py
+│   ├── settings.py
+│   └── keystore.py
+├── scripts/
 │   ├── build_exe.bat
+│   ├── build_mac.sh
 │   ├── setup.bat
 │   └── run_silent.vbs
-├── rust-windows/              # Native Rust Windows port
+├── rust-windows/               # Native Rust Windows port
 │   ├── src/main.rs
 │   ├── app.ico
 │   ├── app.manifest
@@ -150,10 +164,13 @@ Logs are written to `%APPDATA%\DeepSeek Balance Monitor\app.log`.
 
 - API service status polling with dedicated icon colour and change notifications
 - Three alert modes: never, always, or once per drop (default: once)
-- Top-up menu item, log & record retention with configurable cleanup
+- Top-up menu item
+- Log & record retention with configurable cleanup
 - GitHub Actions auto-build for Python releases
-- Community ports: Rust Windows (Win7+), macOS
-- Refined notification layout, settings input validation, stdlib-only dependencies
+- Community ports: Rust-Win (Win7+), Py-Mac
+- Refined notification layout
+- Settings input validation
+- Removed third-party HTTP dependency (stdlib only)
 
 ## License
 

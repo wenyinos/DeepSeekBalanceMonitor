@@ -10,12 +10,12 @@
 
 ## 功能
 
-- **托盘图标显示余额** — 余额以数字形式显示在任务栏圆角图标上。青色（正常）、红色（低余额）、暖灰色（API 服务异常）、灰色（无数据）。
-- **低余额通知** — 三种模式：不提醒、持续提醒、仅提醒一次（默认）。图标仍会变红。
-- **余额详情** — 左键单击图标查看余额明细、API 服务状态和上次查询时间。
-- **设置** — API Key、查询间隔、预警阈值、提醒模式、API 状态提醒、语言、开机自启。
-- **Rust Windows 版** — 社区贡献的原生 Rust 构建（`rust-windows/`）。体积更小，支持 Win7/Win8.1。
-- **macOS 版** — 社区贡献的 macOS 移植（`src/mac/`）。原生外观，Keychain 加密存储 API Key。
+- **托盘图标显示余额** - 余额以数字形式显示在任务栏圆角图标上。青色（正常）、红色（低余额）、暖灰色（API 服务异常）、灰色（无数据）。
+- **低余额通知** - 三种模式：不提醒、持续提醒、仅提醒一次（默认）。图标仍会变红。
+- **余额详情** - 左键单击图标查看余额明细、API 服务状态和上次查询时间。
+- **设置** - API Key、查询间隔、预警阈值、提醒模式、API 状态提醒、语言、开机自启。
+- **Rust-Win** - 社区贡献的原生 Rust 构建（`rust-windows/`）。体积更小，支持 Win7/Win8.1。
+- **Py-Mac** - 社区贡献的 MacOS 移植（`src/mac/`）。原生外观，Keychain 加密存储 API Key。
 
 ### 通知预览
 
@@ -40,9 +40,9 @@
 
 ### 运行要求
 
-- Python 版：Windows 10+，Python 3.10+
-- Rust 版：Windows 7 SP1+、8.1、10 或 11
-- macOS 版：详见 `src/mac/`
+- Py-Win：Windows 10+，Python 3.10+
+- Rust-Win：Windows 7 SP1+、8.1、10 或 11
+- Py-Mac：macOS 10.14+，Python 3.10+
 
 ### 源码运行（Python）
 
@@ -72,14 +72,23 @@ rustup toolchain install 1.77.2-x86_64-pc-windows-msvc
 cargo +1.77.2 build --release --target x86_64-pc-windows-msvc --locked
 ```
 
-### Python 版与 Rust 版对比
+**MacOS（`src/mac/`）：**
 
-| | Python 版 | Rust 版 |
-|---|---|---|
-| 运行时 | Python + pystray + Tkinter | 原生 Rust |
-| 最低系统 | Windows 10+ | Windows 7 SP1+ |
-| 首次无 Key | 弹出设置窗口 | 打开 config.json 编辑 |
-| 开机自启 | 注册表 Run 键 | 启动文件夹快捷方式 |
+```bash
+cd src/mac
+pip install -r requirements.txt
+bash ../scripts/build_mac.sh
+```
+
+### 版本对比
+
+| | Py-Win | Rust-Win | Py-Mac |
+|---|---|---|---|
+| 运行时 | Python + pystray + Tkinter | 原生 Rust | Python + rumps + tkinter |
+| 最低系统 | Windows 10+ | Windows 7 SP1+ | macOS 10.14+ |
+| 首次无 Key | 弹出设置窗口 | 打开 config.json 编辑 | 弹出设置窗口 |
+| 开机自启 | 注册表 Run 键 | 启动文件夹快捷方式 | 登录项 |
+| API Key 存储 | config.json | config.json | macOS Keychain |
 
 ## 项目结构
 
@@ -92,8 +101,13 @@ DeepSeekBalance/
 │   ├── app_state.py
 │   ├── settings_dialog.py
 │   └── tray_app.py
-├── scripts/                   # 构建与工具脚本
+├── src/mac/                    # 原生 MacOS 移植
+│   ├── main.py
+│   ├── settings.py
+│   └── keystore.py
+├── scripts/
 │   ├── build_exe.bat
+│   ├── build_mac.sh
 │   ├── setup.bat
 │   └── run_silent.vbs
 ├── rust-windows/              # 原生 Rust Windows 版
@@ -150,10 +164,13 @@ DeepSeekBalance/
 
 - API 服务状态轮询，独立图标配色与变化提醒
 - 低余额提醒三选一：不提醒 / 持续提醒 / 仅提醒一次（默认）
-- 充值直达、日志与记录可配置自动清理
-- GitHub Actions 自动构建 Python 版
-- 社区移植：Rust Windows（Win7+）、macOS
-- 通知卡片重构、设置输入校验、移除第三方 HTTP 依赖
+- 充值直达
+- 日志与记录可配置自动清理
+- GitHub Actions 自动构建
+- 社区移植：Rust-Win（Win7+）、Py-Mac
+- 通知卡片重构
+- 设置输入校验
+- 移除第三方 HTTP 依赖
 
 ## 协议
 
