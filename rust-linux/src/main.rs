@@ -10,11 +10,6 @@ use std::thread;
 use std::time::Duration;
 
 const APP_DIR: &str = "deepseek-balance-monitor";
-const RESET: &str = "\x1b[0m";
-const BOLD: &str = "\x1b[1m";
-const RED: &str = "\x1b[31m";
-const GREEN: &str = "\x1b[32m";
-const BLUE: &str = "\x1b[34m";
 
 #[derive(Clone, Serialize, Deserialize)]
 struct AppConfig {
@@ -28,10 +23,14 @@ struct AppConfig {
     language: String,
     #[serde(default)]
     auto_start: bool,
-    #[serde(default = "default_alerts")]
-    enable_alerts: bool,
-    #[serde(default = "default_log_retention_days")]
-    log_retention_days: u64,
+    #[serde(default = "default_alert_mode")]
+    alert_mode: String,
+    #[serde(default = "default_api_alert_enabled")]
+    api_alert_enabled: bool,
+    #[serde(default = "default_retention_days")]
+    retention_days: u64,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for AppConfig {
@@ -42,8 +41,10 @@ impl Default for AppConfig {
             threshold_yuan: default_threshold(),
             language: default_lang(),
             auto_start: false,
-            enable_alerts: true,
-            log_retention_days: default_log_retention_days(),
+            alert_mode: default_alert_mode(),
+            api_alert_enabled: default_api_alert_enabled(),
+            retention_days: default_retention_days(),
+            extra: BTreeMap::new(),
         }
     }
 }
@@ -63,7 +64,7 @@ struct WidgetStatus {
     config_path: String,
     interval_minutes: u64,
     threshold_yuan: f64,
-    log_retention_days: u64,
+    retention_days: u64,
     language: String,
     last_check: String,
     total_currency: Option<String>,
@@ -94,7 +95,9 @@ fn main() {
     process::exit(match run() {
         Ok(()) => 0,
         Err((code, message)) => {
-            eprintln!("{message}");
+            if !message.is_empty() {
+                eprintln!("{message}");
+            }
             code
         }
     });
@@ -127,12 +130,26 @@ fn run() -> Result<(), (i32, String)> {
 fn check_once() -> Result<(), (i32, String)> {
     let config = load_config().map_err(fail)?;
     prune_logs_on_startup(&config).map_err(fail)?;
-    let api_key = require_api_key(&config)?;
-    let balances = fetch_balance(&api_key).map_err(fail)?;
     let checked_at = Local::now();
-    print_status(&config, &balances, checked_at);
-    log_line("Balance check succeeded").map_err(fail)?;
-    Ok(())
+    let key = config.api_key.trim();
+    if key.is_empty() {
+        ensure_config_file().map_err(fail)?;
+        print_status(None, Some("DeepSeek API key is not configured."), checked_at);
+        return Err((2, String::new()));
+    }
+    let api_key = key.chars().filter(|c| c.is_ascii()).collect::<String>();
+    match fetch_balance(&api_key) {
+        Ok(balances) => {
+            print_status(Some(&balances), None, checked_at);
+            log_line("Balance check succeeded").map_err(fail)?;
+            Ok(())
+        }
+        Err(error) => {
+            print_status(None, Some(&error), checked_at);
+            log_line(&format!("Balance check failed: {error}")).ok();
+            Err((1, String::new()))
+        }
+    }
 }
 
 fn run_daemon() -> Result<(), (i32, String)> {
@@ -149,9 +166,8 @@ fn run_daemon() -> Result<(), (i32, String)> {
                 let low_balance = is_low_balance(&balances, config.threshold_yuan);
                 if low_balance {
                     log_line("Balance is below configured threshold").ok();
-                    if config.enable_alerts && !low_balance_reported {
+                    if should_low_balance_alert(&config, &mut low_balance_reported) {
                         eprintln!("{}", low_balance_message(&balances, config.threshold_yuan));
-                        low_balance_reported = true;
                     }
                 } else {
                     low_balance_reported = false;
@@ -229,7 +245,7 @@ fn print_widget_status() -> Result<(), (i32, String)> {
             config_path,
             interval_minutes: config.interval_minutes,
             threshold_yuan: config.threshold_yuan,
-            log_retention_days: config.log_retention_days,
+            retention_days: config.retention_days,
             language: config.language.clone(),
             last_check: format_time(checked_at),
             total_currency: None,
@@ -251,7 +267,7 @@ fn print_widget_status() -> Result<(), (i32, String)> {
                 config_path,
                 interval_minutes: config.interval_minutes,
                 threshold_yuan: config.threshold_yuan,
-                log_retention_days: config.log_retention_days,
+                retention_days: config.retention_days,
                 language: config.language.clone(),
                 last_check: format_time(checked_at),
                 total_currency,
@@ -267,7 +283,7 @@ fn print_widget_status() -> Result<(), (i32, String)> {
             config_path,
             interval_minutes: config.interval_minutes,
             threshold_yuan: config.threshold_yuan,
-            log_retention_days: config.log_retention_days,
+            retention_days: config.retention_days,
             language: config.language,
             last_check: format_time(checked_at),
             total_currency: None,
@@ -293,7 +309,7 @@ fn print_config_json() -> Result<(), (i32, String)> {
 fn set_config(args: &[String]) -> Result<(), (i32, String)> {
     if args.len() != 7 {
         return Err(fail(
-            "Usage: dsmon set-config <api_key> <interval_minutes> <threshold_yuan> <language> <auto_start> <enable_alerts> <log_retention_days>",
+            "Usage: dsmon set-config <api_key> <interval_minutes> <threshold_yuan> <language> <auto_start> <alert_mode> <retention_days>",
         ));
     }
     let api_key = args[0].trim().to_string();
@@ -301,18 +317,18 @@ fn set_config(args: &[String]) -> Result<(), (i32, String)> {
         return Err((2, "DeepSeek API key is required.".to_string()));
     }
     let threshold_yuan = args[2].parse::<f64>().map_err(fail)?;
-    if threshold_yuan < 0.0 {
-        return Err(fail("Balance threshold cannot be negative."));
+    if !(0.0..=10000.0).contains(&threshold_yuan) {
+        return Err(fail("Balance threshold must be between 0 and 10000."));
     }
-    let config = AppConfig {
-        api_key,
-        interval_minutes: args[1].parse::<u64>().map_err(fail)?.clamp(1, 1440),
-        threshold_yuan,
-        language: if args[3] == "zh" { "zh" } else { "en" }.to_string(),
-        auto_start: parse_bool_arg(&args[4]).map_err(fail)?,
-        enable_alerts: parse_bool_arg(&args[5]).map_err(fail)?,
-        log_retention_days: args[6].parse::<u64>().map_err(fail)?.clamp(1, 3650),
-    };
+    let mut config = load_config().unwrap_or_default();
+    config.api_key = api_key;
+    config.interval_minutes = args[1].parse::<u64>().map_err(fail)?.clamp(1, 1440);
+    config.threshold_yuan = threshold_yuan;
+    config.language = if args[3] == "zh" { "zh" } else { "en" }.to_string();
+    config.auto_start = parse_bool_arg(&args[4]).map_err(fail)?;
+    config.alert_mode = parse_alert_mode_arg(&args[5]).map_err(fail)?;
+    config.retention_days = args[6].parse::<u64>().map_err(fail)?.clamp(1, 3650);
+    normalize_config(&mut config);
     save_config(&config).map_err(fail)?;
     set_auto_start(config.auto_start).map_err(fail)?;
     println!("Config saved.");
@@ -356,67 +372,26 @@ fn fetch_balance(api_key: &str) -> Result<BTreeMap<String, Balance>, String> {
 }
 
 fn print_status(
-    config: &AppConfig,
-    balances: &BTreeMap<String, Balance>,
+    balances: Option<&BTreeMap<String, Balance>>,
+    error: Option<&str>,
     checked_at: DateTime<Local>,
 ) {
-    let color = color_enabled();
-    let threshold_currency = preferred_balance(balances)
-        .map(|(currency, _)| currency.as_str())
-        .unwrap_or("CNY");
-    println!(
-        "{}: {} minutes",
-        paint("Query interval", BLUE, color),
-        config.interval_minutes
-    );
-    println!(
-        "{}: {} {}",
-        paint("Balance threshold", BLUE, color),
-        format_amount(config.threshold_yuan),
-        threshold_currency
-    );
-    println!(
-        "{}: {} days",
-        paint("Log retention", BLUE, color),
-        config.log_retention_days
-    );
-    println!(
-        "{}: {}",
-        paint("Last check", BLUE, color),
-        format_time(checked_at)
-    );
-    if let Some((currency, balance)) = preferred_balance(balances) {
-        let amount = format!("{} {}", format_amount(balance.total_balance), currency);
+    println!("DeepSeek Balance:");
+    if let Some((currency, balance)) = balances.and_then(|items| preferred_balance(items)) {
         println!(
-            "{}: {}",
-            paint("Total balance", BOLD, color),
-            paint(
-                &amount,
-                balance_color(balance.total_balance, config.threshold_yuan),
-                color
-            )
+            "{} {} (Topped {}, Granted {})",
+            format_amount(balance.total_balance),
+            currency,
+            format_amount(balance.topped_up_balance),
+            format_amount(balance.granted_balance)
         );
+        println!("Last Check: {}", format_time(checked_at));
+    } else if let Some(error) = error {
+        println!("Query error: {error}");
+    } else {
+        println!("Not checked");
     }
-    println!("{}", paint("Balances:", BOLD, color));
-    for (currency, balance) in balances {
-        println!("  {}:", paint(currency, BOLD, color));
-        println!(
-            "    Total: {}",
-            paint(
-                &format_amount(balance.total_balance),
-                balance_color(balance.total_balance, config.threshold_yuan),
-                color
-            )
-        );
-        println!(
-            "    Topped up: {}",
-            paint(&format_amount(balance.topped_up_balance), GREEN, color)
-        );
-        println!(
-            "    Granted: {}",
-            paint(&format_amount(balance.granted_balance), GREEN, color)
-        );
-    }
+    println!("DeepSeek API Status: 🟢 All Systems Operational");
 }
 
 fn summary(balances: &BTreeMap<String, Balance>) -> String {
@@ -441,40 +416,15 @@ fn is_low_balance(balances: &BTreeMap<String, Balance>, threshold: f64) -> bool 
 
 fn low_balance_message(balances: &BTreeMap<String, Balance>, threshold: f64) -> String {
     if let Some((currency, balance)) = preferred_balance(balances) {
-        let message = format!(
-            "Low balance warning: total balance is {} {}, below threshold {} {}.",
+        format!(
+            "⚠ DeepSeek Low Balance\nBalance is only {} {}, below your alert threshold of {} {}.\nPlease top up!",
             format_amount(balance.total_balance),
             currency,
             format_amount(threshold),
             currency
-        );
-        paint(&message, RED, color_enabled())
-    } else {
-        paint(
-            "Low balance warning: no balance information is available.",
-            RED,
-            color_enabled(),
         )
-    }
-}
-
-fn balance_color(balance: f64, threshold: f64) -> &'static str {
-    if balance < threshold {
-        RED
     } else {
-        GREEN
-    }
-}
-
-fn color_enabled() -> bool {
-    std::env::var_os("NO_COLOR").is_none()
-}
-
-fn paint(text: &str, color: &str, enabled: bool) -> String {
-    if enabled {
-        format!("{color}{text}{RESET}")
-    } else {
-        text.to_string()
+        "⚠ DeepSeek Low Balance\nNo balance information is available.".to_string()
     }
 }
 
@@ -483,6 +433,25 @@ fn parse_bool_arg(value: &str) -> Result<bool, String> {
         "true" | "1" | "yes" | "on" => Ok(true),
         "false" | "0" | "no" | "off" => Ok(false),
         _ => Err(format!("Invalid boolean value: {value}")),
+    }
+}
+
+fn parse_alert_mode_arg(value: &str) -> Result<String, String> {
+    match value {
+        "never" | "always" | "once" => Ok(value.to_string()),
+        _ => Ok((if parse_bool_arg(value)? { "once" } else { "never" }).to_string()),
+    }
+}
+
+fn should_low_balance_alert(config: &AppConfig, reported: &mut bool) -> bool {
+    match config.alert_mode.as_str() {
+        "never" => false,
+        "always" => true,
+        _ if *reported => false,
+        _ => {
+            *reported = true;
+            true
+        }
     }
 }
 
@@ -505,27 +474,37 @@ fn load_config() -> Result<AppConfig, String> {
         save_config(&AppConfig::default()).map_err(|e| e.to_string())?;
     }
     let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    ensure_log_retention_field(&path, &text)?;
     let mut config = serde_json::from_str::<AppConfig>(&text).map_err(|e| e.to_string())?;
-    config.interval_minutes = config.interval_minutes.clamp(1, 1440);
-    config.log_retention_days = config.log_retention_days.clamp(1, 3650);
+    normalize_config(&mut config);
     Ok(config)
 }
 
-fn ensure_log_retention_field(path: &Path, text: &str) -> Result<(), String> {
-    let mut value = serde_json::from_str::<serde_json::Value>(text).map_err(|e| e.to_string())?;
-    let Some(object) = value.as_object_mut() else {
-        return Ok(());
-    };
-    if object.contains_key("log_retention_days") {
-        return Ok(());
+fn normalize_config(config: &mut AppConfig) {
+    if config.alert_mode == default_alert_mode() {
+        if let Some(value) = config.extra.remove("enable_alerts") {
+            config.alert_mode = if value.as_bool() == Some(false) {
+                "never".to_string()
+            } else {
+                "once".to_string()
+            };
+        }
+    } else {
+        config.extra.remove("enable_alerts");
     }
-    object.insert(
-        "log_retention_days".to_string(),
-        serde_json::Value::from(default_log_retention_days()),
-    );
-    let file = File::create(path).map_err(|e| e.to_string())?;
-    serde_json::to_writer_pretty(file, &value).map_err(|e| e.to_string())
+    if let Some(value) = config.extra.remove("log_retention_days") {
+        if let Some(days) = value.as_u64() {
+            config.retention_days = days;
+        }
+    }
+    config.interval_minutes = config.interval_minutes.clamp(1, 1440);
+    config.threshold_yuan = config.threshold_yuan.clamp(0.0, 10000.0);
+    config.retention_days = config.retention_days.clamp(1, 3650);
+    if config.language != "zh" && config.language != "en" {
+        config.language = default_lang();
+    }
+    if !matches!(config.alert_mode.as_str(), "never" | "always" | "once") {
+        config.alert_mode = default_alert_mode();
+    }
 }
 
 fn save_config(config: &AppConfig) -> std::io::Result<()> {
@@ -551,7 +530,7 @@ fn log_line(message: &str) -> std::io::Result<()> {
 
 fn prune_logs_on_startup(config: &AppConfig) -> std::io::Result<()> {
     ensure_dir(&state_dir()?)?;
-    prune_log_file(&log_file()?, config.log_retention_days)
+    prune_log_file(&log_file()?, config.retention_days)
 }
 
 fn prune_log_file(path: &Path, retention_days: u64) -> std::io::Result<()> {
@@ -639,15 +618,19 @@ fn default_threshold() -> f64 {
 }
 
 fn default_lang() -> String {
-    "en".to_string()
+    "zh".to_string()
 }
 
-fn default_alerts() -> bool {
+fn default_api_alert_enabled() -> bool {
     true
 }
 
-fn default_log_retention_days() -> u64 {
-    7
+fn default_alert_mode() -> String {
+    "once".to_string()
+}
+
+fn default_retention_days() -> u64 {
+    30
 }
 
 fn default_currency() -> String {

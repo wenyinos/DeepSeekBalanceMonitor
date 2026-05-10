@@ -177,8 +177,14 @@ mod windows_app {
         language: String,
         #[serde(default = "default_auto_start")]
         auto_start: bool,
-        #[serde(default = "default_alerts")]
-        enable_alerts: bool,
+        #[serde(default = "default_alert_mode")]
+        alert_mode: String,
+        #[serde(default = "default_api_alert_enabled")]
+        api_alert_enabled: bool,
+        #[serde(default = "default_retention_days")]
+        retention_days: u64,
+        #[serde(flatten)]
+        extra: BTreeMap<String, serde_json::Value>,
     }
 
     impl Default for AppConfig {
@@ -189,7 +195,10 @@ mod windows_app {
                 threshold_yuan: default_threshold(),
                 language: default_lang(),
                 auto_start: default_auto_start(),
-                enable_alerts: true,
+                alert_mode: default_alert_mode(),
+                api_alert_enabled: default_api_alert_enabled(),
+                retention_days: default_retention_days(),
+                extra: BTreeMap::new(),
             }
         }
     }
@@ -203,15 +212,23 @@ mod windows_app {
     }
 
     fn default_auto_start() -> bool {
-        true
+        false
     }
 
     fn default_lang() -> String {
         "zh".to_string()
     }
 
-    fn default_alerts() -> bool {
+    fn default_api_alert_enabled() -> bool {
         true
+    }
+
+    fn default_alert_mode() -> String {
+        "once".to_string()
+    }
+
+    fn default_retention_days() -> u64 {
+        30
     }
 
     #[derive(Clone, Debug)]
@@ -228,6 +245,7 @@ mod windows_app {
         last_check: Option<DateTime<Local>>,
         error: Option<String>,
         checking: bool,
+        alert_suppressed: bool,
     }
 
     enum UiMessage {
@@ -515,7 +533,8 @@ mod windows_app {
                                     state.balances = balances;
                                     state.last_check = Some(Local::now());
                                     state.error = None;
-                                    should_notify = is_low_balance(&state);
+                                    let low_balance = is_low_balance(&state);
+                                    should_notify = should_low_balance_alert(&mut state, low_balance);
                                     log_line("Balance check succeeded");
                                 }
                                 Err(error) => {
@@ -583,47 +602,23 @@ mod windows_app {
             let (title, message) = {
                 let state = self.state.lock().unwrap();
                 let lang = state.config.language.as_str();
-                if let Some(error) = &state.error {
-                    (
-                        tr(lang, "balance_error_title").to_string(),
-                        format!("{}: {}", tr(lang, "error"), error),
-                    )
-                } else if state.balances.is_empty() {
-                    (
-                        tr(lang, "balance_title").to_string(),
-                        tr(lang, "balance_empty").to_string(),
-                    )
-                } else {
-                    let mut lines = Vec::new();
-                    for (code, balance) in &state.balances {
-                        lines.push(format!(
-                            "{}: {}  ({} {}, {} {})",
-                            code,
-                            format_amount(balance.total_balance),
-                            tr(lang, "topped_up"),
-                            format_amount(balance.topped_up_balance),
-                            tr(lang, "granted"),
-                            format_amount(balance.granted_balance)
-                        ));
-                    }
-                    if let Some(last) = state.last_check {
-                        lines.push(format!(
-                            "{}: {}",
-                            tr(lang, "last_check"),
-                            last.format("%Y-%m-%d %H:%M:%S")
-                        ));
-                    }
-                    let title = if let Some((code, balance)) = preferred_balance(&state.balances) {
-                        format!(
-                            "DeepSeek: {} {}",
-                            format_amount(balance.total_balance),
-                            code
-                        )
-                    } else {
-                        tr(lang, "balance_title").to_string()
-                    };
-                    (title, lines.join("\n"))
+                let mut lines = Vec::new();
+                if let Some((code, balance)) = preferred_balance(&state.balances) {
+                    lines.push(format_balance_line(lang, code, balance));
                 }
+                if let Some(error) = &state.error {
+                    lines.push(format!("{}: {}", tr(lang, "query_error"), error));
+                } else if let Some(last) = state.last_check {
+                    lines.push(format!(
+                        "{}: {}",
+                        tr(lang, "last_check"),
+                        last.format("%Y-%m-%d %H:%M:%S")
+                    ));
+                } else {
+                    lines.push(tr(lang, "not_checked").to_string());
+                }
+                lines.push(format!("{}{}", tr(lang, "service_status"), tr(lang, "status_none")));
+                (tr(lang, "bal_title").to_string(), lines.join("\n"))
             };
             self.tray.show(&message, Some(&title), None, None);
         }
@@ -631,9 +626,6 @@ mod windows_app {
         fn notify_low_balance(&self) {
             let (enabled, title, message) = {
                 let state = self.state.lock().unwrap();
-                if !state.config.enable_alerts {
-                    return;
-                }
                 let lang = state.config.language.as_str();
                 if let Some((code, balance)) = preferred_balance(&state.balances) {
                     (
@@ -689,6 +681,9 @@ mod windows_app {
             self.auto_start_item.set_checked(config.auto_start);
             {
                 let mut state = self.state.lock().unwrap();
+                if state.config.alert_mode != config.alert_mode {
+                    state.alert_suppressed = false;
+                }
                 state.config = config.clone();
             }
             self.timer
@@ -712,6 +707,7 @@ mod windows_app {
     }
 
     struct SettingsWindow {
+        base_config: AppConfig,
         window: nwg::Window,
         _api_label: nwg::Label,
         api_input: nwg::TextInput,
@@ -722,8 +718,11 @@ mod windows_app {
         threshold_input: nwg::TextInput,
         _language_label: nwg::Label,
         language_combo: nwg::ComboBox<&'static str>,
+        _alert_mode_label: nwg::Label,
+        alert_mode_combo: nwg::ComboBox<&'static str>,
+        _retention_label: nwg::Label,
+        retention_input: nwg::TextInput,
         auto_start: nwg::CheckBox,
-        enable_alerts: nwg::CheckBox,
         _status_label: nwg::Label,
         save_button: nwg::Button,
         cancel_button: nwg::Button,
@@ -747,15 +746,18 @@ mod windows_app {
             let mut threshold_input = Default::default();
             let mut language_label = Default::default();
             let mut language_combo = Default::default();
+            let mut alert_mode_label = Default::default();
+            let mut alert_mode_combo = Default::default();
+            let mut retention_label = Default::default();
+            let mut retention_input = Default::default();
             let mut auto_start = Default::default();
-            let mut enable_alerts = Default::default();
             let mut status_label = Default::default();
             let mut save_button = Default::default();
             let mut cancel_button = Default::default();
 
             nwg::Window::builder()
                 .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
-                .size((520, 390))
+                .size((520, 470))
                 .center(true)
                 .title(tr(lang, "settings_title"))
                 .build(&mut window)?;
@@ -819,7 +821,7 @@ mod windows_app {
                 .build(&mut language_combo)?;
             nwg::CheckBox::builder()
                 .text(tr(lang, "auto_start"))
-                .position((20, 235))
+                .position((20, 310))
                 .size((220, 24))
                 .parent(&window)
                 .check_state(if config.auto_start {
@@ -828,39 +830,62 @@ mod windows_app {
                     unchecked
                 })
                 .build(&mut auto_start)?;
-            nwg::CheckBox::builder()
-                .text(tr(lang, "enable_alerts"))
-                .position((250, 235))
-                .size((220, 24))
+            nwg::Label::builder()
+                .text(tr(lang, "alert_mode_label"))
+                .position((20, 235))
+                .size((220, 22))
                 .parent(&window)
-                .check_state(if config.enable_alerts {
-                    checked
-                } else {
-                    unchecked
-                })
-                .build(&mut enable_alerts)?;
+                .build(&mut alert_mode_label)?;
+            nwg::ComboBox::builder()
+                .collection(vec![
+                    tr(lang, "alert_mode_once"),
+                    tr(lang, "alert_mode_always"),
+                    tr(lang, "alert_mode_never"),
+                ])
+                .selected_index(Some(match config.alert_mode.as_str() {
+                    "always" => 1,
+                    "never" => 2,
+                    _ => 0,
+                }))
+                .position((250, 231))
+                .size((140, 100))
+                .parent(&window)
+                .build(&mut alert_mode_combo)?;
+            nwg::Label::builder()
+                .text(tr(lang, "retention_label"))
+                .position((20, 273))
+                .size((220, 22))
+                .parent(&window)
+                .build(&mut retention_label)?;
+            nwg::TextInput::builder()
+                .text(&config.retention_days.to_string())
+                .position((250, 269))
+                .size((100, 28))
+                .parent(&window)
+                .build(&mut retention_input)?;
 
             let status = app.status_line();
             nwg::Label::builder()
                 .text(&status)
-                .position((20, 275))
+                .position((20, 350))
                 .size((460, 38))
                 .parent(&window)
                 .build(&mut status_label)?;
             nwg::Button::builder()
                 .text(tr(lang, "save"))
-                .position((300, 325))
+                .position((300, 410))
                 .size((86, 30))
                 .parent(&window)
                 .build(&mut save_button)?;
             nwg::Button::builder()
                 .text(tr(lang, "cancel"))
-                .position((395, 325))
+                .position((395, 410))
                 .size((86, 30))
                 .parent(&window)
                 .build(&mut cancel_button)?;
 
             let settings = Rc::new(Self {
+                base_config: config.clone(),
                 window,
                 _api_label: api_label,
                 api_input,
@@ -871,8 +896,11 @@ mod windows_app {
                 threshold_input,
                 _language_label: language_label,
                 language_combo,
+                _alert_mode_label: alert_mode_label,
+                alert_mode_combo,
+                _retention_label: retention_label,
+                retention_input,
                 auto_start,
-                enable_alerts,
                 _status_label: status_label,
                 save_button,
                 cancel_button,
@@ -926,6 +954,7 @@ mod windows_app {
         }
 
         fn read_config(&self) -> Result<AppConfig, String> {
+            let mut config = self.base_config.clone();
             let api_key = self.api_input.text().trim().to_string();
             if api_key.is_empty() {
                 return Err("API Key 不能为空".to_string());
@@ -945,21 +974,36 @@ mod windows_app {
                 .trim()
                 .parse::<f64>()
                 .map_err(|_| "余额预警线必须是数字".to_string())?;
-            if threshold_yuan < 0.0 {
-                return Err("余额预警线不能小于 0".to_string());
+            if !(0.0..=10000.0).contains(&threshold_yuan) {
+                return Err("余额预警线必须在 0 到 10000 之间".to_string());
             }
-            Ok(AppConfig {
-                api_key,
-                interval_minutes,
-                threshold_yuan,
-                language: if self.language_combo.selection() == Some(1) {
-                    "en".to_string()
-                } else {
-                    "zh".to_string()
-                },
-                auto_start: self.auto_start.check_state() == nwg::CheckBoxState::Checked,
-                enable_alerts: self.enable_alerts.check_state() == nwg::CheckBoxState::Checked,
-            })
+            let retention_days = self
+                .retention_input
+                .text()
+                .trim()
+                .parse::<u64>()
+                .map_err(|_| "保留天数必须是数字".to_string())?;
+            if !(1..=3650).contains(&retention_days) {
+                return Err("保留天数必须在 1 到 3650 天之间".to_string());
+            }
+            config.api_key = api_key;
+            config.interval_minutes = interval_minutes;
+            config.threshold_yuan = threshold_yuan;
+            config.language = if self.language_combo.selection() == Some(1) {
+                "en".to_string()
+            } else {
+                "zh".to_string()
+            };
+            config.auto_start = self.auto_start.check_state() == nwg::CheckBoxState::Checked;
+            config.alert_mode = match self.alert_mode_combo.selection() {
+                Some(1) => "always",
+                Some(2) => "never",
+                _ => "once",
+            }
+            .to_string();
+            config.retention_days = retention_days;
+            normalize_config(&mut config);
+            Ok(config)
         }
     }
 
@@ -1047,6 +1091,42 @@ mod windows_app {
         preferred_balance(&state.balances)
             .map(|(_, balance)| balance.total_balance < state.config.threshold_yuan)
             .unwrap_or(false)
+    }
+
+    fn should_low_balance_alert(state: &mut RuntimeState, low_balance: bool) -> bool {
+        if !low_balance {
+            state.alert_suppressed = false;
+            return false;
+        }
+        match state.config.alert_mode.as_str() {
+            "never" => false,
+            "always" => true,
+            _ if state.alert_suppressed => false,
+            _ => {
+                state.alert_suppressed = true;
+                true
+            }
+        }
+    }
+
+    fn format_balance_line(lang: &str, code: &str, balance: &Balance) -> String {
+        if lang == "en" {
+            format!(
+                "{} {} (Topped {}, Granted {})",
+                format_amount(balance.total_balance),
+                code,
+                format_amount(balance.topped_up_balance),
+                format_amount(balance.granted_balance)
+            )
+        } else {
+            format!(
+                "{} {}（充值 {}，赠送 {}）",
+                format_amount(balance.total_balance),
+                code,
+                format_amount(balance.topped_up_balance),
+                format_amount(balance.granted_balance)
+            )
+        }
     }
 
     fn icon_label(value: f64) -> String {
@@ -1195,8 +1275,36 @@ mod windows_app {
             .ok()
             .and_then(|text| serde_json::from_str::<AppConfig>(&text).ok())
             .unwrap_or_default();
-        config.interval_minutes = config.interval_minutes.clamp(1, 1440);
+        normalize_config(&mut config);
         config
+    }
+
+    fn normalize_config(config: &mut AppConfig) {
+        if config.alert_mode == default_alert_mode() {
+            if let Some(value) = config.extra.remove("enable_alerts") {
+                config.alert_mode = if value.as_bool() == Some(false) {
+                    "never".to_string()
+                } else {
+                    "once".to_string()
+                };
+            }
+        } else {
+            config.extra.remove("enable_alerts");
+        }
+        if let Some(value) = config.extra.remove("log_retention_days") {
+            if let Some(days) = value.as_u64() {
+                config.retention_days = days;
+            }
+        }
+        config.interval_minutes = config.interval_minutes.clamp(1, 1440);
+        config.threshold_yuan = config.threshold_yuan.clamp(0.0, 10000.0);
+        config.retention_days = config.retention_days.clamp(1, 3650);
+        if config.language != "zh" && config.language != "en" {
+            config.language = default_lang();
+        }
+        if !matches!(config.alert_mode.as_str(), "never" | "always" | "once") {
+            config.alert_mode = default_alert_mode();
+        }
     }
 
     fn save_config(config: &AppConfig) -> std::io::Result<()> {
@@ -1387,7 +1495,11 @@ mod windows_app {
             ("en", "threshold_label") => "Low balance threshold:",
             ("en", "language_label") => "Language:",
             ("en", "auto_start") => "Auto-start on boot",
-            ("en", "enable_alerts") => "Enable balance alerts",
+            ("en", "alert_mode_label") => "Low Balance Alert:",
+            ("en", "alert_mode_never") => "Never",
+            ("en", "alert_mode_always") => "Always",
+            ("en", "alert_mode_once") => "Once",
+            ("en", "retention_label") => "Log & record retention (days):",
             ("en", "save") => "Save",
             ("en", "cancel") => "Cancel",
             ("en", "not_checked") => "Not checked",
@@ -1396,6 +1508,10 @@ mod windows_app {
             ("en", "granted") => "Granted",
             ("en", "last_check") => "Last check",
             ("en", "balance_title") => "DeepSeek Balance",
+            ("en", "bal_title") => "DeepSeek Balance:",
+            ("en", "query_error") => "Query error",
+            ("en", "service_status") => "DeepSeek API Status:",
+            ("en", "status_none") => "🟢 All Systems Operational",
             ("en", "balance_empty") => {
                 "No balance data yet. Click Check Now or wait for the next check."
             }
@@ -1421,7 +1537,11 @@ mod windows_app {
             (_, "threshold_label") => "余额预警线：",
             (_, "language_label") => "语言 / Language:",
             (_, "auto_start") => "开机自动启动",
-            (_, "enable_alerts") => "开启预警提醒",
+            (_, "alert_mode_label") => "低余额提醒：",
+            (_, "alert_mode_never") => "不提醒",
+            (_, "alert_mode_always") => "持续提醒",
+            (_, "alert_mode_once") => "仅提醒一次",
+            (_, "retention_label") => "日志和记录保留天数：",
             (_, "save") => "保存",
             (_, "cancel") => "取消",
             (_, "not_checked") => "尚未查询",
@@ -1430,6 +1550,10 @@ mod windows_app {
             (_, "granted") => "赠送",
             (_, "last_check") => "上次查询",
             (_, "balance_title") => "DeepSeek 余额",
+            (_, "bal_title") => "DeepSeek 余额：",
+            (_, "query_error") => "查询出错",
+            (_, "service_status") => "DeepSeek API 服务状态：",
+            (_, "status_none") => "🟢 服务正常",
             (_, "balance_empty") => "尚未查询到余额，请稍后或点击立即查询。",
             (_, "balance_error_title") => "DeepSeek 余额 - 错误",
             (_, "low_balance_title") => "DeepSeek 余额不足",
