@@ -6,10 +6,9 @@ A Windows tray app and Linux CLI/Plasma widget that periodically query the DeepS
 
 ![preview](assets/preview.png)
 
-**Linux Plasma widget preview**
-The desktop widget is only supported on KDE Plasma 6.
+[Linux Plasma widget preview](assets/preview_linux.png) (KDE Plasma 6 only)
 
-![Linux preview](assets/preview_linux.png)
+[Mac WebView screenshots](assets/webview%20screenshots/) — menu bar, settings UI, history chart, light theme
 
 ---
 
@@ -21,7 +20,7 @@ The desktop widget is only supported on KDE Plasma 6.
 - **History viewer** — Paginated table of all balance records with interactive trend chart and consumption rate analysis. CSV export.
 - **Settings** — API key (Windows Credential Manager), check interval, alert threshold, alert mode, icon theme, proxy, and more.
 - **Demo mode** — `--demo` flag for testing without an API key, with a developer tools panel.
-- **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (MacOS, Keychain-secured).
+- **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (MacOS, Keychain-secured, WebView settings UI).
 
 ### Notification Previews
 
@@ -263,6 +262,7 @@ Colours are customisable via 5 presets or custom hex values in the settings dial
 - Shared tk root window: settings, history, and dev tools no longer conflict when opened together; history dialog supports singleton raise-to-front
 - Settings dialog: input validation with clear error messages, version info, contributor credits, clickable project link
 - API service status recorded alongside each balance entry in the local database
+- MacOS community build: WebView-based settings UI with dark/light theme, interactive history chart, and CSV export (Mac only)
 
 ## License
 
