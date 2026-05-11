@@ -817,9 +817,7 @@ fn consumption_rate(hours: i64) -> Result<Option<ConsumptionRate>, String> {
     consumption_rate_from_records(&records)
 }
 
-fn consumption_rate_with_fallback(
-    retention_days: u64,
-) -> Result<Option<ConsumptionRate>, String> {
+fn consumption_rate_with_fallback(retention_days: u64) -> Result<Option<ConsumptionRate>, String> {
     if let Some(rate) = consumption_rate(24)? {
         return Ok(Some(rate));
     }
