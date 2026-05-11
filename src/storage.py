@@ -121,6 +121,21 @@ def get_consumption_rate(hours=24):
     Finds all non-increasing sub-intervals, computes per-interval rate,
     averages them, and returns (daily_rate, hours_remaining) or None.
     Assumes one currency — first seen currency wins."""
+    result = _get_consumption_rate_for_hours(hours)
+    if result or hours != 24:
+        return result
+    try:
+        from src.config import load_config
+        retention_days = int(load_config().get("retention_days", 30))
+    except Exception:
+        retention_days = 30
+    fallback_hours = max(hours, max(1, retention_days) * 24)
+    if fallback_hours <= hours:
+        return result
+    return _get_consumption_rate_for_hours(fallback_hours)
+
+
+def _get_consumption_rate_for_hours(hours=24):
     try:
         conn = _connect()
         # Pick currency: prefer one with most recent non-zero balance
