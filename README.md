@@ -15,24 +15,23 @@ The desktop widget is only supported on KDE Plasma 6.
 
 ## Features
 
-- **Tray icon with balance** — Balance shown as a number on a coloured rounded rectangle. Teal (OK), red (low balance), warm gray (API service degraded), gray (no data yet).
-- **Low balance notification** — Three modes in the Python build: never, always, or once per drop (default). The icon turns red regardless.
-- **Balance details** — Left-click the Windows tray icon to see balance, API service status, and last check time.
-- **Settings** — API key, check interval, alert threshold, alert mode, API status alerts, language, and auto-start on boot.
-- **Rust Windows build** — Native Rust build (`rust-windows/`) with Win7/Win8.1 support, bundled icon, and startup-folder auto-start.
-- **Rust Linux build** — `dsmon` CLI daemon (`rust-linux/`) with systemd user service support, log retention, and an optional KDE Plasma 6 widget.
-- **Balance history** — Rust builds store SQLite balance history, show trend summaries in settings, and export CSV.
-- **Plasma widget integration** — The Linux widget reads `dsmon` command output, can start/stop the daemon, and reports command errors through desktop notifications.
-- **MacOS build** — Community-contributed MacOS port (`src/mac/`). Native look-and-feel, Keychain-secured API key storage.
+- **Tray icon with balance** — Balance shown as a number on a coloured rounded rectangle. Teal (OK), red (low balance), warm gray (API service degraded), gray (no data yet). 5 customisable themes + custom hex colours.
+- **Low balance notification** — Three modes: never, always, or once per drop (default). The icon turns red regardless.
+- **Balance details** — Left-click the icon to see balance with emoji prefixes, consumption rate estimate, API service status, and relative last-check time.
+- **History viewer** — Paginated table of all balance records with interactive trend chart and consumption rate analysis. CSV export.
+- **Settings** — API key (Windows Credential Manager), check interval, alert threshold, alert mode, icon theme, proxy, and more.
+- **Demo mode** — `--demo` flag for testing without an API key, with a developer tools panel.
+- **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (MacOS, Keychain-secured).
 
 ### Notification Previews
 
 **Normal balance view:**
 
 > DeepSeek Balance:  
-> 12.34 CNY (Topped 10.00, Granted 2.34)  
-> Last Check: 2026-05-08 14:30:00  
-> DeepSeek API Status: 🟢 All Systems Operational
+> 💰 12.34 CNY (Topped 10.00, Granted 2.34)  
+> 📊 Avg: 1.50/day  |  Est. 28d 4h remaining  
+> 📡 DeepSeek API Status: 🟢 All Systems Operational  
+> 🕐 Last Check: 5 min ago
 
 **Low balance alert:**
 
@@ -125,11 +124,11 @@ bash ../scripts/build_mac.sh
 
 | | Python Windows | Rust Windows | Rust Linux | Python MacOS |
 |---|---|---|---|---|
-| Runtime | Python + pystray + Tkinter | Native Rust + native-windows-gui | Native Rust CLI | Python + rumps + tkinter |
+| Runtime | Python + pystray + Tkinter | Native Rust + native-windows-gui | Native Rust CLI | Python + rumps + webview |
 | Min OS | Windows 10+ | Windows 7 SP1+ | RHEL 8 / Ubuntu 20.04 era glibc | MacOS 10.14+ |
 | First launch (no key) | Opens settings dialog | Opens `config.json` in editor | Prints config path and creates config | Opens settings window |
 | Auto-start | Registry Run key | Startup folder shortcut | systemd user service | Login items |
-| API key storage | config.json | config.json | config.json | MacOS Keychain |
+| API key storage | Windows Credential Manager | config.json | config.json | MacOS Keychain |
 
 ## Project Structure
 
@@ -179,16 +178,20 @@ Windows builds store settings in `%APPDATA%\DeepSeek Balance Monitor\config.json
 
 ```json
 {
-  "api_key": "sk-xxxxxxxx",
   "interval_minutes": 10,
   "threshold_yuan": 1.0,
   "language": "zh",
-  "auto_start": false,
   "alert_mode": "once",
   "api_alert_enabled": true,
-  "retention_days": 30
+  "retention_days": 30,
+  "theme": "default",
+  "icon_stroke": false,
+  "http_proxy": "",
+  "auto_start": false
 }
 ```
+
+API keys are stored in the system credential manager (Windows Credential Manager / MacOS Keychain) and never written to this file.
 
 Linux `dsmon` stores settings in `~/.config/deepseek-balance-monitor/config.json` and logs in `~/.local/state/deepseek-balance-monitor/app.log`.
 
@@ -203,6 +206,7 @@ Rust Windows and Rust Linux store balance history in `balance_history.db` next t
 | View Balance | Left-click the icon, or Right-click → View Balance |
 | Check Now | Right-click → Check Now |
 | Top Up | Right-click → Top Up |
+| History | Right-click → History |
 | Settings | Right-click → Settings |
 | Quit | Right-click → Quit |
 
@@ -214,6 +218,8 @@ Rust Windows and Rust Linux store balance history in `balance_history.db` next t
 | Red | Balance is below threshold, or an API error occurred |
 | Warm gray | API service is degraded (balance data may be stale) |
 | Gray | First check not yet completed, or no API key configured |
+
+Colours are customisable via 5 presets or custom hex values in the settings dialog.
 
 ## Changelog
 
@@ -239,19 +245,24 @@ Rust Windows and Rust Linux store balance history in `balance_history.db` next t
 
 - Replaced `requests` with Python stdlib `urllib.request`
 
-### Upcoming (already on `main`, pending next release)
+### v1.2 (2026-05-11)
 
 **Added**
+
 - Custom icon styling: 5 preset colour themes (Default / High Contrast / Bright / Dark Mode / Monochrome) + custom hex colour editor and icon stroke toggle
-- History viewer: paginated table of all balance records with trend chart and consumption rate analysis, CSV export support
+- History viewer: paginated table of all balance records with interactive trend chart and consumption rate analysis
+- CSV export with configurable save path
 - Consumption rate estimation: daily average spend and projected days/hours remaining, visible in balance notification and history viewer
 - Demo mode (`--demo`) with a developer tools panel for interactively testing various states
 - HTTP proxy support for restricted network environments
+- Windows Credential Manager integration: API key stored encrypted, never written to plaintext config.json
 
 **Changed**
-- API key now stored exclusively in Windows Credential Manager, no longer written to plaintext `config.json`
-- Balance detail notification visual polish: emoji prefixes for each line, last-check now shows relative time only
-- API service status now recorded alongside each balance entry in the local database
+
+- Balance detail notification: emoji-prefixed lines, relative time on last-check, service status between rate and time
+- Shared tk root window: settings, history, and dev tools no longer conflict when opened together; history dialog supports singleton raise-to-front
+- Settings dialog: input validation with clear error messages, version info, contributor credits, clickable project link
+- API service status recorded alongside each balance entry in the local database
 
 ## License
 

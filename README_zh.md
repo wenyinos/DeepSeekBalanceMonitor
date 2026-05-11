@@ -15,24 +15,23 @@
 
 ## 功能
 
-- **托盘图标显示余额** — 余额以数字形式显示在任务栏圆角图标上。青色（正常）、红色（低余额）、暖灰色（API 服务异常）、灰色（无数据）。
-- **低余额通知** — 三种模式：不提醒、持续提醒、仅提醒一次（默认）。图标仍会变红。
-- **余额详情** — 左键单击图标查看余额明细、API 服务状态和上次查询时间。
-- **设置** — API Key、查询间隔、预警阈值、提醒模式、API 状态提醒、语言、开机自启。
-- **Rust Windows 版** — 原生 Rust 构建（`rust-windows/`），支持 Win7/Win8.1，使用启动文件夹快捷方式实现开机自启。
-- **Rust Linux 版** — `dsmon` 命令行守护进程（`rust-linux/`），支持 systemd 用户服务、日志保留和可选 KDE Plasma 6 小组件。
-- **余额历史** — Rust 版使用 SQLite 保存余额历史，在设置页展示趋势统计，并支持 CSV 导出。
-- **Plasma 小组件集成** — Linux 小组件从 `dsmon` 命令读取状态，可启动 / 退出守护进程，并通过桌面通知显示命令错误。
-- **MacOS 版** — 社区贡献的 MacOS 移植（`src/mac/`）。原生外观，Keychain 加密存储 API Key。
+- **托盘图标显示余额** — 余额以数字形式显示在任务栏圆角图标上。青色（正常）、红色（低余额）、暖灰色（API 服务异常）、灰色（无数据）。5 套可切换配色 + 自定义 hex 颜色
+- **低余额通知** — 三种模式：不提醒、持续提醒、仅提醒一次（默认）。图标仍会变红
+- **余额详情** — 左键单击图标查看余额（emoji 前缀）、消耗速率、API 服务状态和相对时间
+- **历史记录页** — 分页表格展示所有余额记录，附带折线图和消耗分析，支持 CSV 导出
+- **设置** — API Key（Windows 凭据管理器加密存储）、查询间隔、预警阈值、提醒模式、图标主题、代理等
+- **Demo 模式** — `--demo` 免 Key 体验，开发者面板可调参数
+- **社区移植** — Rust-Win（Win7+）、Rust-Linux（CLI + Plasma 6 小组件）、Py-Mac（Keychain 加密）
 
 ### 通知预览
 
 **查看余额：**
 
 > DeepSeek 余额：  
-> 12.34 CNY（充值 10.00，赠送 2.34）  
-> 上次查询: 2026-05-08 14:30:00  
-> DeepSeek API 服务状态：🟢 服务正常
+> 💰 12.34 CNY（充值 10.00，赠送 2.34）  
+> 📊 日均消耗 1.50  |  预计可用 28 天 4 小时  
+> 📡 DeepSeek API 服务状态：🟢 服务正常  
+> 🕐 上次查询：5 分钟前
 
 **低余额告警：**
 
@@ -125,11 +124,11 @@ bash ../scripts/build_mac.sh
 
 | | Python Windows 版 | Rust Windows 版 | Rust Linux 版 | Python MacOS 版 |
 |---|---|---|---|---|
-| 运行时 | Python + pystray + Tkinter | 原生 Rust + native-windows-gui | 原生 Rust 命令行 | Python + rumps + tkinter |
+| 运行时 | Python + pystray + Tkinter | 原生 Rust + native-windows-gui | 原生 Rust 命令行 | Python + rumps + webview |
 | 最低系统 | Windows 10+ | Windows 7 SP1+ | RHEL 8 / Ubuntu 20.04 同时代 glibc | MacOS 10.14+ |
 | 首次无 Key | 弹出设置窗口 | 打开 `config.json` 编辑 | 输出配置路径并创建配置 | 弹出设置窗口 |
 | 开机自启 | 注册表 Run 键 | 启动文件夹快捷方式 | systemd 用户服务 | 登录项 |
-| API Key 存储 | config.json | config.json | config.json | MacOS Keychain |
+| API Key 存储 | Windows Credential Manager | config.json | config.json | MacOS Keychain |
 
 ## 项目结构
 
@@ -179,16 +178,20 @@ Windows 配置文件路径：`%APPDATA%\DeepSeek Balance Monitor\config.json`
 
 ```json
 {
-  "api_key": "sk-xxxxxxxx",
   "interval_minutes": 10,
   "threshold_yuan": 1.0,
   "language": "zh",
-  "auto_start": false,
   "alert_mode": "once",
   "api_alert_enabled": true,
-  "retention_days": 30
+  "retention_days": 30,
+  "theme": "default",
+  "icon_stroke": false,
+  "http_proxy": "",
+  "auto_start": false
 }
 ```
+
+API Key 存储在系统凭据管理器（Windows Credential Manager / MacOS Keychain），不写入此文件。
 
 Linux `dsmon` 配置路径：`~/.config/deepseek-balance-monitor/config.json`，日志路径：`~/.local/state/deepseek-balance-monitor/app.log`。
 
@@ -203,6 +206,7 @@ Rust Windows 和 Rust Linux 会在各自应用数据目录保存 `balance_histor
 | 查看余额 | 左键单击图标，或右键 → 查看余额 |
 | 立即查询 | 右键 → 立即查询 |
 | 充值 | 右键 → 充值 |
+| 历史记录 | 右键 → 历史记录 |
 | 设置 | 右键 → 设置 |
 | 退出 | 右键 → 退出 |
 
@@ -214,6 +218,8 @@ Rust Windows 和 Rust Linux 会在各自应用数据目录保存 `balance_histor
 | 红色 | 余额低于阈值，或 API 查询出错 |
 | 暖灰 | API 服务异常（余额数据可能已过时） |
 | 灰色 | 尚未完成首次查询，或未配置 Key |
+
+配色支持 5 套预设或自定义 hex 值，在设置中切换。
 
 ## 更新日志
 
@@ -239,19 +245,23 @@ Rust Windows 和 Rust Linux 会在各自应用数据目录保存 `balance_histor
 
 - 移除 `requests`，全部改用 Python 标准库 `urllib.request`
 
-### 即将推出（源码已实现，待下一次 release）
+### v1.2 (2026-05-11)
 
 **新增**
-- 自定义图标样式：5 套预置配色方案（默认/高对比/明亮/暗色模式/纯灰度）+ 自定义 hex 颜色，以及图标描边开关
-- 历史记录页：分页表格展示所有余额记录，支持CSV数据本地导出，附带趋势折线图和消耗速率分析
-- 消耗速率估算：日均消耗与预计可用天数/小时，在余额通知和历史记录页中同步显示
+
+- 自定义图标样式：5 套预置配色 + 自定义 hex 颜色 + 图标描边开关
+- 历史记录页：分页表格 + 折线图 + 消耗速率分析，支持 CSV 导出
+- 消耗速率估算：日均消耗与预计可用天数/小时，通知和历史页同步显示
 - Demo 模式（`--demo`），可调出开发者面板测试各种状态场景
-- HTTP 代理支持，适配公司内网等受限网络环境
+- HTTP 代理支持
+- API Key 加密存入 Windows 凭据管理器，不再写入 config.json
 
 **变更**
-- API Key 专存 Windows 凭据管理器，不再写入 config.json 明文
-- 余额详情通知卡片视觉优化：添加前缀 emoji，上次查询时间改为仅显示相对时间
-- API 服务状态同步写入本地数据库，每次余额查询附带记录
+
+- 余额详情通知：emoji 前缀、相对时间、服务状态位置调整
+- 设置/历史/开发者面板共享根窗口，历史和开发者面板支持重复唤起聚焦
+- 设置页改进：输入校验错误提示、底部版本号与贡献者信息、可点击项目链接
+- API 服务状态同步写入本地数据库
 
 ## 协议
 
