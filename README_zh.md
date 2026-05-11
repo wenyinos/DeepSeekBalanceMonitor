@@ -28,6 +28,7 @@ Rust v1.2：
 - Rust 演示模式通过把 API Key 保存为 `demo` 触发，使用独立 `demo_mode_balance` 表，不请求真实 API。
 - Rust Linux 新增 `dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询都会重新读取配置，CLI 固定英文输出，安装脚本可提示输入 API Key。
 - Plasma 6 小组件新增透明液态玻璃桌面样式，显示余额、上次查询、服务状态、预计可用时间、刷新按钮和 emoji 状态文案。
+- Rainmeter 桌面小工具通过仅本地可访问的状态接口供给数据，并随 Release 提供 `.rmskin` 皮肤包；当前 Rust Windows 已支持该接口，Python Windows 后续可按同一契约接入。
 
 Python v1.2：
 
@@ -42,6 +43,7 @@ Python v1.2：
 - **历史记录页** — 分页表格展示所有余额记录，附带折线图和消耗分析，支持 CSV 导出
 - **设置** — API Key（Windows 凭据管理器加密存储）、查询间隔、预警阈值、提醒模式、图标主题、代理等
 - **Demo 模式** — `--demo` 免 Key 体验，开发者面板可调参数
+- **可选桌面小工具** — Linux 支持 KDE Plasma 6，Windows 可通过本地小工具状态接口搭配 Rainmeter 使用
 - **社区移植** — Rust-Win（Win7+）、Rust-Linux（CLI + Plasma 6 小组件）、Py-Mac（Keychain 加密）
 
 ### 通知预览
@@ -65,6 +67,18 @@ Python v1.2：
 ### 直接下载
 
 从 [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases) 下载最新文件。Python 打包版使用 `DeepSeekBalanceMonitor.exe`，Rust Windows 版使用 `deepseek-balance-monitor.exe`，Linux 版使用 `deepseek-balance-monitor-*-linux-x86_64.tar.gz`。发布版无需 Python 环境。
+
+### 可选 Rainmeter 小工具（Windows）
+
+Rainmeter 桌面小工具是可选功能。它从正在运行的 DeepSeek Balance Monitor 主进程读取本地状态；不会保存或接收你的 API Key。当前 Rust Windows 已提供该本地接口，Python Windows 后续可按同一接口接入。
+
+1. 从 [rainmeter.net](https://www.rainmeter.net/) 下载并安装 Rainmeter。
+2. 从 Releases 下载并运行提供 Rainmeter 接口的 Windows 版。当前发布包请使用 Rust Windows 版 `deepseek-balance-monitor-*-windows-*.exe`。
+3. 从同一个 Release 下载 `deepseek-balance-monitor-*-rainmeter.rmskin`。
+4. 双击 `.rmskin` 文件并安装皮肤。
+5. 启动或保持主程序运行，然后在 Rainmeter 中加载 `DeepSeekBalanceMonitor\DeepSeekBalanceMonitor.ini`。
+
+`.rmskin` 包由 GitHub Actions 使用 [`rmskin-builder`](https://pypi.org/project/rmskin-builder/) 生成；该打包工具由 [`2bndy5/rmskin-action`](https://github.com/2bndy5/rmskin-action) 提供。
 
 ### 运行要求
 

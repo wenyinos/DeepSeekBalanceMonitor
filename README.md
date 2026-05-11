@@ -28,6 +28,7 @@ Rust v1.2:
 - Rust demo mode is enabled by saving `demo` as the API key and uses an isolated `demo_mode_balance` table instead of real API calls.
 - Rust Linux adds `dsmon set-key` and `dsmon set <field> <value>`; the daemon reloads configuration on each polling cycle, CLI output stays English-only, and the installer can prompt for an API key.
 - The Plasma 6 widget adds a transparent liquid-glass desktop view with balance, last check, service status, estimated availability, refresh control, and emoji status text.
+- Rainmeter desktop widget support uses a local-only status interface and release `.rmskin` skin package; Rust Windows currently provides the interface, and Python Windows can use the same contract later.
 
 Python v1.2:
 
@@ -42,6 +43,7 @@ Python v1.2:
 - **History viewer** — Paginated table of all balance records with interactive trend chart and consumption rate analysis. CSV export.
 - **Settings** — API key (Windows Credential Manager), check interval, alert threshold, alert mode, icon theme, proxy, and more.
 - **Demo mode** — `--demo` flag for testing without an API key, with a developer tools panel.
+- **Optional desktop widgets** — KDE Plasma 6 on Linux, and Rainmeter on Windows through the local widget status interface.
 - **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (MacOS, Keychain-secured).
 
 ### Notification Previews
@@ -65,6 +67,18 @@ Python v1.2:
 ### Direct Download
 
 Grab the latest files from [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases). Use `DeepSeekBalanceMonitor.exe` for the Python-packaged build, `deepseek-balance-monitor.exe` for the Rust Windows build, or `deepseek-balance-monitor-*-linux-x86_64.tar.gz` for Linux. Release builds do not require Python.
+
+### Optional Rainmeter Widget (Windows)
+
+The Rainmeter desktop widget is optional. It reads local status from a running DeepSeek Balance Monitor process; it does not store or receive your API key. Rust Windows currently provides this local interface, and Python Windows can support the same interface later.
+
+1. Install Rainmeter from [rainmeter.net](https://www.rainmeter.net/).
+2. Download and run a Windows build that provides the Rainmeter interface. For current releases, use the Rust Windows `deepseek-balance-monitor-*-windows-*.exe`.
+3. Download `deepseek-balance-monitor-*-rainmeter.rmskin` from the same Release.
+4. Double-click the `.rmskin` file and install the skin.
+5. Start or keep open the main app, then load `DeepSeekBalanceMonitor\DeepSeekBalanceMonitor.ini` in Rainmeter.
+
+The `.rmskin` package is generated in GitHub Actions with [`rmskin-builder`](https://pypi.org/project/rmskin-builder/), provided by [`2bndy5/rmskin-action`](https://github.com/2bndy5/rmskin-action).
 
 ### Requirements
 

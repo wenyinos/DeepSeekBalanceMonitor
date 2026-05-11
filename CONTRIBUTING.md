@@ -162,3 +162,4 @@ DeepSeek 余额：                              ← 固定标题
 - **Demo 模式统一入口**：所有版本通过 API Key 填入 `demo` 触发，固定读取独立 SQLite `demo_mode_balance` 表中的预设数据，不请求真实 API，不写入真实历史表
 - **CLI 输出**：Linux / Windows / macOS 命令行输出统一使用英文，不随 `ui_language` 切换；Linux 命令行版不主动发送桌面通知
 - **Linux 配置命令**：`dsmon set <field> <value>` 保存后，daemon 下一轮轮询和手动查询命令必须读取最新配置
+- **Rainmeter 本地接口**：Windows GUI 版应在 `127.0.0.1:17654` 提供只读本地 HTTP 接口；`GET /widget-status?lang=zh|en` 返回当前状态 JSON，`GET /check?lang=zh|en` 触发一次后台查询并返回当前状态。JSON 字段固定为 `accent_color`、`balance_line`、`status_line`、`last_check`、`service_status_line`、`estimated_line`；接口不得暴露或接收 API Key

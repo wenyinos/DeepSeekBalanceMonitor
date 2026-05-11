@@ -14,7 +14,8 @@ mod windows_app {
     use std::collections::BTreeMap;
     use std::ffi::{c_void, OsStr, OsString};
     use std::fs::{self, File, OpenOptions};
-    use std::io::Write;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -30,6 +31,7 @@ mod windows_app {
 
     const APP_NAME: &str = "DeepSeek Balance Monitor";
     const TOP_UP_URL: &str = "https://platform.deepseek.com/top_up";
+    const RAINMETER_ADDR: &str = "127.0.0.1:17654";
     const STARTUP_LINK_NAME: &str = "DeepSeek Balance Monitor.lnk";
     const API_KEY_PLACEHOLDER: &str = "Stored securely. Leave blank to keep the existing API key.";
     const CSIDL_STARTUP: i32 = 0x0007;
@@ -598,6 +600,7 @@ mod windows_app {
                     }
                 });
             ui.handlers.borrow_mut().push(handler);
+            start_rainmeter_server(ui.state.clone(), ui.tx.clone(), ui.notice.sender());
             ui.timer.start();
             Ok(ui)
         }
@@ -697,39 +700,7 @@ mod windows_app {
             };
             self.update_tray();
 
-            let tx = self.tx.clone();
-            let notice = self.notice.sender();
-            thread::spawn(move || {
-                let demo_mode = demo::is_enabled(&config.api_key);
-                let service_status = if demo_mode {
-                    "none".to_string()
-                } else {
-                    fetch_service_status(&config.http_proxy)
-                };
-                let balance = if config.api_key.trim().is_empty() {
-                    Err("No API Key configured".to_string())
-                } else if demo_mode {
-                    open_history_db().and_then(|conn| {
-                        demo::prepare(&conn)?;
-                        demo::balances(&conn)
-                    })
-                } else {
-                    fetch_balance(&config.api_key, &config.http_proxy)
-                };
-                if !demo_mode {
-                    if let Ok(balances) = &balance {
-                        if let Err(error) = save_balance_history(balances, &service_status) {
-                            log_line(&format!("Failed to save balance history: {error}"));
-                        }
-                    }
-                }
-                let _ = tx.send(UiMessage::CheckFinished(CheckResult {
-                    balance,
-                    service_status,
-                    demo_mode,
-                }));
-                notice.notice();
-            });
+            spawn_balance_check(config, self.tx.clone(), self.notice.sender());
         }
 
         fn process_messages(&self) {
@@ -999,6 +970,279 @@ mod windows_app {
                 nwg::unbind_event_handler(&handler);
             }
         }
+    }
+
+    #[derive(Clone)]
+    struct RainmeterSnapshot {
+        config: AppConfig,
+        balances: BTreeMap<String, Balance>,
+        last_check: Option<DateTime<Local>>,
+        error: Option<String>,
+        checking: bool,
+        service_status: String,
+    }
+
+    fn spawn_balance_check(config: AppConfig, tx: Sender<UiMessage>, notice: nwg::NoticeSender) {
+        thread::spawn(move || {
+            let demo_mode = demo::is_enabled(&config.api_key);
+            let service_status = if demo_mode {
+                "none".to_string()
+            } else {
+                fetch_service_status(&config.http_proxy)
+            };
+            let balance = if config.api_key.trim().is_empty() {
+                Err("No API Key configured".to_string())
+            } else if demo_mode {
+                open_history_db().and_then(|conn| {
+                    demo::prepare(&conn)?;
+                    demo::balances(&conn)
+                })
+            } else {
+                fetch_balance(&config.api_key, &config.http_proxy)
+            };
+            if !demo_mode {
+                if let Ok(balances) = &balance {
+                    if let Err(error) = save_balance_history(balances, &service_status) {
+                        log_line(&format!("Failed to save balance history: {error}"));
+                    }
+                }
+            }
+            let _ = tx.send(UiMessage::CheckFinished(CheckResult {
+                balance,
+                service_status,
+                demo_mode,
+            }));
+            notice.notice();
+        });
+    }
+
+    fn start_rainmeter_server(
+        state: Arc<Mutex<RuntimeState>>,
+        tx: Sender<UiMessage>,
+        notice: nwg::NoticeSender,
+    ) {
+        thread::spawn(move || {
+            let listener = match TcpListener::bind(RAINMETER_ADDR) {
+                Ok(listener) => listener,
+                Err(error) => {
+                    log_line(&format!("Rainmeter server bind failed: {error}"));
+                    return;
+                }
+            };
+            log_line(&format!("Rainmeter server listening on {RAINMETER_ADDR}"));
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => handle_rainmeter_request(stream, &state, &tx, notice),
+                    Err(error) => log_line(&format!("Rainmeter request failed: {error}")),
+                }
+            }
+        });
+    }
+
+    fn handle_rainmeter_request(
+        mut stream: TcpStream,
+        state: &Arc<Mutex<RuntimeState>>,
+        tx: &Sender<UiMessage>,
+        notice: nwg::NoticeSender,
+    ) {
+        let mut buffer = [0u8; 2048];
+        let read = match stream.read(&mut buffer) {
+            Ok(read) => read,
+            Err(error) => {
+                log_line(&format!("Rainmeter request read failed: {error}"));
+                return;
+            }
+        };
+        let request = String::from_utf8_lossy(&buffer[..read]);
+        let target = request
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .unwrap_or("/");
+        if target.starts_with("/check") {
+            trigger_rainmeter_check(state, tx, notice);
+        }
+        let (status, body) = if target.starts_with("/widget-status") || target.starts_with("/check")
+        {
+            ("200 OK", rainmeter_status_body(state, target))
+        } else {
+            ("404 Not Found", "{\"error\":\"not found\"}".to_string())
+        };
+        write_http_response(
+            &mut stream,
+            status,
+            "application/json; charset=utf-8",
+            &body,
+        );
+    }
+
+    fn trigger_rainmeter_check(
+        state: &Arc<Mutex<RuntimeState>>,
+        tx: &Sender<UiMessage>,
+        notice: nwg::NoticeSender,
+    ) {
+        let config = {
+            let mut state = state.lock().unwrap();
+            if state.checking {
+                return;
+            }
+            state.checking = true;
+            state.error = None;
+            state.config.clone()
+        };
+        spawn_balance_check(config, tx.clone(), notice);
+    }
+
+    fn rainmeter_status_body(state: &Arc<Mutex<RuntimeState>>, target: &str) -> String {
+        let snapshot = {
+            let state = state.lock().unwrap();
+            RainmeterSnapshot {
+                config: state.config.clone(),
+                balances: state.balances.clone(),
+                last_check: state.last_check,
+                error: state.error.clone(),
+                checking: state.checking,
+                service_status: state.service_status.clone(),
+            }
+        };
+        let lang = request_language(target, &snapshot.config.ui_language);
+        let rate = current_consumption_rate(&snapshot.config);
+        rainmeter_status_json(&snapshot, rate.as_ref(), &lang, Local::now())
+    }
+
+    fn write_http_response(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.as_bytes().len()
+        );
+        if let Err(error) = stream.write_all(response.as_bytes()) {
+            log_line(&format!("Rainmeter response write failed: {error}"));
+        }
+    }
+
+    fn request_language(target: &str, fallback: &str) -> String {
+        if target.contains("lang=en") {
+            "en".to_string()
+        } else if target.contains("lang=zh") {
+            "zh".to_string()
+        } else if fallback == "en" {
+            "en".to_string()
+        } else {
+            "zh".to_string()
+        }
+    }
+
+    fn current_consumption_rate(config: &AppConfig) -> Option<ConsumptionRate> {
+        if demo::is_enabled(&config.api_key) {
+            open_history_db()
+                .and_then(|conn| {
+                    demo::prepare(&conn)?;
+                    demo::consumption_rate(&conn)
+                })
+                .ok()
+        } else {
+            consumption_rate(24).ok().flatten()
+        }
+    }
+
+    fn rainmeter_status_json(
+        snapshot: &RainmeterSnapshot,
+        rate: Option<&ConsumptionRate>,
+        lang: &str,
+        now: DateTime<Local>,
+    ) -> String {
+        let (balance_line, status_line) =
+            if let Some((code, balance)) = preferred_balance(&snapshot.balances) {
+                (
+                    format!("💰 {} {}", format_amount(balance.total_balance), code),
+                    format!(
+                        "{}: {} {}",
+                        tr(lang, "total_balance"),
+                        format_amount(balance.total_balance),
+                        code
+                    ),
+                )
+            } else if snapshot.checking {
+                ("💰 -- CNY".to_string(), tr(lang, "checking").to_string())
+            } else if let Some(error) = &snapshot.error {
+                (
+                    "💰 -- CNY".to_string(),
+                    format!("{}: {error}", tr(lang, "error")),
+                )
+            } else {
+                (
+                    "💰 -- CNY".to_string(),
+                    tr(lang, "balance_empty").to_string(),
+                )
+            };
+        let last_check = snapshot
+            .last_check
+            .map(|last| relative_time(lang, last, now))
+            .unwrap_or_else(|| tr(lang, "not_checked").to_string());
+        let service_status_line = service_status_notification_label(lang, &snapshot.service_status);
+        let estimated_line = rate
+            .map(|rate| format!("📊 {}", estimated_availability_line(lang, rate)))
+            .unwrap_or_else(|| {
+                if lang == "en" {
+                    "📊 Est. --".to_string()
+                } else {
+                    "📊 预计可用 --".to_string()
+                }
+            });
+        format!(
+            "{{\"accent_color\":{},\"balance_line\":{},\"status_line\":{},\"last_check\":{},\"service_status_line\":{},\"estimated_line\":{}}}",
+            json_string(&rainmeter_accent_color(snapshot)),
+            json_string(&balance_line),
+            json_string(&status_line),
+            json_string(&last_check),
+            json_string(&service_status_line),
+            json_string(&estimated_line)
+        )
+    }
+
+    fn rainmeter_accent_color(snapshot: &RainmeterSnapshot) -> String {
+        let key = if snapshot.checking {
+            "nodata"
+        } else if snapshot.error.is_some() {
+            "low"
+        } else if preferred_balance(&snapshot.balances).is_none() {
+            "nodata"
+        } else if preferred_balance(&snapshot.balances)
+            .map(|(_, balance)| balance.total_balance < snapshot.config.threshold_yuan)
+            .unwrap_or(false)
+        {
+            "low"
+        } else if service_degraded(&snapshot.service_status) {
+            "degraded"
+        } else {
+            "ok"
+        };
+        let [r, g, b, _] = theme_color(&snapshot.config, key).0;
+        format!("{r},{g},{b}")
+    }
+
+    fn estimated_availability_line(lang: &str, rate: &ConsumptionRate) -> String {
+        let days = (rate.hours_left / 24.0).floor() as i64;
+        let hours = (rate.hours_left % 24.0).floor() as i64;
+        if lang == "en" {
+            format!(
+                "{} {}d {}h remaining",
+                tr(lang, "estimated_remaining"),
+                days,
+                hours
+            )
+        } else {
+            format!(
+                "{} {} 天 {} 小时",
+                tr(lang, "estimated_remaining"),
+                days,
+                hours
+            )
+        }
+    }
+
+    fn json_string(value: &str) -> String {
+        serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
     }
 
     struct SettingsWindow {
@@ -3323,6 +3567,29 @@ mod windows_app {
             assert!(message.contains("📊 日均消耗 1.50 CNY | 预计可用 28 天 4 小时"));
             assert!(message.contains("📡 DeepSeek API 服务状态：🟢 服务正常"));
             assert!(message.contains("🕐 上次查询：5 分钟前"));
+            let snapshot = RainmeterSnapshot {
+                config: state.config.clone(),
+                balances: state.balances.clone(),
+                last_check: Some(now - ChronoDuration::minutes(5)),
+                error: None,
+                checking: false,
+                service_status: "none".to_string(),
+            };
+            let rainmeter_json = rainmeter_status_json(&snapshot, Some(&rate), "zh", now);
+            let rainmeter: serde_json::Value =
+                serde_json::from_str(&rainmeter_json).expect("rainmeter json parses");
+            assert_eq!(rainmeter["accent_color"].as_str(), Some("185,70,60"));
+            assert_eq!(rainmeter["balance_line"].as_str(), Some("💰 5.00 CNY"));
+            assert_eq!(rainmeter["last_check"].as_str(), Some("5 分钟前"));
+            assert_eq!(
+                rainmeter["service_status_line"].as_str(),
+                Some("🟢 服务正常")
+            );
+            assert_eq!(
+                rainmeter["estimated_line"].as_str(),
+                Some("📊 预计可用 28 天 4 小时")
+            );
+            assert_eq!(request_language("/widget-status?lang=en", "zh"), "en");
             assert!(is_low_balance(&state));
             assert!(should_low_balance_alert(&mut state, true));
             assert!(!should_low_balance_alert(&mut state, true));

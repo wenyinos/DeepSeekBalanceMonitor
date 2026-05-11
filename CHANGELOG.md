@@ -17,6 +17,8 @@ Where older release notes were not present in the repository, entries were recon
 - Rust Linux installer prompts for an API key when the first check has no key or detects an invalid key.
 - Rust Linux package includes `uninstall.sh` for removing `dsmon` and the systemd user service while leaving active Plasma widget files untouched.
 - Plasma 6 desktop widget liquid-glass view with balance, last check, API service status, estimated availability, refresh control, and emoji status text.
+- Optional Rainmeter desktop widget skin backed by a local-only `127.0.0.1:17654` status interface; Rust Windows currently provides the interface and Python Windows can adopt the same contract later.
+- GitHub Actions now builds a release `.rmskin` package with `rmskin-builder` from `2bndy5/rmskin-action`.
 
 ### Changed
 

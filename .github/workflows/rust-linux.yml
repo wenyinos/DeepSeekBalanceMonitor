@@ -95,5 +95,6 @@ jobs:
             ## Rust builds
             - Windows: native x86_64 and i686 executables.
             - Linux: x86_64 CLI daemon package with systemd user service and KDE Plasma widget.
+            - Rainmeter: Windows desktop widget skin package.
           generate_release_notes: true
           overwrite_files: true
