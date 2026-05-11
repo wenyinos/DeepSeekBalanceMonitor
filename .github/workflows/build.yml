@@ -42,7 +42,7 @@ jobs:
 
       - name: Diagnose
         run: |
-          python -c "import pystray; print('pystray', pystray.__version__)"
+          python -c "import pystray; print('pystray OK')"
           python -c "from PIL import Image; print('Pillow', Image.__version__)"
           python -c "from src.tray_app import main; print('src OK')"
           python -c "import tkinter; print('tkinter OK')"
