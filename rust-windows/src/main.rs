@@ -2863,8 +2863,10 @@ mod windows_app {
         if let Some(rate) = consumption_rate(24)? {
             return Ok(Some(rate));
         }
-        let fallback_hours =
-            retention_days.max(1).saturating_mul(24).min(i64::MAX as u64) as i64;
+        let fallback_hours = retention_days
+            .max(1)
+            .saturating_mul(24)
+            .min(i64::MAX as u64) as i64;
         if fallback_hours <= 24 {
             return Ok(None);
         }
