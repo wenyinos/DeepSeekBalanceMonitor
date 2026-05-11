@@ -254,7 +254,13 @@ fn check_once() -> Result<(), (i32, String)> {
         let conn = open_history_db().map_err(fail)?;
         demo::prepare(&conn).map_err(fail)?;
         let balances = demo::balances(&conn).map_err(fail)?;
-        print_status(Some(&balances), None, checked_at, "none");
+        print_status(
+            Some(&balances),
+            None,
+            checked_at,
+            "none",
+            config.retention_days,
+        );
         log_line("Demo balance check succeeded").map_err(fail)?;
         return Ok(());
     }
@@ -266,6 +272,7 @@ fn check_once() -> Result<(), (i32, String)> {
             Some("DeepSeek API key is not configured.\nRun dsmon set-key <api_key> to store it securely."),
             checked_at,
             &service_status,
+            config.retention_days,
         );
         return Err((2, String::new()));
     }
@@ -273,12 +280,24 @@ fn check_once() -> Result<(), (i32, String)> {
     match fetch_balance(&api_key, &config.http_proxy) {
         Ok(balances) => {
             save_balance_history(&balances, &service_status).map_err(fail)?;
-            print_status(Some(&balances), None, checked_at, &service_status);
+            print_status(
+                Some(&balances),
+                None,
+                checked_at,
+                &service_status,
+                config.retention_days,
+            );
             log_line("Balance check succeeded").map_err(fail)?;
             Ok(())
         }
         Err(error) => {
-            print_status(None, Some(&error), checked_at, &service_status);
+            print_status(
+                None,
+                Some(&error),
+                checked_at,
+                &service_status,
+                config.retention_days,
+            );
             log_line(&format!("Balance check failed: {error}")).ok();
             Err((1, String::new()))
         }
@@ -435,7 +454,7 @@ fn print_widget_status() -> Result<(), (i32, String)> {
     let latest_consumption_rate = if let Some(conn) = demo_conn.as_ref() {
         Some(demo::consumption_rate(conn).map_err(fail)?)
     } else {
-        consumption_rate(24).unwrap_or(None)
+        consumption_rate_with_fallback(config.retention_days).unwrap_or(None)
     };
     let history = if let Some(conn) = demo_conn.as_ref() {
         demo::history(conn, 24).map_err(fail)?
@@ -528,7 +547,8 @@ fn print_widget_status() -> Result<(), (i32, String)> {
                 low_balance: is_low_balance(&balances, config.threshold_yuan),
                 service_status: service_status.clone(),
                 service_degraded,
-                consumption_rate: consumption_rate(24).unwrap_or(None),
+                consumption_rate: consumption_rate_with_fallback(config.retention_days)
+                    .unwrap_or(None),
                 history,
                 balances,
             })
@@ -719,7 +739,7 @@ fn history_report(
         currencies: history_currencies(days)?,
         total_records: records.len(),
         summary: summarize_history(&records),
-        consumption_rate: consumption_rate(24)?,
+        consumption_rate: consumption_rate_with_fallback(days)?,
         records,
     })
 }
@@ -795,6 +815,20 @@ fn consumption_rate(hours: i64) -> Result<Option<ConsumptionRate>, String> {
         records.push(row.map_err(|e| e.to_string())?);
     }
     consumption_rate_from_records(&records)
+}
+
+fn consumption_rate_with_fallback(
+    retention_days: u64,
+) -> Result<Option<ConsumptionRate>, String> {
+    if let Some(rate) = consumption_rate(24)? {
+        return Ok(Some(rate));
+    }
+    let fallback_hours =
+        retention_days.max(1).saturating_mul(24).min(i64::MAX as u64) as i64;
+    if fallback_hours <= 24 {
+        return Ok(None);
+    }
+    consumption_rate(fallback_hours)
 }
 
 fn consumption_rate_from_records(
@@ -1183,6 +1217,7 @@ fn print_status(
     error: Option<&str>,
     checked_at: DateTime<Local>,
     service_status: &str,
+    retention_days: u64,
 ) {
     println!("DeepSeek Balance:");
     let has_balance =
@@ -1194,7 +1229,7 @@ fn print_status(
                 format_amount(balance.topped_up_balance),
                 format_amount(balance.granted_balance)
             );
-            if let Ok(Some(rate)) = consumption_rate(24) {
+            if let Ok(Some(rate)) = consumption_rate_with_fallback(retention_days) {
                 println!("📊 {}", consumption_rate_line(&rate));
             }
             true

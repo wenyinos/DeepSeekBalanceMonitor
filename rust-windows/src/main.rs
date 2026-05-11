@@ -844,7 +844,9 @@ mod windows_app {
                         })
                         .ok()
                 } else {
-                    consumption_rate(24).ok().flatten()
+                    consumption_rate_with_fallback(state.config.retention_days)
+                        .ok()
+                        .flatten()
                 };
                 let message = balance_notification_message(
                     lang,
@@ -1141,7 +1143,9 @@ mod windows_app {
                 })
                 .ok()
         } else {
-            consumption_rate(24).ok().flatten()
+            consumption_rate_with_fallback(config.retention_days)
+                .ok()
+                .flatten()
         }
     }
 
@@ -2767,7 +2771,7 @@ mod windows_app {
                 format_amount(item.latest_granted)
             ));
         }
-        if let Ok(Some(rate)) = consumption_rate(24) {
+        if let Ok(Some(rate)) = consumption_rate_with_fallback(days) {
             lines.push(consumption_rate_line(lang, &rate));
         } else {
             lines.push(tr(lang, "not_enough_data").to_string());
@@ -2851,6 +2855,20 @@ mod windows_app {
             records.push(row.map_err(|e| e.to_string())?);
         }
         consumption_rate_from_records(&records)
+    }
+
+    fn consumption_rate_with_fallback(
+        retention_days: u64,
+    ) -> Result<Option<ConsumptionRate>, String> {
+        if let Some(rate) = consumption_rate(24)? {
+            return Ok(Some(rate));
+        }
+        let fallback_hours =
+            retention_days.max(1).saturating_mul(24).min(i64::MAX as u64) as i64;
+        if fallback_hours <= 24 {
+            return Ok(None);
+        }
+        consumption_rate(fallback_hours)
     }
 
     fn consumption_rate_from_records(
