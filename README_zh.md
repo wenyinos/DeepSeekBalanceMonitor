@@ -6,10 +6,9 @@
 
 ![preview](assets/preview_zh.png)
 
-**Linux Plasma 小组件预览**
-桌面小组件仅适用于 KDE Plasma 6 桌面环境。
+[Linux Plasma 小组件预览](assets/preview_linux.png)（仅 KDE Plasma 6）
 
-![Linux 预览](assets/preview_linux.png)
+[Mac WebView 截图](assets/webview%20screenshots/) — 菜单栏、设置界面、历史图表、浅色主题
 
 ---
 
@@ -21,7 +20,7 @@
 - **历史记录页** — 分页表格展示所有余额记录，附带折线图和消耗分析，支持 CSV 导出
 - **设置** — API Key（Windows 凭据管理器加密存储）、查询间隔、预警阈值、提醒模式、图标主题、代理等
 - **Demo 模式** — `--demo` 免 Key 体验，开发者面板可调参数
-- **社区移植** — Rust-Win（Win7+）、Rust-Linux（CLI + Plasma 6 小组件）、Py-Mac（Keychain 加密）
+- **社区移植** — Rust-Win（Win7+）、Rust-Linux（CLI + Plasma 6 小组件）、Py-Mac（Keychain 加密，WebView 设置界面）
 
 ### 通知预览
 
@@ -262,6 +261,7 @@ Rust Windows 和 Rust Linux 会在各自应用数据目录保存 `balance_histor
 - 设置/历史/开发者面板共享根窗口，历史和开发者面板支持重复唤起聚焦
 - 设置页改进：输入校验错误提示、底部版本号与贡献者信息、可点击项目链接
 - API 服务状态同步写入本地数据库
+- MacOS 社区版：WebView 设置界面，支持深/浅色主题、交互式历史图表和 CSV 导出（仅 Mac）
 
 ## 协议
 
