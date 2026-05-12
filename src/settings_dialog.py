@@ -52,7 +52,7 @@ def open_settings(app):
         except Exception:
             pass
 
-        root.title(T("settings_title", lang))
+        root.title(T("settings", lang).rstrip("…"))
         root.geometry("580x520")
         root.resizable(True, True)
         root.minsize(480, 400)
@@ -300,11 +300,44 @@ def open_settings(app):
                        filedialog.askdirectory() or export_var.get())
                    ).pack(side="left", padx=(4, 0))
 
-        ttk.Label(scroll_frame, text=T("proxy_label", lang)).pack(anchor="w")
+        proxy_enabled_var = tk.BooleanVar(value=app.config.get("proxy_enabled", False))
+        ttk.Checkbutton(scroll_frame, text=T("proxy_enable", lang),
+                        variable=proxy_enabled_var).pack(anchor="w")
+
         proxy_var = tk.StringVar(value=app.config.get("http_proxy", ""))
-        ttk.Entry(scroll_frame, textvariable=proxy_var).pack(fill="x", pady=(0, 2))
-        ttk.Label(scroll_frame, text=T("proxy_hint", lang),
-                  foreground="gray").pack(anchor="w", pady=(0, 8))
+        proxy_entry = ttk.Entry(scroll_frame, textvariable=proxy_var)
+        proxy_entry.pack(fill="x", pady=(0, 8))
+        placeholder = T("proxy_placeholder", lang)
+
+        def _on_focus_in(e):
+            if proxy_var.get() == "":
+                proxy_entry.configure(foreground="black")
+        def _on_focus_out(e):
+            if proxy_var.get() == "":
+                proxy_var.set(placeholder)
+                proxy_entry.configure(foreground="gray")
+            else:
+                proxy_entry.configure(foreground="black")
+
+        def _toggle_proxy(*_args):
+            if proxy_enabled_var.get():
+                proxy_entry.configure(state="normal")
+                if proxy_var.get() in ("", placeholder):
+                    proxy_var.set("")
+            else:
+                proxy_entry.configure(state="disabled")
+                if proxy_var.get() == "":
+                    proxy_var.set(placeholder)
+                    proxy_entry.configure(foreground="gray")
+        proxy_enabled_var.trace_add("write", _toggle_proxy)
+
+        if proxy_var.get() == "":
+            proxy_var.set(placeholder)
+            proxy_entry.configure(foreground="gray")
+        if not proxy_enabled_var.get():
+            proxy_entry.configure(state="disabled")
+        proxy_entry.bind("<FocusIn>", _on_focus_in)
+        proxy_entry.bind("<FocusOut>", _on_focus_out)
 
         # Prevent accidental value changes via mousewheel on spinboxes and
         # comboboxes — these are too easy to bump while scrolling the dialog.
@@ -334,26 +367,6 @@ def open_settings(app):
         _update_scrollregion()
 
         # === Fixed footer widgets ===
-
-        ttk.Separator(footer, orient="horizontal").pack(fill="x", pady=(0, 8))
-
-        with app._lock:
-            last = app.last_check
-
-        if last:
-            last_str = last.strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            last_str = T("not_checked", lang)
-        ttk.Label(footer, text=T("last_check", lang) + ": " + last_str,
-                  foreground="gray").pack(anchor="w")
-
-        b = app.get_preferred_balance()
-        if b:
-            code = b["currency"]
-            bal_text = T("total_balance", lang) + ": " + f"{b['total_balance']:,.2f} {code}"
-        else:
-            bal_text = T("not_checked", lang)
-        ttk.Label(footer, text=bal_text, foreground="gray").pack(anchor="w", pady=(0, 8))
 
         btn_frame = ttk.Frame(footer)
         btn_frame.pack(fill="x")
@@ -404,9 +417,16 @@ def open_settings(app):
             app.config["api_alert_enabled"] = api_alert_var.get()
             app.config["retention_days"] = retention
             app.config["export_path"] = export_var.get()
-            app.config["http_proxy"] = proxy_var.get().strip()
+            app.config["proxy_enabled"] = proxy_enabled_var.get()
+            proxy_val = proxy_var.get().strip()
+            if proxy_val == T("proxy_placeholder", lang):
+                proxy_val = ""
+            app.config["http_proxy"] = proxy_val
             from src.api_client import install_proxy
-            install_proxy(app.config["http_proxy"])
+            if app.config["proxy_enabled"] and app.config["http_proxy"]:
+                install_proxy(app.config["http_proxy"])
+            else:
+                install_proxy("")
 
             t_idx = theme_display.index(theme_var.get()) if theme_var.get() in theme_display else 0
             t_key = THEME_KEYS[t_idx]

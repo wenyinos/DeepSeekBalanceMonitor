@@ -2,152 +2,132 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
-Where older release notes were not present in the repository, entries were reconstructed from git tags and commit history.
+## Python v1.2.1-dev (unreleased)
+
+### Changed
+
+- API key storage unified to Fernet + SQLite, with legacy fallback; save_config() clears plaintext automatically
+- Proxy control changed to a toggle checkbox + address input; address is preserved when disabled
+- Settings dialog polish: simplified title, removed footer balance/last-check rows
 
 ## Rust v1.2 (2026-05-11)
 
 ### Added
 
-- Rust Windows and Rust Linux are now versioned as `1.2.0` across Cargo metadata, Windows manifest, and Plasma widget metadata.
-- Encrypted SQLite `secure_settings` API key storage for both Rust Windows and Rust Linux.
-- Automatic migration from legacy plaintext `config.json.api_key` into encrypted SQLite storage.
-- Rust demo mode enabled by saving `demo` as the API key; demo data is stored in an isolated `demo_mode_balance` table.
-- Rust Linux `dsmon set-key` command for encrypted API key updates.
-- Rust Linux `dsmon set <field> <value>` command for single-field configuration updates.
-- Rust Linux installer prompts for an API key when the first check has no key or detects an invalid key.
-- Rust Linux package includes `uninstall.sh` for removing `dsmon` and the systemd user service while leaving active Plasma widget files untouched.
-- Plasma 6 desktop widget liquid-glass view with balance, last check, API service status, estimated availability, refresh control, and emoji status text.
-- Optional Rainmeter desktop widget skin backed by a local-only `127.0.0.1:17654` status interface; Rust Windows currently provides the interface and Python Windows can adopt the same contract later.
-- GitHub Actions now builds a release `.rmskin` package with `rmskin-builder` from `2bndy5/rmskin-action`.
+- Rust Windows and Rust Linux versioned as `1.2.0`
+- SQLite `secure_settings` encrypted API key storage (Rust Windows / Linux)
+- Auto-migration from legacy plaintext `config.json.api_key` to encrypted storage
+- Rust demo mode: save `demo` as the API key, data stored in isolated `demo_mode_balance` table
+- Rust Linux `dsmon set-key` command for encrypted API key updates
+- Rust Linux `dsmon set <field> <value>` command for single-field config updates
+- Rust Linux installer prompts for API key on first launch when none is configured
+- Rust Linux `uninstall.sh` script (preserves Plasma widget)
+- Plasma 6 widget liquid-glass view with balance, last check, service status, estimated availability, refresh control, and emoji status text
+- Rainmeter desktop widget via local `127.0.0.1:17654` interface; Rust Windows currently provides the interface
+- GitHub Actions `.rmskin` packaging via `rmskin-builder`
 
 ### Changed
 
-- Rust Linux daemon reloads configuration on every polling cycle so CLI changes are picked up without restarting the service.
-- Rust Linux CLI output is English-only and no longer sends desktop notifications.
-- Rust Windows opens the settings dialog on first launch when no API key is available.
-- Rust Windows and Rust Linux separate `ui_language` from fixed English CLI `language`.
-- Rust CSV exports default to the user's home directory and use date-suffixed filenames.
-- Rust Windows and Rust Linux keep demo balance data out of the real `balance_history` table.
-- Plasma widget settings use the new `dsmon set` command path instead of the legacy bulk `set-config` flow.
+- Rust Linux daemon reloads config on each poll cycle; CLI changes take effect immediately
+- Rust Linux CLI output is English-only, no desktop notifications
+- Rust Windows opens settings dialog on first launch when no API key is configured
+- Rust Windows/Linux separate `ui_language` (GUI) from `language` (CLI, fixed English)
+- Rust CSV exports default to user home directory with date-suffixed filenames
+- Rust demo data stays out of the real `balance_history` table
+- Plasma widget settings use `dsmon set` command
 
 ## Python v1.2 (2026-05-11)
 
 ### Added
 
-- Custom icon styling with 5 preset colour themes: Default, High Contrast, Bright, Dark Mode, and Monochrome.
-- Custom hex colour editor and icon stroke toggle.
-- History viewer with paginated balance records, an interactive trend chart, and consumption rate analysis.
-- CSV export with a configurable save path.
-- Consumption rate estimation with daily average spend and projected days/hours remaining in balance notifications and history views.
-- Demo mode with a developer tools panel for testing without a real API key.
-- HTTP proxy support for restricted network environments.
-- Windows Credential Manager integration so API keys are stored encrypted instead of plaintext in `config.json`.
-- macOS WebView-based settings UI.
-- Unit test coverage for core API parsing and state transitions.
+- Custom icon themes: 5 presets (Default / High Contrast / Bright / Dark Mode / Monochrome) + custom hex colours + icon stroke toggle
+- History viewer: paginated table + trend chart + consumption rate analysis, with CSV export
+- Consumption rate estimation: topped-balance weighted average, shown in balance notification and history viewer
+- Demo mode: `--demo` flag with developer tools panel
+- HTTP proxy support
+- API key stored in Windows Credential Manager, config.json relegated to migration fallback
+- MacOS WebView settings UI
+- Unit test coverage for core API parsing and state transitions
 
 ### Changed
 
-- Balance detail notifications now use emoji-prefixed lines.
-- Last-check time is displayed as a relative time.
-- API service status is recorded alongside each balance history entry.
-- Settings, history, and developer tools share one Tk root window to avoid window-state conflicts.
-- Settings validation now shows clearer errors and includes version, contributor, and project-link information.
-- macOS build script gained DMG packaging support.
+- Balance notification: emoji-prefixed lines, relative last-check time, service status repositioned
+- API service status recorded alongside each balance history entry
+- Settings, history, and dev tools share one Tk root window; history and dev tools support singleton raise-to-front
+- Settings footer shows version, contributor credits, and project link
+- MacOS build script adds DMG packaging
 
-## v1.1 Fix Releases (2026-05-10)
-
-### Fixed
-
-- Repaired Plasma widget configuration pages.
-- Added the Windows app icon to Rust Windows builds.
-- Refreshed project structure and contributor documentation.
-
-## v1.1 (2026-05-10)
+## Rust v1.1 (2026-05-10)
 
 ### Added
 
-- API service status polling via `status.deepseek.com`.
-- Warm gray tray icon state when the DeepSeek API service is degraded.
-- Independent desktop notifications for API service status changes.
-- "Top Up" menu item that opens `platform.deepseek.com/top_up`.
-- SQLite balance history storage with configurable log and record retention.
-- Community ports:
-  - Rust Windows native tray app for Windows 7 and newer.
-  - Rust Linux CLI and KDE Plasma 6 widget.
-  - Python macOS app with local key storage.
-- Rust history tooling: chart, days/currency filters, CSV export, and `dsmon history` CLI commands.
-- Plasma widget daemon start/stop action with command-error notifications.
-- Windows 7/8.1 root certificate update helper script.
-
-### Changed
-
-- Low balance alerts now support three modes: never, always, or once per drop.
-- Balance detail notifications were redesigned with a fixed title, inline balance breakdown, and always-visible service status.
-- Settings dialog validates numeric inputs on save and warns about out-of-range values.
-- Python API requests moved from `requests` to the standard library `urllib.request`.
-
-## Rust v1.0.1 (2026-05-10)
+- Rust Windows native tray app, Win7+ support
+- Rust Linux CLI + KDE Plasma 6 widget
+- Rust history features: chart, days/currency filters, CSV export, `dsmon history` CLI
+- Plasma widget daemon start/stop with command-error notifications
+- Windows 7/8.1 root certificate update helper script
 
 ### Fixed
 
-- Adjusted Rust workflow tag triggers to avoid collisions with Python release tags.
-- Updated Rust port synchronization documentation.
+- Repaired Plasma widget configuration pages
+- Added app icon to Rust Windows builds
 
-## v1.0.1 (2026-05-09)
+## Python v1.1 (2026-05-10)
+
+### Added
+
+- API service status polling (`status.deepseek.com`); warm gray tray icon when degraded, independent status-change notifications
+- "Top Up" tray menu item linking to `platform.deepseek.com/top_up`
+- SQLite balance history storage with configurable log/record retention (default 30 days)
+- Community port: Python MacOS app with Keychain encryption
+- CONTRIBUTING.md for community porters
+- GitHub Actions auto-build and attach EXE to releases
 
 ### Changed
 
-- Made direct downloads the recommended installation path in README.
-- Moved screenshots closer to the top of README.
-- Cleaned up user-facing README wording.
-- Removed the old taskbar preview image.
-- Performed code audit cleanup and formatting normalization.
+- Low balance alerts: three modes (never / always / once per drop), default once
+- Balance notification redesign: fixed title, inline breakdown, always-visible service status
+- Settings validates numeric input ranges on save and warns on invalid values
+- Replaced `requests` with stdlib `urllib.request`
+
+## Rust v1.0.1 (2026-05-09)
+
+Internal dev versions: Windows v0.1.0/v0.1.1, Linux v0.2.0
+
+### Added
+
+- Initial Rust Windows native build
+- GitHub Actions Rust Windows release artifact workflow
+- Rust Windows build documentation
+- Merged Rust Windows port with upstream Python main
+- Initial Rust Linux `dsmon` release build
+- Linux packaging groundwork for command-line balance checks
 
 ### Fixed
 
-- Improved settings dialog behaviour.
-- Hardened API key encoding.
-- Refined icon colour and alert toggle handling.
+- Hardened Rust Windows startup build behaviour
+- Rust workflow tag trigger changed to `rust-v*` to avoid collision with Python tags
+- Updated Rust port sync documentation
 
-## v1.0.0 (2026-05-06)
-
-### Added
-
-- Initial public Python Windows tray app.
-- Periodic DeepSeek balance checks.
-- Low-balance alerts.
-- Settings dialog for API key, interval, threshold, language, and auto-start.
-- Tray icon rendering.
-- Build scripts for packaged Windows executables.
+## Python v1.0.1 (2026-05-09)
 
 ### Changed
 
-- Repository was reorganized into `src/` and `scripts/`.
-- Hardcoded currency symbols were removed from balance display.
-- Deprecated currency selection logic was removed.
+- Reorganized repository into `src/` and `scripts/`
+- Deprecated currency selection (each account maps to a single fixed currency)
+- Settings dialog behaviour improvements
+- API key character encoding hardening
+- Icon colour and alert toggle refinements
+- README updates: direct download as recommended path, optimized preview images
+- Code audit and formatting cleanup
 
-## Rust Linux v0.2.0 (2026-05-09)
-
-### Added
-
-- Initial Rust Linux `dsmon` release build.
-- Linux packaging groundwork for command-line balance checks.
-
-## Rust Windows v0.1.1 (2026-05-09)
-
-### Changed
-
-- Prepared the Rust Windows 0.1.1 release.
-- Documented the Rust Windows build flow.
-- Merged the Rust Windows port with the upstream Python baseline.
-
-## Rust Windows v0.1.0 (2026-05-09)
+## Python v1.0.0 (2026-05-06)
 
 ### Added
 
-- Initial Rust Windows native build.
-- GitHub Actions release artifact workflow for Rust Windows builds.
-
-### Fixed
-
-- Hardened Rust Windows startup build behaviour.
+- Initial public Python Windows tray app release
+- Periodic DeepSeek balance checks
+- Low-balance alerts
+- Settings dialog (API key, interval, threshold, language, auto-start)
+- Tray icon rendering
+- Windows executable build scripts

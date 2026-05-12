@@ -148,19 +148,30 @@ DeepSeek 余额：                              ← 固定标题
 | `export_browse` | 浏览 | Browse |
 | `proxy_label` | HTTP/HTTPS 代理： | HTTP/HTTPS proxy: |
 | `proxy_hint` | 例如 http://127.0.0.1:7890，留空则不使用 | e.g. http://127.0.0.1:7890, leave blank to disable |
+| `proxy_enable` | 启用 HTTP/HTTPS 代理 | Enable HTTP/HTTPS proxy |
+| `proxy_placeholder` | 代理地址 | Proxy address |
 
 ## Changed Since v1.2
 
 ### Config
 
-- **新增** `ui_language: string`，GUI / 托盘 / 小工具界面语言统一读取该字段；`language` 保留给命令行/兼容旧配置并固定默认英文。旧配置仅有 `language` 时，迁移版本应复制到 `ui_language` 后保存
-- **调整** `export_path` 默认导出位置：空值时使用用户主目录；默认文件名为 `deepseek-balance-history-YYYYMMDD.csv`
+- **新增** `proxy_enabled: bool`，默认 `false`。关闭时保留代理地址不清除
+- **新增** `proxy_placeholder` i18n key，代理地址输入框空时灰色提示文字
+- **调整** 代理标签 `HTTP 代理` → `HTTP/HTTPS proxy`
 
 ### Behaviour
 
-- **API Key 统一 SQLite 加密存储**：Windows / macOS / Linux 各版本统一使用 SQLite `secure_settings` 表加密保存 API Key。`config.json.api_key` 仅作为旧版本迁移入口；加载到非空值时必须自动写入 SQLite，并立即保存为 `""`
-- **Demo 模式统一入口**：所有版本通过 API Key 填入 `demo` 触发，固定读取独立 SQLite `demo_mode_balance` 表中的预设数据，不请求真实 API，不写入真实历史表
-- **CLI 输出**：Linux / Windows / macOS 命令行输出统一使用英文，不随 `ui_language` 切换；Linux 命令行版不主动发送桌面通知
-- **Linux 配置命令**：`dsmon set <field> <value>` 保存后，daemon 下一轮轮询和手动查询命令必须读取最新配置
-- **Rainmeter 本地接口**：Windows GUI 版应在 `127.0.0.1:17654` 提供只读本地 HTTP 接口；`GET /widget-status?lang=zh|en` 返回当前状态 JSON，`GET /check?lang=zh|en` 触发一次后台查询并返回当前状态。JSON 字段固定为 `accent_color`、`balance_line`、`status_line`、`last_check`、`service_status_line`、`estimated_line`；接口不得暴露或接收 API Key
-- **Windows 发布签名（可选）**：Windows Release workflow 支持 Azure Trusted Signing，但签名不是功能兼容要求。fork 开发者需要发布公开 Windows `.exe` 时可自行启用；启用时需配置 Secrets：`AZURE_CLIENT_ID`、`AZURE_TENANT_ID`、可选 `AZURE_CLIENT_SECRET`；Variables：`AZURE_TRUSTED_SIGNING_ENDPOINT`、`AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`、`AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`。签名只能避免未签名强拦截并显示可信发布者，新版本仍可能因文件哈希信誉不足出现 SmartScreen 提示
+- **API Key 加密存储**：`src/secure_settings.py`（Fernet + SQLite），`load_config()` → `_resolve_api_key()` 按 secure_settings → credential_store → config.json 三级回退，`save_config()` 自动清空明文字段
+- **代理开关**：`proxy_enabled` 复选框 + 地址输入框，关闭时保留地址不清除；地址空时灰色 placeholder
+- **设置页优化**：标题简化为 `⚙️ 设置` / `⚙️ Settings`；移除 footer 中的上次查询和余额行
+- **消耗速率 fallback**：`get_consumption_rate(days=7)` 基于 topped 余额 + 加权平均；7 天数据不足时自动扩大到 `retention_days` 窗口
+- **新增 CHANGELOG.md**：独立更新日志文件，README 链接指向
+
+### Rust / Port-Specific
+
+- **API Key 加密存储**（Rust）：Rust Windows/Linux 统一使用 SQLite `secure_settings` 加密，`config.json.api_key` 仅作迁移入口
+- **Demo 模式**（Rust）：API Key 填入 `demo` 触发，读取独立 `demo_mode_balance` 表，不请求真实 API
+- **dsmon CLI 增强**（Rust Linux）：`set-key`、`set <field> <value>` 命令，daemon 轮询时重新读取配置
+- **Rainmeter 小工具**：`rainmeter-widget/`，本地 HTTP 接口 `127.0.0.1:17654`，中英文双 skin，`.rmskin` CI 打包
+- **Plasma 6 小工具**（Rust Linux）：透明玻璃风格，emoji 状态展示，配置页改用 `dsmon set` 命令
+- **Windows 发布签名（可选）**：Azure Trusted Signing，fork 开发者自行配置
