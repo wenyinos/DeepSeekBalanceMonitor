@@ -22,12 +22,12 @@ A Windows tray app and Linux CLI/Plasma widget that periodically query the DeepS
 - Balance detail notifications now use emoji-prefixed lines and relative last-check time.
 - Demo mode for testing without a real API key: developer tools panel on Py-Win/Py-Mac, `demo` API key trigger on Rust.
 - Encrypted API key storage: Windows Credential Manager on Py-Win, SQLite `secure_settings` on Rust, Keychain on Py-Mac.
+- Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
 
-Rust-specific:
+Rust Linux-specific:
 
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
 - Plasma 6 widget: transparent liquid-glass view with balance, last check, service status, estimated availability, refresh control, and emoji status text.
-- Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
 
 ## Features
 

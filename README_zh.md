@@ -22,12 +22,12 @@
 - 余额详情通知使用 emoji 前缀和相对上次查询时间。
 - Demo 模式无需真实 Key 即可测试：Py-Win/Py-Mac 提供开发者面板，Rust 通过保存 `demo` 作为 API Key 触发。
 - API Key 加密存储：Py-Win 使用 Windows 凭据管理器，Rust 使用 SQLite `secure_settings`，Py-Mac 使用 Keychain。
+- Rainmeter 桌面小工具：仅本地可访问的状态接口；`.rmskin` 发布打包。Rust/Python Windows 双版均已支持。
 
-Rust 版本限定：
-
+Rust Linux 版本限定：
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
 - Plasma 6 小组件：透明液态玻璃桌面样式，余额、上次查询、服务状态、预计可用时间、刷新按钮和 emoji 状态。
-- Rainmeter 桌面小工具：仅本地可访问的状态接口；`.rmskin` 发布打包。Rust/Python Windows 双版均已支持。
+
 
 ## 功能
 
