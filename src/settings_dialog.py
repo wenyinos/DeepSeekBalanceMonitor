@@ -349,21 +349,41 @@ def open_settings(app):
         for w in (interval_sb, threshold_sb, alert_mode_combo, theme_combo, lang_combo, retention_sb):
             w.bind("<MouseWheel>", _no_scroll)
 
-        ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=(12, 8))
-        ttk.Label(scroll_frame, text="v1.2_260511",
-                  foreground="gray").pack(anchor="w")
-        ttk.Label(scroll_frame, text="by GitHub @SrtaEstrella（RedNote @Estella_han）",
-                  foreground="gray").pack(anchor="w", pady=(2, 0))
-        ttk.Label(scroll_frame, text="Contributors: @wenyinos @CHW0n9",
-                  foreground="gray").pack(anchor="w", pady=(2, 0))
-
-        def _open_repo():
+        def _open_url(url):
             import webbrowser
-            webbrowser.open("https://github.com/SrtaEstrella/DeepSeekBalanceMonitor")
-        link = tk.Label(scroll_frame, text="github.com/SrtaEstrella/DeepSeekBalanceMonitor",
-                        foreground="#3C6966", cursor="hand2", font=("Segoe UI", 8, "underline"))
-        link.pack(anchor="w", pady=(2, 0))
-        link.bind("<Button-1>", lambda e: _open_repo())
+            webbrowser.open(url)
+
+        def _make_link(parent, text, url):
+            lbl = tk.Label(parent, text=text, foreground="#3C6966", cursor="hand2",
+                           font=("Segoe UI", 8, "underline"))
+            lbl.bind("<Button-1>", lambda e, u=url: _open_url(u))
+            return lbl
+
+        ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=(12, 8))
+        ttk.Label(scroll_frame, text="v1.2.1_260512",
+                  foreground="gray").pack(anchor="w")
+
+        by_frame = tk.Frame(scroll_frame)
+        by_frame.pack(anchor="w", pady=(2, 0))
+        tk.Label(by_frame, text="by ", foreground="gray").pack(side="left")
+        _make_link(by_frame, "@SrtaEstrella",
+                   "https://github.com/SrtaEstrella").pack(side="left")
+        tk.Label(by_frame, text=" (RedNote ", foreground="gray").pack(side="left")
+        _make_link(by_frame, "@Estella_han",
+                   "https://www.xiaohongshu.com/user/profile/62bc32b1000000001b026f6d").pack(side="left")
+        tk.Label(by_frame, text=")", foreground="gray").pack(side="left")
+
+        contrib_frame = tk.Frame(scroll_frame)
+        contrib_frame.pack(anchor="w", pady=(2, 0))
+        tk.Label(contrib_frame, text="Contributors: ", foreground="gray").pack(side="left")
+        _make_link(contrib_frame, "@wenyinos",
+                   "https://github.com/wenyinos").pack(side="left")
+        tk.Label(contrib_frame, text=" ", foreground="gray").pack(side="left")
+        _make_link(contrib_frame, "@CHW0n9",
+                   "https://github.com/CHW0n9").pack(side="left")
+
+        _make_link(scroll_frame, "github.com/SrtaEstrella/DeepSeekBalanceMonitor",
+                   "https://github.com/SrtaEstrella/DeepSeekBalanceMonitor").pack(anchor="w", pady=(2, 0))
 
         # Force initial scrollregion now that all children are packed.
         # Must happen before the footer's own pack to avoid a zero-height frame.

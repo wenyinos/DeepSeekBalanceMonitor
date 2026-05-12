@@ -2,7 +2,7 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
-## Python v1.2.1-dev (unreleased)
+## Python v1.2.1 (2026-05-12)
 
 ### Added
 
