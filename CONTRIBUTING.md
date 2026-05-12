@@ -18,6 +18,7 @@
 | `icon_stroke` | bool | `false` | icon outline colour matches text (white/black based on background) |
 | `export_path` | string | `""` | directory for CSV exports; empty = ask on export |
 | `http_proxy` | string | `""` | HTTP/HTTPS proxy URL, e.g. `http://127.0.0.1:7890` |
+| `proxy_enabled` | bool | `false` | enables/disables proxy without clearing the saved address |
 | `auto_start` | bool | `false` | |
 
 ## Notification Format
@@ -113,7 +114,7 @@ DeepSeek 余额：                              ← 固定标题
 - **HTTP 代理**：启动时读取 `http_proxy` 配置并全局安装，设置页修改后即时生效
 - **共享 tk 根窗口**：设置、历史、开发者面板共用 `_tk_root`，避免多 `tk.Tk()` 导致变量/样式冲突。历史和开发者面板支持重复唤起聚焦
 
-以下 Key 为新增，各移植版本需同时支持中英文：
+新增 Key：
 
 | Key | 中文 | English |
 |---|---|---|
@@ -132,8 +133,15 @@ DeepSeek 余额：                              ← 固定标题
 | `proxy_label` | HTTP 代理： | HTTP proxy: |
 | `proxy_hint` | 例如 http://127.0.0.1:7890，留空则不使用 | e.g. http://127.0.0.1:7890, leave blank to disable |
 
+
 ## Changed Since v1.2
 
 - **API Key 跨平台统一存储**：SQLite `secure_settings` 加密存储（Fernet），跨 Windows/Linux/Mac 统一。`credential_store` 和 `config.json.api_key` 降级为迁移入口
 - **config.json.api_key 只作迁移入口**：`load_config()` → `_resolve_api_key()` 按 secure_settings → credential_store → config.json 优先级读取，迁移后 `save_config()` 自动清空明文字段
-- **代理文案调整**：`HTTP 代理` → `HTTP/HTTPS proxy`，与底层实现一致（ProxyHandler 同时覆盖 http 和 https）
+- **代理交互优化**：新增 `proxy_enabled` 开关可保留地址暂不启用；标签 `HTTP 代理` → `HTTP/HTTPS proxy`
+  
+新增 Key：
+| Key | 中文 | English |
+|---|---|---|
+| `proxy_enable` | 启用 HTTP/HTTPS 代理 | Enable HTTP/HTTPS proxy |
+| `proxy_placeholder` | 代理地址 | Proxy address |

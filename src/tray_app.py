@@ -601,7 +601,7 @@ def main():
 
     app = AppState()
     proxy = app.config.get("http_proxy", "").strip()
-    if proxy:
+    if proxy and app.config.get("proxy_enabled", False):
         install_proxy(proxy)
         log(f"Proxy set: {proxy}")
 
