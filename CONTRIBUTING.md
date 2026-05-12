@@ -50,7 +50,7 @@ DeepSeek 余额：                              ← 固定标题
 DeepSeek Balance:                              ← Fixed title
 💰 12.34 CNY (Topped 10.00, Granted 2.34)      ← Shown when balance available
 📊 Avg: 1.50/day | Est. 28d 4h remaining       ← Shown with history data
-📡 DeepSeek API Status: 🟢 All Systems Operational ← Always visible, dual indicator emoji
+📡 API Status: 🟢 All Systems Operational       ← Always visible, dual indicator emoji
 🕐 Last Check: 5 min ago                        ← Relative time only
 ```
 
@@ -78,7 +78,15 @@ DeepSeek Balance:                              ← Fixed title
 | `api.deepseek.com/user/balance` | 余额查询 |
 | `status.flashcat.cloud/deepseek` | FlashDuty 服务状态（RSC 解析，匹配 API 组件） |
 
-## 当前版本变更 (v1.2)
+
+## i18n
+
+**当前使用的 Key**：`src/config.py` 内 `_T` 字典覆盖当前所有活跃的 i18n Key，各移植版本需同时支持中英文
+
+**已移除的 Key**：以下 Key 已从 Python 版移除，移植版本无需实现：
+`topped_up`, `granted`, `currency`, `checking`, `error_fetch`, `bal_msg`, `bal_error_title`, `bal_empty_title`, `bal_currency_line`, `status_line`, `status_line_no`, `preferred_currency`, `currency_label`, `currency_hint`, `enable_alerts`, `enable_alerts_label`
+
+## 当前版本变更 (v1.2.x)
 
 ### Config
 
@@ -87,67 +95,21 @@ DeepSeek Balance:                              ← Fixed title
 
 ### Behaviour
 
-- **自定义图标配色**：5 套预置主题 + custom 模式，`_get_colors(config)` 统一读取。托盘文字和描边颜色基于背景亮度自选黑白（阈值 170）。保存后图标即时刷新
+- **自定义图标配色**：5 套预置主题 + custom 模式，`_get_colors(config)` 统一读取。托盘文字和描边颜色基于背景亮度自选黑白（阈值 170）。保存后图标即时刷新。【05-13】custom 模式新增实时预览与颜色值保存前校验。
 - **API Key 加密存储**：`src/secure_settings.py`（Fernet + SQLite），`load_config()` → `_resolve_api_key()` 按 secure_settings → credential_store → config.json 三级回退，`save_config()` 自动清空明文字段。这是为了兼容旧版本，新版本应统一使用 SQLite 加密存储。
 - **Demo 模式**：API Key 填入 `demo` 触发，读取独立 `demo_mode_balance` 表，不请求真实 API。所有版本统一使用此方式。
-- **历史记录页**：右键新增「📊 历史记录」，展示历史记录、消耗速率，并支持 CSV 导出全部记录；图表/表格的具体格式和实现方式不作为跨平台要求
+- **历史记录页**：右键新增「📊 历史记录」，展示历史记录、消耗速率，并支持 CSV 导出全部记录；图表/表格的具体格式和实现方式不作为跨平台要求。【05-13】Python-Windows 版本已吸收 Mac 版本的按日期筛选功能。
 - **消耗速率**：`get_consumption_rate(days=7)` 基于 topped 余额 + 加权平均；7 天数据不足时自动扩大到 `retention_days` 窗口
 - **API 服务状态入数据库**：`balance_history` 表新增 `service_status` 列，`save_balance_record` 同步写入
 - **通知卡片视觉优化**：每行增加 emoji 前缀（💰📊🕐📡），上次查询改为仅显示相对时间（N 分钟/小时前）
-- **HTTP 代理**：启动时读取 `http_proxy` 配置并全局安装，设置页修改后即时生效
-- **代理开关**：`proxy_enabled` 复选框 + 地址输入框，关闭时保留地址不清除；地址空时灰色 placeholder
+- **HTTP 代理**：启动时读取 `http_proxy` 配置并全局安装，设置页修改后即时生效；代理开关：`proxy_enabled` 复选框 + 地址输入框，关闭时保留地址不清除；地址空时灰色 placeholder
 - **设置页优化**：标题简化为 `⚙️ 设置` / `⚙️ Settings`；移除 footer 中的上次查询和余额行
 - **Python 版窗口管理**：设置、历史、开发者面板共用 `_tk_root`，避免多 `tk.Tk()` 导致变量/样式冲突。历史和开发者面板支持重复唤起聚焦；该项不是跨平台实现要求
 
-### i18n
-
-以下 Key 为新增，各移植版本需同时支持中英文：
-
-| Key | 中文 | English |
-|---|---|---|
-| `alert_mode_label` | 低余额提醒： | Low Balance Alert: |
-| `alert_mode_never` | 不提醒 | Never |
-| `alert_mode_always` | 持续提醒 | Always |
-| `alert_mode_once` | 仅提醒一次 | Once |
-| `api_alert_label` | API 服务状态变化提醒 | API service status alerts |
-| `api_degraded_title` | ⚠️ DeepSeek API 服务异常 | ⚠️ DeepSeek API Degraded |
-| `api_degraded_msg` | 检测到 API 服务状态异常… | API service status has changed… |
-| `api_recovered_title` | ✅ DeepSeek API 服务恢复 | ✅ DeepSeek API Recovered |
-| `api_recovered_msg` | API 服务已恢复正常。 | API service is back to normal. |
-| `service_status` | API 服务状态： | API Status: |
-| `status_none` | 服务正常 | All Systems Operational |
-| `status_minor` | 轻微异常 | Minor Outage |
-| `status_major` | 严重异常 | Major Outage |
-| `status_critical` | 关键不可用 | Critical Outage |
-| `status_maintenance` | 维护中 | Under Maintenance |
-| `status_unknown` | 服务状态未知 | Status Unknown |
-| `bal_title` | DeepSeek 余额： | DeepSeek Balance: |
-| `bal_line` | {balance} {code}（充值 {topped}，赠送 {granted}） | {balance} {code} (Topped {topped}, Granted {granted}) |
-| `retention_label` | 日志和记录保留天数： | Log & record retention (days): |
-| `dev_tools` | 🛠 开发者 | 🛠 Dev Tools |
-| `history` | 📊 历史记录 | 📊 History |
-| `icon_stroke_label` | 图标描边 | Icon stroke |
-| `theme_label` | 图标主题： | Icon Theme: |
-| `theme_default` | 默认 | Default |
-| `theme_contrast` | 高对比 | High Contrast |
-| `theme_bright` | 明亮 | Bright |
-| `theme_dark_mode` | 暗色模式 | Dark Mode |
-| `theme_mono` | 纯灰度 | Monochrome |
-| `theme_custom` | 自定义 | Custom |
-| `export_label` | 数据导出路径： | Export path: |
-| `export_browse` | 浏览 | Browse |
-| `proxy_label` | HTTP/HTTPS 代理： | HTTP/HTTPS proxy: |
-| `proxy_hint` | 例如 http://127.0.0.1:7890，留空则不使用 | e.g. http://127.0.0.1:7890, leave blank to disable |
-| `proxy_enable` | 启用 HTTP/HTTPS 代理 | Enable HTTP/HTTPS proxy |
-| `proxy_placeholder` | 代理地址 | Proxy address |
-
-**已移除的 Key**：以下 Key 已从 Python 版移除，移植版本无需实现：
-`topped_up`, `granted`, `currency`, `checking`, `error_fetch`, `bal_msg`, `bal_error_title`, `bal_empty_title`, `bal_currency_line`, `status_line`, `status_line_no`, `preferred_currency`, `currency_label`, `currency_hint`, `enable_alerts`, `enable_alerts_label`
-
 ### Windows / Port-Specific
 
-- **Rainmeter 小工具**：`rainmeter-widget/`，本地 HTTP 接口 `127.0.0.1:17654`，中英文双 skin，`.rmskin` CI 打包
-- **Windows 凭据管理器**：Python Windows 版使用 Windows Credential Manager 加密存储 API Key（v1.2 特性），后续版本将统一使用 SQLite 加密存储
+- **Rainmeter 小工具**：`rainmeter-widget/`，本地 HTTP 接口 `127.0.0.1:17654`，skin 四版本涵盖中英文、是否高分屏，`.rmskin` CI 打包；添加 Rainmeter 接口开关设置项
+- **Windows 凭据管理器**：自 1.2.1 起，Windows 版本（Rust / Python）统一使用 SQLite 加密存储
 - **Windows 发布签名（可选）**：SignPath.io（免费版，开源项目），fork 开发者自行配置，详见 [CODE_SIGNING.md](CODE_SIGNING.md)
 
 ### macOS / Port-Specific
@@ -155,7 +117,7 @@ DeepSeek Balance:                              ← Fixed title
 - **macOS Keychain 集成**：Python macOS 版使用 Keychain 加密存储 API Key（v1.2 特性），后续版本将统一使用 SQLite 加密存储
 - **macOS WebView 设置界面**：macOS 版使用 WebView 实现设置界面
 
-### Rust / Port-Specific
+### Rust-Linux / Port-Specific
 
 - **Plasma 6 小工具**（仅支持 Linux Rust）：透明玻璃风格，emoji 状态展示，配置页改用 `dsmon set` 命令
 - **Linux SHA256 校验和**：Release 中提供 `checksums.txt` 用于验证 tarball 完整性，详见 [CODE_SIGNING.md](CODE_SIGNING.md)

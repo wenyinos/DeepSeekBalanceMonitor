@@ -6,7 +6,7 @@ import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-from src.config import log
+from src.config import T, log
 
 
 def _start_server(app):
@@ -66,12 +66,12 @@ def _start_server(app):
                     diff = datetime.now() - last
                     mins = int(diff.total_seconds() / 60)
                     if mins < 1:
-                        ago = "just now" if lang == "en" else "刚刚"
+                        ago = T("ago_just", lang)
                     elif mins < 60:
-                        ago = f"{mins} min ago" if lang == "en" else f"{mins} 分钟前"
+                        ago = T("ago_min", lang, n=mins)
                     else:
                         hrs = mins // 60
-                        ago = f"{hrs} hr ago" if lang == "en" else f"{hrs} 小时前"
+                        ago = T("ago_hr", lang, n=hrs)
                 else:
                     ago = T("not_checked", lang)
 
@@ -88,15 +88,15 @@ def _start_server(app):
                     days = int(hours_left // 24)
                     hrs = int(hours_left % 24)
                     if days > 0:
-                        remaining = f"{days}d {hrs}h" if lang == "en" else f"{days} 天 {hrs} 小时"
+                        remaining = T("remaining_dh", lang, d=days, h=hrs)
                     elif hrs >= 1:
-                        remaining = f"{hrs}h" if lang == "en" else f"{hrs} 小时"
+                        remaining = T("remaining_h", lang, h=hrs)
                     else:
-                        remaining = "< 1h" if lang == "en" else "不足 1 小时"
-                    prefix = "Est." if lang == "en" else "预计可用"
+                        remaining = T("remaining_lt1h", lang)
+                    prefix = T("est_prefix", lang)
                     estimated_line = f"📊 {prefix} {remaining}"
                 else:
-                    estimated_line = "📊 --" if lang == "en" else "📊 预计可用 --"
+                    estimated_line = T("rms_fallback", lang)
 
                 self._respond({
                     "accent_color": accent_color,

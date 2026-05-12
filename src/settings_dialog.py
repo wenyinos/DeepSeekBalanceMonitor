@@ -154,12 +154,13 @@ def open_settings(app):
         threshold_sb.pack(side="left")
         ttk.Label(tfr, text=T("threshold_hint", lang)).pack(side="left")
 
-        ALERT_MODES = {"不提醒": "never", "持续提醒": "always", "仅提醒一次": "once"}
-        ALERT_MODES_EN = {"Never": "never", "Always": "always", "Once": "once"}
-        alert_mode_map = ALERT_MODES if lang == "zh" else ALERT_MODES_EN
+        # alert_mode_map = {T("alert_never", lang): "never", T("alert_always", lang): "always", T("alert_once", lang): "once"}
+        alert_mode_map = {
+            T("alert_never", lang): "never", T("alert_always", lang): "always", T("alert_once", lang): "once",
+        }
         alert_mode_display = list(alert_mode_map.keys())
         cur_alert_display = {v: k for k, v in alert_mode_map.items()}.get(
-            app.config.get("alert_mode", "always"), "Always")
+            app.config.get("alert_mode", "always"), T("alert_always", lang))
         ttk.Label(scroll_frame, text=T("alert_mode_label", lang)).pack(anchor="w")
         alert_mode_var = tk.StringVar(value=cur_alert_display)
         alert_mode_combo = ttk.Combobox(scroll_frame, textvariable=alert_mode_var,
@@ -260,6 +261,23 @@ def open_settings(app):
             else:
                 custom_frame.pack_forget()
 
+        def _on_custom_change(*_args):
+            for k, v in custom_vars.items():
+                val = v.get().strip()
+                if len(val) == 6:
+                    try:
+                        c = _hex_to_rgba(val)
+                        lbl = color_labels.get(k)
+                        if lbl:
+                            hex_color = f"#{val}"
+                            tc = _text_color(c)
+                            lbl.configure(background=hex_color, foreground=_tk_color(tc))
+                    except ValueError:
+                        pass
+
+        for v in custom_vars.values():
+            v.trace_add("write", _on_custom_change)
+
         theme_var.trace_add("write", _on_theme_change)
 
         # Show custom inputs on open if already in custom mode
@@ -343,8 +361,6 @@ def open_settings(app):
         proxy_entry.bind("<FocusIn>", _on_focus_in)
         proxy_entry.bind("<FocusOut>", _on_focus_out)
 
-        # Prevent accidental value changes via mousewheel on spinboxes and
-        # comboboxes — these are too easy to bump while scrolling the dialog.
         _no_scroll = lambda e: "break"
         for w in (interval_sb, threshold_sb, alert_mode_combo, theme_combo, lang_combo, retention_sb):
             w.bind("<MouseWheel>", _no_scroll)
@@ -410,20 +426,20 @@ def open_settings(app):
                 retention = int(retention_var.get())
             except (ValueError, tk.TclError):
                 messagebox.showwarning(T("warn_title", lang),
-                                       "输入值不合法，请检查各字段。", parent=root)
+                                       T("validate_invalid", lang), parent=root)
                 return
 
             if not (1 <= interval <= 1440):
                 messagebox.showwarning(T("warn_title", lang),
-                                       "查询间隔需在 1 ~ 1440 分钟之间。", parent=root)
+                                       T("validate_interval", lang), parent=root)
                 return
             if not (0 <= threshold <= 10000):
                 messagebox.showwarning(T("warn_title", lang),
-                                       "预警阈值需在 0 ~ 10000 之间。", parent=root)
+                                       T("validate_threshold", lang), parent=root)
                 return
             if not (1 <= retention <= 3650):
                 messagebox.showwarning(T("warn_title", lang),
-                                       "保留天数需在 1 ~ 3650 之间。", parent=root)
+                                       T("validate_retention", lang), parent=root)
                 return
 
             app.config["api_key"] = key
@@ -444,7 +460,8 @@ def open_settings(app):
             app.config["export_path"] = export_var.get()
             app.config["proxy_enabled"] = proxy_enabled_var.get()
             proxy_val = proxy_var.get().strip()
-            if proxy_val == T("proxy_placeholder", lang):
+            new_lang = LANG_OPTIONS.get(lang_var.get(), "zh")
+            if proxy_val == T("proxy_placeholder", new_lang):
                 proxy_val = ""
             app.config["http_proxy"] = proxy_val
             from src.api_client import install_proxy
@@ -454,6 +471,19 @@ def open_settings(app):
                 install_proxy("")
 
             t_idx = theme_display.index(theme_var.get()) if theme_var.get() in theme_display else 0
+            if THEME_KEYS[t_idx] == "custom":
+                for k, v in custom_vars.items():
+                    val = v.get().strip()
+                    if len(val) != 6:
+                        messagebox.showwarning(T("warn_title", lang),
+                                               T("hex_invalid", lang), parent=root)
+                        return
+                    try:
+                        int(val, 16)
+                    except ValueError:
+                        messagebox.showwarning(T("warn_title", lang),
+                                               T("hex_invalid", lang), parent=root)
+                        return
             t_key = THEME_KEYS[t_idx]
             app.config["theme"] = t_key
             if t_key == "custom":

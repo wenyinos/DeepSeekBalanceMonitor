@@ -4,7 +4,7 @@ Tray application — balance checking loop, notifications, tray menu, and entry 
 import sys
 import threading
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pystray
 
@@ -12,7 +12,7 @@ from src.config import T, log, CONFIG_DIR, APP_NAME, APP_ID
 from src.api_client import fetch_balance, fetch_service_status, install_proxy
 from src.icon_renderer import create_icon_image
 from src.app_state import AppState
-from src.storage import save_balance_record, prune_old_data, get_consumption_rate, get_history_page, export_all_csv
+from src.storage import save_balance_record, prune_old_data, get_consumption_rate
 
 _DEMO = {
     "balances": {"CNY": {"total_balance": 42.50, "topped_up_balance": 40.00, "granted_balance": 2.50}},
@@ -35,6 +35,44 @@ def _sanitise_error(text):
         return text
     except (UnicodeEncodeError, LookupError):
         return text.encode("mbcs", errors="replace").decode("mbcs")
+
+
+def _generate_demo_history():
+    import random as _random
+    _random.seed(2026)
+    records = []
+    now = datetime.now()
+    steps = 200
+    span_min = 7 * 24 * 60
+    topped = 500.0
+    granted = 10.0
+    bumps = {55: 300, 130: 200, 175: 100}
+    for i in range(steps):
+        mins_ago = span_min * (steps - 1 - i) / (steps - 1)
+        ts = (now - timedelta(minutes=mins_ago)).strftime("%Y-%m-%d %H:%M:%S")
+        if i in bumps:
+            topped += bumps[i]
+        consume = 3.0 + _random.uniform(-2, 2)
+        topped = max(topped - consume, 0)
+        s = "minor" if i % 55 == 0 else "none"
+        records.append({
+            "timestamp": ts, "currency": "CNY",
+            "total": round(topped + granted, 2),
+            "topped": round(topped, 2),
+            "granted": round(granted, 2),
+            "service_status": s,
+        })
+    records.reverse()
+    return records
+
+
+def _demo_rate_from(records):
+    if len(records) < 2:
+        return 1.0, 0
+    total_drop = records[-1]["total"] - records[0]["total"]
+    daily = total_drop / 7 if total_drop > 0 else 1.0
+    hrs = records[0]["topped"] / daily * 24 if daily > 0 else 0
+    return daily, hrs
 
 
 # --- Balance Check --------------------------------------------------
@@ -205,26 +243,25 @@ def on_show_balance(icon, item):
             days = int(hours_left // 24)
             hrs = int(hours_left % 24)
             if days > 0:
-                remaining = f"{days}d {hrs}h" if lang == "en" else f"{days} 天 {hrs} 小时"
+                remaining = T("remaining_dh", lang, d=days, h=hrs)
             elif hrs >= 1:
-                remaining = f"{hrs}h" if lang == "en" else f"{hrs} 小时"
+                remaining = T("remaining_h", lang, h=hrs)
             else:
-                remaining = "< 1h" if lang == "en" else "不足 1 小时"
-            prefix = "Est." if lang == "en" else "预计可用"
-            lines.append(f"📊 Avg: {daily_rate:.2f}/day  |  {prefix} {remaining}" if lang == "en"
-                         else f"📊 日均消耗 {daily_rate:.2f}  |  {prefix} {remaining}")
+                remaining = T("remaining_lt1h", lang)
+            prefix = T("est_prefix", lang)
+            lines.append(f"📊 {T('rate_line', lang, rate=daily_rate, prefix=prefix, remaining=remaining)}")
 
     lines.append(f"📡 {status_line}")
     if last:
         diff = datetime.now() - last
         mins = int(diff.total_seconds() / 60)
         if mins < 1:
-            ago = "just now" if lang == "en" else "刚刚"
+            ago = T("ago_just", lang)
         elif mins < 60:
-            ago = f"{mins} min ago" if lang == "en" else f"{mins} 分钟前"
+            ago = T("ago_min", lang, n=mins)
         else:
             hrs = mins // 60
-            ago = f"{hrs} hr ago" if lang == "en" else f"{hrs} 小时前"
+            ago = T("ago_hr", lang, n=hrs)
         sp = " " if lang == "en" else ""
         lines.append(f"🕐 {T('last_check', lang)}{sp}{ago}")
     msg = "\n".join(lines)
@@ -249,241 +286,8 @@ def _on_history(icon, item):
     if app is None:
         return
 
-    if app._history_open:
-        try:
-            app._history_window.deiconify()
-            app._history_window.lift()
-            app._history_window.after(50, app._history_window.focus_force)
-        except Exception:
-            pass
-        return
-
-    import tkinter as tk
-    from tkinter import ttk
-
-    lang = app.lang
-
-    if app._tk_root is None:
-        app._tk_root = tk.Tk()
-        app._tk_root.withdraw()
-    root = app._tk_root
-    win = tk.Toplevel(root)
-    app._history_open = True
-    app._history_window = win
-
-    def _cleanup():
-        app._history_open = False
-        app._history_window = None
-        win.destroy()
-
-    win.protocol("WM_DELETE_WINDOW", _cleanup)
-    win.title(T("history", lang))
-    win.geometry("850x640")
-    win.minsize(500, 400)
-    win.after(50, win.focus_force)
-    win.update_idletasks()
-    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-    w, h = win.winfo_width(), win.winfo_height()
-    win.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
-
-    try:
-        import os, sys as _sys
-        if getattr(_sys, "frozen", False):
-            icon_path = os.path.join(_sys._MEIPASS, "app.ico")
-        else:
-            icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                     "assets", "app.ico")
-        if os.path.isfile(icon_path):
-            win.iconbitmap(icon_path)
-    except Exception:
-        pass
-
-    tree_frame = tk.Frame(win)
-    tree_frame.pack(fill="both", expand=True, padx=10, pady=(10, 0))
-
-    style = ttk.Style()
-    style.configure("History.Treeview", rowheight=34, font=("Segoe UI", 9))
-
-    tree = ttk.Treeview(tree_frame, columns=("time", "curr", "total", "topped", "granted", "status"),
-                        show="headings", style="History.Treeview")
-    tree.heading("time", text="Timestamp" if lang == "en" else "时间")
-    tree.heading("curr", text="Currency" if lang == "en" else "币种")
-    tree.heading("total", text="Total" if lang == "en" else "总余额")
-    tree.heading("topped", text="Topped" if lang == "en" else "充值")
-    tree.heading("granted", text="Granted" if lang == "en" else "赠送")
-    tree.heading("status", text="Status" if lang == "en" else "状态")
-    tree.column("time", width=220, minwidth=180)
-    tree.column("curr", width=60, anchor="center", minwidth=50)
-    tree.column("total", width=100, anchor="e", minwidth=80)
-    tree.column("topped", width=100, anchor="e", minwidth=80)
-    tree.column("granted", width=100, anchor="e", minwidth=80)
-    tree.column("status", width=90, anchor="center", minwidth=75)
-
-    scrollbar = tk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
-    tree.configure(yscrollcommand=scrollbar.set)
-    tree.pack(side="left", fill="both", expand=True)
-    scrollbar.pack(side="right", fill="y")
-
-    # Bind mousewheel scroll
-    def _on_tree_wheel(event):
-        tree.yview_scroll(int(-1 * (event.delta / 60)), "units")
-    tree.bind("<MouseWheel>", _on_tree_wheel)
-    tree.bind("<Enter>", lambda e: tree.bind_all("<MouseWheel>", _on_tree_wheel))
-    tree.bind("<Leave>", lambda e: tree.unbind_all("<MouseWheel>"))
-
-    # Chart canvas
-    chart_h = 150
-    chart = tk.Canvas(win, height=chart_h, bg="#f5f5f5", highlightthickness=0)
-    chart.pack(fill="x", padx=10, pady=(6, 0))
-
-    # Rate label below chart
-    rate_var = tk.StringVar()
-    rate_label = tk.Label(win, textvariable=rate_var, font=("Segoe UI", 9),
-                          fg="#555", anchor="w")
-    rate_label.pack(fill="x", padx=14, pady=(2, 0))
-
-    def _update_rate_label():
-        cr = get_consumption_rate()
-        if cr:
-            daily_rate, hours_left, curr = cr
-            days = int(hours_left // 24)
-            hrs = int(hours_left % 24)
-            if days > 0:
-                remaining = f"{days}d {hrs}h" if lang == "en" else f"{days} 天 {hrs} 小时"
-            elif hrs >= 1:
-                remaining = f"{hrs}h" if lang == "en" else f"{hrs} 小时"
-            else:
-                remaining = "< 1h" if lang == "en" else "不足 1 小时"
-            prefix = "Est." if lang == "en" else "预计可用"
-            rate_var.set(
-                f"Avg: {daily_rate:.2f} {curr}/day  |  {prefix} {remaining}"
-                if lang == "en" else
-                f"日均消耗 {daily_rate:.2f} {curr}  |  {prefix} {remaining}"
-            )
-        else:
-            rate_var.set(
-                "Not enough data" if lang == "en" else "数据不足，无法计算消耗速率"
-            )
-
-    offset_var = [0]
-    all_rows = []
-    btn_frame = ttk.Frame(win)
-    btn_frame.pack(fill="x", side="bottom", padx=10, pady=10)
-    load_btn = ttk.Button(btn_frame, text="Load more ▼" if lang == "en" else "加载更多 ▼")
-
-    STATUS_SHORT = {
-        "none": "OK", "minor": "Min", "major": "Maj",
-        "critical": "Crit", "maintenance": "Mnt",
-    }
-
-    def _redraw_chart():
-        # Reverse so oldest is on the left
-        totals = [(r["total"], r["currency"]) for r in reversed(all_rows) if r["currency"]]
-        totals = totals[-1000:]
-        if len(totals) < 2:
-            chart.delete("all")
-            return
-        chart.delete("all")
-        cw = chart.winfo_width()
-        # Axes margins: left 50px for Y labels, right 10px, top 16px, bottom 24px for X labels
-        ml, mr, mt, mb = 50, 12, 16, 28
-        w = cw - ml - mr
-        h = chart_h - mt - mb
-        vals = [t[0] for t in totals]
-        lo, hi = min(vals), max(vals)
-        if hi == lo:
-            hi = lo + 1
-
-        # Axes
-        chart.create_line(ml, mt, ml, mt + h, fill="#999", width=1)  # Y axis
-        chart.create_line(ml, mt + h, ml + w, mt + h, fill="#999", width=1)  # X axis
-
-        # Y labels (3 ticks)
-        for pct in (0, 0.5, 1):
-            v = lo + (hi - lo) * pct
-            y = mt + h * (1 - pct)
-            chart.create_text(ml - 6, y, text=f"{v:.1f}", anchor="e",
-                              fill="#666", font=("Segoe UI", 7))
-
-        if all_rows:
-            last_ts = all_rows[0]["timestamp"]
-            n = min(len(all_rows), 1000)
-            first_ts = all_rows[n - 1]["timestamp"]
-        else:
-            first_ts = last_ts = ""
-        chart.create_text(ml, mt + h + 6, text=first_ts[:10] if len(first_ts) > 10 else first_ts,
-                          anchor="nw", fill="#666", font=("Segoe UI", 7))
-        chart.create_text(ml + w, mt + h + 6, text=last_ts[:10] if len(last_ts) > 10 else last_ts,
-                          anchor="ne", fill="#666", font=("Segoe UI", 7))
-
-        # Data line
-        pts = []
-        for i, v in enumerate(vals):
-            x = ml + w * i / (len(vals) - 1)
-            y = mt + h * (1 - (v - lo) / (hi - lo))
-            pts.extend((x, y))
-        if len(pts) >= 4:
-            chart.create_line(pts, fill="#3C6966", width=2, smooth=True)
-            for x, y in zip(pts[::2], pts[1::2]):
-                chart.create_oval(x - 2, y - 2, x + 2, y + 2,
-                                  fill="#3C6966", outline="")
-        chart.configure(scrollregion=(0, 0, cw, chart_h))
-
-    chart.bind("<Configure>", lambda e: _redraw_chart())
-
-    def _load_page():
-        rows = get_history_page(limit=100, offset=offset_var[0])
-        for r in rows:
-            s = r["service_status"]
-            s_label = STATUS_SHORT.get(s, s) if s else "-"
-            tree.insert("", "end", values=(
-                r["timestamp"], r["currency"], f"{r['total']:.2f}",
-                f"{r['topped']:.2f}", f"{r['granted']:.2f}", s_label,
-            ))
-        all_rows.extend(rows)
-        offset_var[0] += len(rows)
-        if len(rows) < 100:
-            load_btn.configure(state="disabled",
-                               text="All loaded" if lang == "en" else "已加载全部")
-        _redraw_chart()
-        _update_rate_label()
-
-    def _export_csv():
-        from tkinter import filedialog, messagebox
-        import os, datetime as _dt
-        path = app.config.get("export_path", "").strip()
-        if path:
-            ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-            f = os.path.join(path, f"deepseek_balance_{ts}.csv")
-        else:
-            f = filedialog.asksaveasfilename(
-                parent=win, defaultextension=".csv",
-                filetypes=[("CSV files", "*.csv")],
-                initialfile="deepseek_balance_history.csv",
-            )
-        if f:
-            n = export_all_csv(f)
-            msg = f"{n} records exported" if lang == "en" else f"已导出 {n} 条记录"
-            messagebox.showinfo("Export", msg, parent=win)
-
-    export_btn = ttk.Button(btn_frame, text="Export CSV" if lang == "en" else "导出 CSV",
-                            command=_export_csv)
-
-    load_btn.configure(command=_load_page)
-    if lang == "en":
-        load_btn.pack(side="left")
-        export_btn.pack(side="left", padx=(6, 0))
-        ttk.Button(btn_frame, text="Close", command=win.destroy).pack(side="right")
-    else:
-        load_btn.pack(side="left")
-        export_btn.pack(side="left", padx=(6, 0))
-        ttk.Button(btn_frame, text="关闭", command=win.destroy).pack(side="right")
-
-    _load_page()
-    win.protocol("WM_DELETE_WINDOW", lambda: (win.destroy(), setattr(app, '_history_open', False)))
-    win.focus_force()
-    root.mainloop()
-
+    from src.history_dialog import open_history
+    open_history(app)
 
 def on_settings(icon, item):
     app = getattr(icon, "_app", None)
@@ -572,7 +376,10 @@ def _on_dev_tools(icon, item):
 
     ttk.Button(f, text="Apply", command=_apply).pack(pady=(4, 0))
 
-    win.protocol("WM_DELETE_WINDOW", win.destroy)
+    def _dev_cleanup():
+        win.destroy()
+        app._tk_root.quit()
+    win.protocol("WM_DELETE_WINDOW", _dev_cleanup)
     win.focus_force()
     app._tk_root.mainloop()
 
@@ -605,9 +412,19 @@ def main():
         install_proxy(proxy)
         log(f"Proxy set: {proxy}")
 
-    if "--demo" in sys.argv:
+    if "--demo" in sys.argv or app.config.get("api_key", "").strip().lower() == "demo":
         app.demo_mode = True
         log("Demo mode enabled")
+        app._demo_history = _generate_demo_history()
+        last = app._demo_history[0]
+        _DEMO["balances"]["CNY"] = {
+            "total_balance": last["total"],
+            "topped_up_balance": last["topped"],
+            "granted_balance": last["granted"],
+        }
+        d_rate, d_hrs = _demo_rate_from(app._demo_history)
+        app._demo_daily = d_rate
+        app._demo_hrs = d_hrs
     else:
         retention = int(app.config.get("retention_days", 30))
         prune_old_data(retention)
@@ -630,7 +447,6 @@ def main():
             print(T("exit_no_key", app.config.get("language", "zh")))
             sys.exit(0)
 
-    # Create tray icon
     icon_img = create_icon_image(app)
     app.icon = pystray.Icon(
         APP_ID,
@@ -640,7 +456,6 @@ def main():
     )
     app.icon._app = app
 
-    # Start first balance check
     threading.Thread(target=do_balance_check, args=(app,), daemon=True).start()
     log("First balance check scheduled")
 

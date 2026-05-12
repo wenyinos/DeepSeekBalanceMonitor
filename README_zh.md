@@ -6,6 +6,10 @@
 
 ![preview](assets/preview_zh.png)
 
+![Rainmeter 小组件预览](assets/preview_rainmeter_zh.png)
+
+Rainmeter 小组件预览图
+
 [Linux Plasma 小组件预览](assets/preview_linux.png)（仅 KDE Plasma 6）
 
 [Mac WebView 截图](assets/webview%20screenshots/) — 菜单栏、设置界面、历史图表、浅色主题
@@ -14,10 +18,7 @@
 
 ## 当前版本亮点
 
-- Rust 1.2.5 刷新 Linux Plasma 小组件显示模型：余额、相对上次查询、API 服务状态和预计可用时间现在与 Rainmeter 小工具布局一致。
-- Plasma 小组件语言修改现在会同步 `cfg_language` 到 `dsmon` 的 `ui_language`，重启 Plasma 后仍能保持中英文选择。
-- Linux 发布现在同时提供完整 `.tar.gz` 包和可直接下载的独立 `.plasmoid` 小组件包。
-- Rust Windows 和 Rust Linux 已改用 FlashDuty 后台的 DeepSeek 状态页，替代失效的 `status.deepseek.com/api/v2` 旧接口。
+- 已改用 FlashDuty 后台的 DeepSeek 状态页，替代失效的 `status.deepseek.com/api/v2` 旧接口。
 - 自定义图标样式：5 套预置配色、自定义 hex 颜色和图标描边开关。
 - 历史记录页：分页余额记录、交互式趋势图和消耗速率分析。
 - CSV 导出支持配置保存路径。
@@ -32,6 +33,9 @@ Rust Linux 版本限定：
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
 - Plasma 6 小组件：透明液态玻璃桌面样式，余额、上次查询、服务状态、预计可用时间、刷新按钮和 emoji 状态。
 - Plasma 6 小组件显示刻意保持紧凑：桌面主视图显示余额行、相对上次查询时间、DeepSeek API 状态和预计剩余时间。
+- 刷新 Linux Plasma 小组件显示模型：余额、相对上次查询、API 服务状态和预计可用时间现在与 Rainmeter 小工具布局一致。
+- Plasma 小组件语言修改现在会同步 `cfg_language` 到 `dsmon` 的 `ui_language`，重启 Plasma 后仍能保持中英文选择。
+- Linux 发布现在同时提供完整 `.tar.gz` 包和可直接下载的独立 `.plasmoid` 小组件包。
 
 
 ## 功能
@@ -97,7 +101,7 @@ Rainmeter 桌面小工具是可选功能。它通过本地地址 `127.0.0.1:1765
 4. 双击 `.rmskin` 安装皮肤。
 5. 在 Rainmeter 中加载 `DeepSeekBalanceMonitor\DeepSeekBalanceMonitor.ini`（英文版用 `DeepSeekBalanceMonitor.en.ini`）。
 
-**高分屏：** 先对 `Rainmeter.exe` 右键 → 属性 → 兼容性 → 更改高 DPI 设置 → 勾选"替代高 DPI 缩放行为"并选"应用程序"。然后加载 `DeepSeekBalanceMonitor.hd.ini`（或 `.en.hd.ini`），这是 2x 缩放版。
+**高分屏：** 先对 `Rainmeter.exe` 右键 → 属性 → 兼容性 → 更改高 DPI 设置 → 勾选"替代高 DPI 缩放行为"并选"应用程序"。然后加载 2x 缩放版 `DeepSeekBalanceMonitor.hd.ini`（或 `.en.hd.ini`）。
 
 ### 运行要求
 

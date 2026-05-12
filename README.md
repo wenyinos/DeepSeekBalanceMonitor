@@ -6,6 +6,10 @@ A Windows tray app and Linux CLI/Plasma widget that periodically query the DeepS
 
 ![preview](assets/preview.png)
 
+![Rainmeter preview](assets/preview_rainmeter.png)
+
+Rainmeter widget preview
+
 [Linux Plasma widget preview](assets/preview_linux.png) (KDE Plasma 6 only)
 
 [Mac WebView screenshots](assets/webview%20screenshots/) — menu bar, settings UI, history chart, light theme
@@ -14,36 +18,35 @@ A Windows tray app and Linux CLI/Plasma widget that periodically query the DeepS
 
 ## Current Version Highlights
 
-- Rust 1.2.5 refreshes the Linux Plasma widget display model: balance, relative last check, API service status, and estimated availability now match the Rainmeter widget layout.
-- Plasma widget language changes now persist across Plasma restarts by syncing the widget `cfg_language` setting back to `dsmon`'s `ui_language`.
-- Linux releases now include both the full `.tar.gz` package and a standalone `.plasmoid` widget package for direct download.
-- Rust Windows and Rust Linux now read DeepSeek service status from the FlashDuty-backed status page after the old `status.deepseek.com/api/v2` API stopped working.
+- Migrated to FlashDuty-backed DeepSeek status page, replacing the deprecated `status.deepseek.com/api/v2` endpoint.
 - Custom icon styling with 5 preset colour themes, custom hex colours, and an icon stroke toggle.
 - History viewer with paginated balance records, an interactive trend chart, and consumption rate analysis.
 - CSV export with a configurable save path.
 - Consumption rate estimation in balance notifications and the history viewer.
-- HTTP proxy support for restricted network environments.
+- HTTP proxy support.
 - Balance detail notifications now use emoji-prefixed lines and relative last-check time.
 - Demo mode for testing without a real API key: developer tools panel on Py-Win/Py-Mac, `demo` API key trigger on Rust.
 - Encrypted API key storage: Fernet + SQLite on Py-Win, SQLite `secure_settings` on Rust, Keychain on Py-Mac.
 - Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
 
 Rust Linux-specific:
-
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
-- Plasma 6 widget: transparent liquid-glass view with balance, last check, service status, estimated availability, refresh control, and emoji status text.
-- Plasma 6 widget display is intentionally compact: the main desktop widget shows the balance line, relative last-check time, DeepSeek API status, and estimated remaining time.
+- Plasma 6 widget: transparent liquid-glass desktop view with balance, last check, API service status, estimated availability, refresh control, and emoji status text.
+- Plasma 6 widget display is intentionally compact: the main desktop view shows a balance line, relative last-check time, DeepSeek API status, and estimated remaining time.
+- Refreshing the Linux Plasma widget model: balance, relative last check, API service status, and estimated availability now match the Rainmeter widget layout.
+- Plasma widget language changes now sync `cfg_language` to `dsmon`'s `ui_language`, persisting the Chinese/English selection across Plasma restarts.
+- Linux releases now provide both a complete `.tar.gz` package and a standalone `.plasmoid` widget package for direct download.
 
 ## Features
 
 - **Tray icon with balance** — Balance shown as a number on a coloured rounded rectangle. Teal (OK), red (low balance), warm gray (API service degraded), gray (no data yet). 5 customisable themes + custom hex colours.
 - **Low balance notification** — Three modes: never, always, or once per drop (default). The icon turns red regardless.
-- **Balance details** — Left-click the icon to see balance with emoji prefixes, consumption rate estimate, API service status, and relative last-check time.
+- **Balance details** — Left-click the icon to see balance (emoji-prefixed), consumption rate, API service status, and relative last-check time.
 - **History viewer** — Paginated table of all balance records with interactive trend chart and consumption rate analysis. CSV export.
-- **Settings** — API key (Fernet + SQLite), check interval, alert threshold, alert mode, icon theme, proxy, and more.
+- **Settings** — API key (Fernet + SQLite encrypted storage), check interval, alert threshold, alert mode, icon theme, proxy, and more.
 - **Demo mode** — `--demo` flag for testing without an API key, with a developer tools panel.
 - **Optional desktop widgets** — KDE Plasma 6 on Linux, and Rainmeter on Windows (Rust and Python builds both supported).
-- **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (MacOS, Keychain-secured, WebView settings UI).
+- **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (Keychain-secured, WebView settings UI).
 
 ### Notification Previews
 
@@ -65,14 +68,14 @@ Rust Linux-specific:
 
 ### Direct Download
 
-Grab the latest files from [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases). Use `DeepSeekBalanceMonitor.exe` for the Python-packaged build, `deepseek-balance-monitor-*-windows-*.exe` for the Rust Windows build, `deepseek-balance-monitor-*-linux-x86_64.tar.gz` for the full Linux package, or `deepseek-balance-monitor-*-plasmoid.plasmoid` for the standalone Plasma widget. Release builds do not require Python.
+Grab the latest files from [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases). Python builds use `DeepSeekBalanceMonitor.exe`, Rust Windows builds use `deepseek-balance-monitor-*-windows-*.exe`, full Linux packages use `deepseek-balance-monitor-*-linux-x86_64.tar.gz`, and standalone Plasma widgets use `deepseek-balance-monitor-*-plasmoid.plasmoid`. Release builds do not require Python.
 
 ### Optional Plasma Widget (Linux)
 
-The Plasma widget is optional and requires KDE Plasma 6. It reads local status from `dsmon` and never receives your API key directly.
+The Plasma widget is optional and requires KDE Plasma 6. It reads status from a local `dsmon` instance and does not directly receive your API key.
 
 1. Download `deepseek-balance-monitor-*-linux-x86_64.tar.gz` from [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases).
-2. Extract the archive and run the installer:
+2. Extract and run the install script:
 
    ```bash
    tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
@@ -81,11 +84,11 @@ The Plasma widget is optional and requires KDE Plasma 6. It reads local status f
    systemctl --user enable --now dsmon.service
    ```
 
-3. Add **DeepSeek Balance Monitor** from Plasma's widget picker.
-4. Open the widget settings, enter your DeepSeek API key or use `dsmon set-key`, then click **Save**.
-5. Use **Check** in the widget to refresh the balance manually.
+3. Add **DeepSeek Balance Monitor** from the Plasma widget chooser.
+4. Open the widget settings, enter your DeepSeek API key (or use `dsmon set-key`), then click **Save**.
+5. Click **Check** in the widget to manually refresh the balance.
 
-For widget-only installs, download `deepseek-balance-monitor-*-plasmoid.plasmoid` and install it with Plasma's widget installer. The full Linux tarball also contains the same widget under its `plasmoid/` directory.
+If you only need the widget, download `deepseek-balance-monitor-*-plasmoid.plasmoid` and install it with the Plasma widget installer. The full Linux tarball also contains the same widget under `plasmoid/`.
 
 ### Optional Rainmeter Widget (Windows)
 
@@ -97,7 +100,7 @@ The Rainmeter desktop widget is optional. It reads local status from a running D
 4. Double-click the `.rmskin` file and install the skin.
 5. In Rainmeter, load `DeepSeekBalanceMonitor\DeepSeekBalanceMonitor.ini` (or `DeepSeekBalanceMonitor.en.ini` for English).
 
-**High-DPI screens:** set `Rainmeter.exe` → Properties → Compatibility → Change high DPI settings → check "Override high DPI scaling behavior" and select "Application". Then load `DeepSeekBalanceMonitor.hd.ini` (or `.en.hd.ini`) — the 2x-scaled version.
+**High-DPI screens:** set `Rainmeter.exe` → Properties → Compatibility → Change high DPI settings → check "Override high DPI scaling behavior" and select "Application". Then load the 2x-scaled `DeepSeekBalanceMonitor.hd.ini` (or `.en.hd.ini`).
 
 ### Requirements
 
@@ -105,7 +108,7 @@ Direct downloads (`.exe`, `.tar.gz`, `.dmg`) require no additional runtimes.
 
 - Py-Win: Windows 10+
 - Rust-Win: Windows 7 SP1+ (all official updates), 8.1, 10, or 11
-- Rust-Linux: RHEL 8 / Ubuntu 20.04 era glibc or newer; KDE Plasma 6.0+ for widget
+- Rust-Linux: RHEL 8 / Ubuntu 20.04 era glibc or newer; KDE Plasma 6.0+ for the widget
 - Py-Mac: MacOS 10.14+
 
 Building from source additionally requires Python 3.10+ (Py-Win, Py-Mac) or Rust 1.77.2 (Rust-Win, Rust-Linux).
@@ -151,7 +154,7 @@ cd rust-linux
 cargo +1.77.2 build --release --locked
 ```
 
-Release tarballs install `/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`, and, on Plasma 6 systems, the optional Plasma widget:
+Linux release tarballs install `/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`, and, on Plasma 6 systems, the optional Plasma widget:
 
 ```bash
 tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
@@ -159,9 +162,9 @@ cd deepseek-balance-monitor-*-linux-x86_64
 sudo ./install.sh
 ```
 
-CLI is currently available only in the Rust Linux build. Windows and MacOS builds use GUI/tray controls.
+The CLI is currently available only in the Rust Linux build. Windows and MacOS builds use GUI/tray controls.
 
-Useful Linux CLI operations:
+Useful Linux CLI commands:
 
 | Command | Purpose |
 |---|---|
@@ -223,7 +226,7 @@ DeepSeekBalance/
 │   ├── AppIcon.icns / .png
 │   ├── preview.png / preview_zh.png
 │   └── font/
-├── rainmeter-widget/            # Rainmeter desktop skin source
+├── rainmeter-widget/           # Rainmeter desktop skin source
 ├── rust-windows/               # Native Rust Windows port
 │   ├── src/main.rs
 │   ├── app.manifest
@@ -256,7 +259,7 @@ Windows builds store settings in `%APPDATA%\DeepSeek Balance Monitor\config.json
 }
 ```
 
-API keys are not written to this file. Python Windows uses Fernet + SQLite, Python MacOS uses Keychain, and Rust Windows/Linux store encrypted keys in SQLite `secure_settings`.
+API keys are never written to this file. Python Windows uses Fernet + SQLite encryption, Python MacOS uses Keychain, and Rust Windows/Linux store encrypted keys in SQLite `secure_settings`.
 
 Linux `dsmon` stores settings in `~/.config/deepseek-balance-monitor/config.json` and logs in `~/.local/state/deepseek-balance-monitor/app.log`.
 

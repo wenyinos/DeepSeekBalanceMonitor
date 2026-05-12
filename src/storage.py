@@ -94,6 +94,29 @@ def get_history_page(limit: int = 100, offset: int = 0):
         return []
 
 
+def get_history_by_date(date_str: str):
+    """Return all balance records for a specific date (YYYY-MM-DD)."""
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT timestamp, currency, total, topped, granted, service_status "
+            "FROM balance_history "
+            "WHERE timestamp LIKE ? "
+            "ORDER BY timestamp ASC",
+            (f"{date_str}%",),
+        )
+        rows = [
+            {"timestamp": r[0], "currency": r[1], "total": r[2],
+             "topped": r[3], "granted": r[4], "service_status": r[5]}
+            for r in cur.fetchall()
+        ]
+        conn.close()
+        return rows
+    except Exception as e:
+        log(f"Failed to read history by date: {e}")
+        return []
+
+
 def export_all_csv(path: str) -> int:
     """Export all balance records to a CSV file. Returns row count."""
     try:
