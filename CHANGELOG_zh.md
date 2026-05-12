@@ -2,6 +2,29 @@
 
 所有值得记录的变更均记录于此。
 
+## Rust v1.2.5 (2026-05-12)
+
+### 新增
+
+- 独立 Plasma 小组件发布资产：`deepseek-balance-monitor-*-plasmoid.plasmoid`
+- Linux 发布 tar 包现在也在 `plasmoid/` 目录内包含同一套 Plasma 小组件
+- Linux 发布资产新增 `checksums.txt`，用于校验 tar 包完整性
+
+### 变更
+
+- Plasma 小组件显示同步 Rainmeter 布局：余额行、相对上次查询时间、API 服务状态和预计剩余时间
+- Plasma 小组件语言设置现在会把 `cfg_language` 同步回 `ui_language`，中英文选择在重启 Plasma 后仍保持
+- 低余额显示颜色优先于 API 服务异常颜色，与 Rainmeter 点缀色规则保持一致
+- Rust Linux 和 Rust Windows 的服务状态查询改用 FlashDuty 后台的 DeepSeek 状态页
+- 消耗估算改用 7 天 topped 余额历史，数据不足时 fallback 到保留期窗口
+- 代理设置新增显式启用开关，关闭代理时保留代理地址不清除
+
+### 修复
+
+- 修复 Linux Plasma 修改语言后重启 `plasmashell` 又恢复中文的问题
+- 修复 Rust 移植版仍调用已移除 DeepSeek 状态 REST API 的问题
+- 修复 Windows 设置页标题和底部状态行，使其符合 v1.2 设置页设计
+
 ## Python v1.2.2 (2026-05-12)
 
 ### 修复
