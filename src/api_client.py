@@ -66,24 +66,56 @@ def fetch_balance(api_key: str) -> dict:
     }
 
 
+# FlashDuty status → legacy indicator mapping
+_FLASHDUTY_MAP = {
+    "operational":        "none",
+    "degraded":           "minor",
+    "partial_outage":     "major",
+    "full_outage":        "critical",
+    "under_maintenance":  "maintenance",
+}
+
+
 def fetch_service_status():
-    """Fetch DeepSeek service status from status.deepseek.com.
+    """Fetch DeepSeek API service status from FlashDuty status page.
     Returns dict {"indicator": str, "api_operational": bool},
     or None on failure."""
     try:
-        headers = {"User-Agent": "DeepSeekBalanceMonitor/1.0"}
-        data = _get_json(
-            "https://status.deepseek.com/api/v2/status.json",
-            headers=headers, timeout=10)
-        indicator = data.get("status", {}).get("indicator", "none")
-        components = _get_json(
-            "https://status.deepseek.com/api/v2/components.json",
-            headers=headers, timeout=10)
-        api_operational = True
-        for comp in components.get("components", []):
-            if "api" in comp.get("name", "").lower():
-                api_operational = comp.get("status") == "operational"
-                break
-        return {"indicator": indicator, "api_operational": api_operational}
+        import re
+        url = "https://status.flashcat.cloud/deepseek"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8")
+        full = " ".join(html.split("\n"))
+
+        # Find component names from RSC payload
+        names = re.findall(r'\\"name\\"\s*:\s*\\"((?:API|Web|网页|APP|对话)[^\\]+)\\"', full)
+        seen = set()
+        api_name = None
+        for n in names:
+            if n not in seen:
+                seen.add(n)
+                if n.startswith("API") or "API" in n:
+                    api_name = n
+                    break
+
+        if not api_name:
+            return {"indicator": "none", "api_operational": True}
+
+        # Check active incidents for API component
+        active_match = re.search(r'\\"active_changes\\"\s*:\s*(\[[^\]]*\])', full)
+        if active_match:
+            raw = active_match.group(1).replace("\\", "")
+            changes = json.loads(raw)
+            for inc in changes:
+                for ac in inc.get("affected_components", []):
+                    if ac.get("name") == api_name:
+                        status = ac.get("status", "degraded")
+                        indicator = _FLASHDUTY_MAP.get(status, "none")
+                        return {"indicator": indicator,
+                                "api_operational": status == "operational"}
+
+        return {"indicator": "none", "api_operational": True}
     except Exception:
         return None

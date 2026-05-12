@@ -70,8 +70,7 @@ DeepSeek Balance:                              ← Fixed title
 | Endpoint | Purpose |
 |---|---|
 | `api.deepseek.com/user/balance` | 余额查询 |
-| `status.deepseek.com/api/v2/status.json` | 服务整体状态 |
-| `status.deepseek.com/api/v2/components.json` | 组件级状态（匹配 name 含 "api" 的项） |
+| `status.flashcat.cloud/deepseek` | FlashDuty 服务状态（RSC 解析，匹配 API 组件） |
 
 ## 当前版本变更 (v1.2)
 

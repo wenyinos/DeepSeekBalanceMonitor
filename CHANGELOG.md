@@ -2,6 +2,12 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Python v1.2.2 (2026-05-12)
+
+### Fixed
+
+- Emergency migration of API service status monitoring to FlashDuty endpoint after DeepSeek replaced the underlying status page
+
 ## Python v1.2.1 (2026-05-12)
 
 ### Added
