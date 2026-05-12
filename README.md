@@ -27,7 +27,7 @@ Rust-specific:
 
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
 - Plasma 6 widget: transparent liquid-glass view with balance, last check, service status, estimated availability, refresh control, and emoji status text.
-- Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Rust Windows provides the interface; Python Windows can adopt the same contract later.
+- Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
 
 ## Features
 
@@ -37,7 +37,7 @@ Rust-specific:
 - **History viewer** — Paginated table of all balance records with interactive trend chart and consumption rate analysis. CSV export.
 - **Settings** — API key (Windows Credential Manager), check interval, alert threshold, alert mode, icon theme, proxy, and more.
 - **Demo mode** — `--demo` flag for testing without an API key, with a developer tools panel.
-- **Optional desktop widgets** — KDE Plasma 6 on Linux, and Rainmeter on Windows through the local widget status interface.
+- **Optional desktop widgets** — KDE Plasma 6 on Linux, and Rainmeter on Windows (Rust and Python builds both supported).
 - **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (MacOS, Keychain-secured, WebView settings UI).
 
 ### Notification Previews
@@ -64,22 +64,26 @@ Grab the latest files from [Releases](https://github.com/wenyinos/DeepSeekBalanc
 
 ### Optional Rainmeter Widget (Windows)
 
-The Rainmeter desktop widget is optional. It reads local status from a running DeepSeek Balance Monitor process; it does not store or receive your API key. Rust Windows currently provides this local interface, and Python Windows can support the same interface later.
+The Rainmeter desktop widget is optional. It reads local status from a running DeepSeek Balance Monitor process (`127.0.0.1:17654`); it does not store or receive your API key. Supported on both Rust and Python Windows builds.
 
 1. Install Rainmeter from [rainmeter.net](https://www.rainmeter.net/).
-2. Download and run a Windows build that provides the Rainmeter interface. For current releases, use the Rust Windows `deepseek-balance-monitor-*-windows-*.exe`.
-3. Download `deepseek-balance-monitor-*-rainmeter.rmskin` from the same Release.
+2. Run any Windows build (Python or Rust) — the local status interface starts automatically.
+3. Download `deepseek-balance-monitor-*-rainmeter.rmskin` from [Releases](https://github.com/SrtaEstrella/DeepSeekBalanceMonitor/releases).
 4. Double-click the `.rmskin` file and install the skin.
-5. Start or keep open the main app, then load `DeepSeekBalanceMonitor\DeepSeekBalanceMonitor.ini` in Rainmeter.
+5. In Rainmeter, load `DeepSeekBalanceMonitor\DeepSeekBalanceMonitor.ini` (or `DeepSeekBalanceMonitor.en.ini` for English).
 
-The `.rmskin` package is generated in GitHub Actions with [`rmskin-builder`](https://pypi.org/project/rmskin-builder/), provided by [`2bndy5/rmskin-action`](https://github.com/2bndy5/rmskin-action).
+**High-DPI screens:** set `Rainmeter.exe` → Properties → Compatibility → Change high DPI settings → check "Override high DPI scaling behavior" and select "Application". Then load `DeepSeekBalanceMonitor.hd.ini` (or `.en.hd.ini`) — the 2x-scaled version.
 
 ### Requirements
 
-- Python build: Windows 10+, Python 3.10+
-- Rust Windows build: Windows 7 SP1 / Server 2008 R2 SP1 with all official updates, Windows 8.1 / Server 2012 R2, Windows 10, or Windows 11
-- Rust Linux build: RHEL 8 / Ubuntu 20.04 era glibc or newer; KDE Plasma 6.0+ for the optional widget
-- MacOS build: MacOS 10.14+, Python 3.10+
+Direct downloads (`.exe`, `.tar.gz`, `.dmg`) require no additional runtimes.
+
+- Py-Win: Windows 10+
+- Rust-Win: Windows 7 SP1+ (all official updates), 8.1, 10, or 11
+- Rust-Linux: RHEL 8 / Ubuntu 20.04 era glibc or newer; KDE Plasma 6.0+ for widget
+- Py-Mac: MacOS 10.14+
+
+Building from source additionally requires Python 3.10+ (Py-Win, Py-Mac) or Rust 1.77.2 (Rust-Win, Rust-Linux).
 
 ### Windows 7/8.1 Root Certificates
 
@@ -176,7 +180,8 @@ DeepSeekBalance/
 │   ├── tray_app.py
 │   ├── credential_store.py
 │   ├── secure_settings.py
-│   └── storage.py
+│   ├── storage.py
+│   └── rainmeter_server.py
 ├── src/mac/                    # Native MacOS port
 │   ├── main.py
 │   ├── settings.py
@@ -193,6 +198,7 @@ DeepSeekBalance/
 │   ├── AppIcon.icns / .png
 │   ├── preview.png / preview_zh.png
 │   └── font/
+├── rainmeter-widget/            # Rainmeter desktop skin source
 ├── rust-windows/               # Native Rust Windows port
 │   ├── src/main.rs
 │   ├── app.manifest

@@ -52,13 +52,20 @@ jobs:
             --log-level INFO `
             main.py
 
+      - name: Build Rainmeter skin
+        continue-on-error: true
+        run: powershell -ExecutionPolicy Bypass -File scripts/build_rmskin.ps1
+
       - name: Upload to Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $assets = @(Get-Item dist/DeepSeekBalanceMonitor.exe)
+          $rmskin = Get-Item "dist/*.rmskin" -ErrorAction SilentlyContinue
+          if ($rmskin) { $assets += $rmskin }
           gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:GITHUB_REF_NAME dist/DeepSeekBalanceMonitor.exe --clobber --repo $env:GITHUB_REPOSITORY
+            gh release upload $env:GITHUB_REF_NAME $assets --clobber --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $env:GITHUB_REF_NAME dist/DeepSeekBalanceMonitor.exe --title $env:GITHUB_REF_NAME --notes "Python build." --repo $env:GITHUB_REPOSITORY
+            gh release create $env:GITHUB_REF_NAME $assets --title $env:GITHUB_REF_NAME --notes "Python build." --repo $env:GITHUB_REPOSITORY
           }

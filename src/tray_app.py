@@ -612,6 +612,10 @@ def main():
         retention = int(app.config.get("retention_days", 30))
         prune_old_data(retention)
 
+    if app.config.get("rainmeter_enabled", True):
+        from src.rainmeter_server import start_rainmeter_server
+        start_rainmeter_server(app)
+
     if not app.demo_mode and not app.config.get("api_key", "").strip():
         log("No API key -- opening settings")
         try:

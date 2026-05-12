@@ -4,11 +4,18 @@ All notable changes to DeepSeek Balance Monitor are documented here.
 
 ## Python v1.2.1-dev (unreleased)
 
+### Added
+
+- Rainmeter local HTTP status interface on `127.0.0.1:17654`, auto-starts with the app, toggleable in settings
+- Rainmeter `.rmskin` packaging script; CI auto-builds alongside EXE
+- Rainmeter 2x high-DPI skin variants (ZH/EN)
+
 ### Changed
 
 - API key storage unified to Fernet + SQLite, with legacy fallback; save_config() clears plaintext automatically
-- Proxy control changed to a toggle checkbox + address input; address is preserved when disabled
-- Settings dialog polish: simplified title, removed footer balance/last-check rows
+- Proxy now a checkbox toggle + address input; address is preserved when disabled
+- Settings title simplified to `⚙️ Settings`, footer balance/last-check rows removed, version & contributor info shown
+- Consumption rate restored to topped-balance with 7-day window and weighted average, plus retention fallback
 
 ## Rust v1.2 (2026-05-11)
 

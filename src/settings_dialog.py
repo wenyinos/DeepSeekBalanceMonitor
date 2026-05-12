@@ -171,6 +171,10 @@ def open_settings(app):
         ttk.Checkbutton(scroll_frame, text=T("api_alert_label", lang),
                         variable=api_alert_var).pack(anchor="w", pady=(0, 8))
 
+        rainmeter_var = tk.BooleanVar(value=app.config.get("rainmeter_enabled", True))
+        ttk.Checkbutton(scroll_frame, text=T("rainmeter_label", lang),
+                        variable=rainmeter_var).pack(anchor="w", pady=(0, 8))
+
         ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=5)
         ttk.Label(scroll_frame, text=T("theme_label", lang)).pack(anchor="w")
 
@@ -415,6 +419,7 @@ def open_settings(app):
             app.config["auto_start"] = auto_start_var.get()
             app.config["alert_mode"] = alert_mode_map.get(alert_mode_var.get(), "always")
             app.config["api_alert_enabled"] = api_alert_var.get()
+            app.config["rainmeter_enabled"] = rainmeter_var.get()
             app.config["retention_days"] = retention
             app.config["export_path"] = export_var.get()
             app.config["proxy_enabled"] = proxy_enabled_var.get()

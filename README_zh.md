@@ -27,7 +27,7 @@ Rust 版本限定：
 
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
 - Plasma 6 小组件：透明液态玻璃桌面样式，余额、上次查询、服务状态、预计可用时间、刷新按钮和 emoji 状态。
-- Rainmeter 桌面小工具：仅本地可访问的状态接口；`.rmskin` 发布打包。Rust Windows 已支持该接口；Python Windows 后续可按同一契约接入。
+- Rainmeter 桌面小工具：仅本地可访问的状态接口；`.rmskin` 发布打包。Rust/Python Windows 双版均已支持。
 
 ## 功能
 
@@ -37,7 +37,7 @@ Rust 版本限定：
 - **历史记录页** — 分页表格展示所有余额记录，附带折线图和消耗分析，支持 CSV 导出
 - **设置** — API Key（Windows 凭据管理器加密存储）、查询间隔、预警阈值、提醒模式、图标主题、代理等
 - **Demo 模式** — `--demo` 免 Key 体验，开发者面板可调参数
-- **可选桌面小工具** — Linux 支持 KDE Plasma 6，Windows 可通过本地小工具状态接口搭配 Rainmeter 使用
+- **可选桌面小工具** — Linux 支持 KDE Plasma 6，Windows 支持 Rainmeter（Rust/Python 双版均已适配）
 - **社区移植** — Rust-Win（Win7+）、Rust-Linux（CLI + Plasma 6 小组件）、Py-Mac（Keychain 加密，WebView 设置界面）
 
 ### 通知预览
@@ -64,22 +64,26 @@ Rust 版本限定：
 
 ### 可选 Rainmeter 小工具（Windows）
 
-Rainmeter 桌面小工具是可选功能。它从正在运行的 DeepSeek Balance Monitor 主进程读取本地状态；不会保存或接收你的 API Key。当前 Rust Windows 已提供该本地接口，Python Windows 后续可按同一接口接入。
+Rainmeter 桌面小工具是可选功能。它通过本地地址 `127.0.0.1:17654` 从运行中的主进程获取状态，不保存也不接收 API Key。Rust 和 Python Windows 版均已支持。
 
 1. 从 [rainmeter.net](https://www.rainmeter.net/) 下载并安装 Rainmeter。
-2. 从 Releases 下载并运行提供 Rainmeter 接口的 Windows 版。当前发布包请使用 Rust Windows 版 `deepseek-balance-monitor-*-windows-*.exe`。
-3. 从同一个 Release 下载 `deepseek-balance-monitor-*-rainmeter.rmskin`。
-4. 双击 `.rmskin` 文件并安装皮肤。
-5. 启动或保持主程序运行，然后在 Rainmeter 中加载 `DeepSeekBalanceMonitor\DeepSeekBalanceMonitor.ini`。
+2. 运行任意 Windows 版本（Python 或 Rust）——本地状态接口会自动启动。
+3. 从 [Releases](https://github.com/SrtaEstrella/DeepSeekBalanceMonitor/releases) 下载 `deepseek-balance-monitor-*-rainmeter.rmskin`。
+4. 双击 `.rmskin` 安装皮肤。
+5. 在 Rainmeter 中加载 `DeepSeekBalanceMonitor\DeepSeekBalanceMonitor.ini`（英文版用 `DeepSeekBalanceMonitor.en.ini`）。
 
-`.rmskin` 包由 GitHub Actions 使用 [`rmskin-builder`](https://pypi.org/project/rmskin-builder/) 生成；该打包工具由 [`2bndy5/rmskin-action`](https://github.com/2bndy5/rmskin-action) 提供。
+**高分屏：** 先对 `Rainmeter.exe` 右键 → 属性 → 兼容性 → 更改高 DPI 设置 → 勾选"替代高 DPI 缩放行为"并选"应用程序"。然后加载 `DeepSeekBalanceMonitor.hd.ini`（或 `.en.hd.ini`），这是 2x 缩放版。
 
 ### 运行要求
 
-- Python 版：Windows 10+，Python 3.10+
-- Rust Windows 版：安装所有官方更新的 Windows 7 SP1 / Server 2008 R2 SP1、Windows 8.1 / Server 2012 R2、Windows 10 或 Windows 11
-- Rust Linux 版：RHEL 8 / Ubuntu 20.04 同时代或更新 glibc；可选小组件需要 KDE Plasma 6.0+
-- MacOS 版：MacOS 10.14+，Python 3.10+
+直接下载（`.exe`、`.tar.gz`、`.dmg`）无需额外运行环境。
+
+- Py-Win：Windows 10+
+- Rust-Win：安装所有官方更新的 Windows 7 SP1+、8.1、10 或 11
+- Rust-Linux：RHEL 8 / Ubuntu 20.04 同时代或更新 glibc；可选小组件需 KDE Plasma 6.0+
+- Py-Mac：MacOS 10.14+
+
+从源码构建需额外安装 Python 3.10+（Py-Win、Py-Mac）或 Rust 1.77.2（Rust-Win、Rust-Linux）。
 
 ### Windows 7/8.1 根证书说明
 
@@ -176,7 +180,8 @@ DeepSeekBalance/
 │   ├── tray_app.py
 │   ├── credential_store.py
 │   ├── secure_settings.py
-│   └── storage.py
+│   ├── storage.py
+│   └── rainmeter_server.py
 ├── src/mac/                    # 原生 MacOS 移植
 │   ├── main.py
 │   ├── settings.py
@@ -193,6 +198,7 @@ DeepSeekBalance/
 │   ├── AppIcon.icns / .png
 │   ├── preview.png / preview_zh.png
 │   └── font/
+├── rainmeter-widget/           # Rainmeter 桌面皮肤源文件
 ├── rust-windows/              # 原生 Rust Windows 版
 │   ├── src/main.rs
 │   ├── app.manifest
