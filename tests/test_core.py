@@ -3,7 +3,7 @@ import urllib.error
 import unittest
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from src import api_client
 from src.config import DEFAULT_CONFIG, T
 from src.app_state import AppState
@@ -42,12 +42,22 @@ class ApiClientTests(unittest.TestCase):
         error.close()
 
     def test_fetch_service_status_reports_api_component_state(self):
-        status = {"status": {"indicator": "minor"}}
-        components = {"components": [{"name": "API", "status": "major_outage"}]}
-        with patch("src.api_client._get_json", side_effect=[status, components]):
+        # HTML with API component at "major_outage" in active_changes
+        degraded_html = (
+            '{\\"name\\":\\"API\\"'
+            '{\\"active_changes\\":[{\\"affected_components\\":'
+            '[{\\"name\\":\\"API\\",\\"status\\":\\"major_outage\\"}]}]}'
+        )
+        mock_resp = Mock()
+        mock_resp.read.return_value = degraded_html.encode("utf-8")
+        mock_resp.__enter__ = Mock(return_value=mock_resp)
+        mock_resp.__exit__ = Mock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_resp):
             result = api_client.fetch_service_status()
-        self.assertEqual(result, {"indicator": "minor", "api_operational": False})
-        with patch("src.api_client._get_json", side_effect=RuntimeError("boom")):
+        self.assertEqual(result, {"indicator": "major", "api_operational": False})
+
+        # Network error
+        with patch("urllib.request.urlopen", side_effect=RuntimeError("boom")):
             self.assertIsNone(api_client.fetch_service_status())
 
 class AppStateTests(unittest.TestCase):

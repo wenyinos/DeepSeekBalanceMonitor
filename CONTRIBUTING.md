@@ -1,5 +1,11 @@
 # Contributing - Port Sync Guide
 
+> **⚠️ 2026-05-12：API 服务状态后台已变更**
+>
+> DeepSeek 官方状态页底层已从 `status.deepseek.com/api/v2` 迁移至 FlashDuty（`status.flashcat.cloud/deepseek`）。原 REST API 不再可用。Python 版 `src/api_client.py` 的 `fetch_service_status()` 已适配新后台（RSC 抓取 + 组件级状态解析），对应单元测试 `tests/test_core.py` 已同步更新。
+>
+> 各移植版本需同步跟进此变更。
+
 ## Config Schema (v1.2)
 
 移植版本必须兼容以下 `config.json` 字段。未知字段应保留不删，忽略即可。
