@@ -14,6 +14,10 @@
 
 ## 当前版本亮点
 
+- Rust 1.2.5 刷新 Linux Plasma 小组件显示模型：余额、相对上次查询、API 服务状态和预计可用时间现在与 Rainmeter 小工具布局一致。
+- Plasma 小组件语言修改现在会同步 `cfg_language` 到 `dsmon` 的 `ui_language`，重启 Plasma 后仍能保持中英文选择。
+- Linux 发布现在同时提供完整 `.tar.gz` 包和可直接下载的独立 `.plasmoid` 小组件包。
+- Rust Windows 和 Rust Linux 已改用 FlashDuty 后台的 DeepSeek 状态页，替代失效的 `status.deepseek.com/api/v2` 旧接口。
 - 自定义图标样式：5 套预置配色、自定义 hex 颜色和图标描边开关。
 - 历史记录页：分页余额记录、交互式趋势图和消耗速率分析。
 - CSV 导出支持配置保存路径。
@@ -27,6 +31,7 @@
 Rust Linux 版本限定：
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
 - Plasma 6 小组件：透明液态玻璃桌面样式，余额、上次查询、服务状态、预计可用时间、刷新按钮和 emoji 状态。
+- Plasma 6 小组件显示刻意保持紧凑：桌面主视图显示余额行、相对上次查询时间、DeepSeek API 状态和预计剩余时间。
 
 
 ## 功能
@@ -60,7 +65,27 @@ Rust Linux 版本限定：
 
 ### 直接下载
 
-从 [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases) 下载最新文件。Python 打包版使用 `DeepSeekBalanceMonitor.exe`，Rust Windows 版使用 `deepseek-balance-monitor.exe`，Linux 版使用 `deepseek-balance-monitor-*-linux-x86_64.tar.gz`。发布版无需 Python 环境。
+从 [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases) 下载最新文件。Python 打包版使用 `DeepSeekBalanceMonitor.exe`，Rust Windows 版使用 `deepseek-balance-monitor-*-windows-*.exe`，Linux 完整包使用 `deepseek-balance-monitor-*-linux-x86_64.tar.gz`，独立 Plasma 小组件使用 `deepseek-balance-monitor-*-plasmoid.plasmoid`。发布版无需 Python 环境。
+
+### 可选 Plasma 小组件（Linux）
+
+Plasma 小组件是可选功能，需要 KDE Plasma 6。它从本机 `dsmon` 读取状态，不会直接接收 API Key。
+
+1. 从 [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases) 下载 `deepseek-balance-monitor-*-linux-x86_64.tar.gz`。
+2. 解压并运行安装脚本：
+
+   ```bash
+   tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
+   cd deepseek-balance-monitor-*-linux-x86_64
+   sudo ./install.sh
+   systemctl --user enable --now dsmon.service
+   ```
+
+3. 在 Plasma 小组件选择器中添加 **DeepSeek Balance Monitor**。
+4. 打开小组件设置，输入 DeepSeek API Key，或使用 `dsmon set-key` 设置，然后点击 **保存**。
+5. 在小组件中点击 **查询** 可手动刷新余额。
+
+如果只需要小组件，可下载 `deepseek-balance-monitor-*-plasmoid.plasmoid` 并用 Plasma 小组件安装器安装。完整 Linux tar 包中也包含同一个小组件，路径为 `plasmoid/`。
 
 ### 可选 Rainmeter 小工具（Windows）
 
@@ -68,7 +93,7 @@ Rainmeter 桌面小工具是可选功能。它通过本地地址 `127.0.0.1:1765
 
 1. 从 [rainmeter.net](https://www.rainmeter.net/) 下载并安装 Rainmeter。
 2. 运行任意 Windows 版本（Python 或 Rust）——本地状态接口会自动启动。
-3. 从 [Releases](https://github.com/SrtaEstrella/DeepSeekBalanceMonitor/releases) 下载 `deepseek-balance-monitor-*-rainmeter.rmskin`。
+3. 从 [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases) 下载 `deepseek-balance-monitor-*-rainmeter.rmskin`。
 4. 双击 `.rmskin` 安装皮肤。
 5. 在 Rainmeter 中加载 `DeepSeekBalanceMonitor\DeepSeekBalanceMonitor.ini`（英文版用 `DeepSeekBalanceMonitor.en.ini`）。
 
