@@ -12,6 +12,7 @@ from src.config import T, log, CONFIG_DIR, APP_NAME, APP_ID
 from src.api_client import fetch_balance, fetch_service_status, install_proxy
 from src.icon_renderer import create_icon_image
 from src.app_state import AppState
+from src.rainmeter_server import start_rainmeter_server
 from src.storage import save_balance_record, prune_old_data, get_consumption_rate
 
 _DEMO = {
@@ -407,6 +408,9 @@ def main():
     log(f"{APP_NAME} starting")
 
     app = AppState()
+    app._trigger_check = lambda a=app: threading.Thread(target=do_balance_check, args=(a,), daemon=True).start()
+    app._rebuild_menu = lambda a=app: make_menu(a)
+
     proxy = app.config.get("http_proxy", "").strip()
     if proxy and app.config.get("proxy_enabled", False):
         install_proxy(proxy)
@@ -430,7 +434,6 @@ def main():
         prune_old_data(retention)
 
     if app.config.get("rainmeter_enabled", True):
-        from src.rainmeter_server import start_rainmeter_server
         start_rainmeter_server(app)
 
     if not app.demo_mode and not app.config.get("api_key", "").strip():

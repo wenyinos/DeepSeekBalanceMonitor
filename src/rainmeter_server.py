@@ -6,7 +6,11 @@ import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
+from datetime import datetime
+
 from src.config import T, log
+from src.icon_renderer import _get_colors
+from src.storage import get_consumption_rate
 
 
 def _start_server(app):
@@ -26,8 +30,7 @@ def _start_server(app):
             lang = qs.get("lang", ["en"])[0]
 
             if p.path == "/check":
-                from src.tray_app import do_balance_check
-                do_balance_check(app)
+                app._trigger_check()
 
             if p.path in ("/widget-status", "/check"):
                 with app._lock:
@@ -35,9 +38,6 @@ def _start_server(app):
                     err = app.error
                     st = app.service_status
                     last = app.last_check
-
-                from src.config import T
-                from src.icon_renderer import _get_colors
 
                 # accent_color: R,G,B
                 colors = _get_colors(app.config)
@@ -62,7 +62,6 @@ def _start_server(app):
 
                 # last_check
                 if last:
-                    from datetime import datetime
                     diff = datetime.now() - last
                     mins = int(diff.total_seconds() / 60)
                     if mins < 1:
@@ -81,7 +80,6 @@ def _start_server(app):
                 service_status_line = T(key, lang)
 
                 # estimated_line
-                from src.storage import get_consumption_rate
                 cr = get_consumption_rate()
                 if cr and b:
                     daily_rate, hours_left, _curr = cr

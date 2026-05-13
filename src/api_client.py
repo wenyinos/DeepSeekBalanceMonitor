@@ -82,6 +82,12 @@ def fetch_service_status():
     or None on failure."""
     try:
         import re
+        url = "https://status.flashcat.cloud/deepseek"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8")
+        full = " ".join(html.split("\n"))
 
         # Find component names from RSC payload
         names = re.findall(r'\\"name\\"\s*:\s*\\"((?:API|Web|网页|APP|对话)[^\\]+)\\"', full)

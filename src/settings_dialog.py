@@ -412,8 +412,6 @@ def open_settings(app):
         btn_frame.pack(fill="x")
 
         def on_save():
-            from src.tray_app import do_balance_check, make_menu
-
             key = api_var.get().strip()
             if not key:
                 messagebox.showwarning(T("warn_title", lang), T("warn_no_key", lang),
@@ -497,8 +495,8 @@ def open_settings(app):
             app.cancel_timer()
             if app.icon:
                 app.icon.icon = create_icon_image(app)
-                app.icon.menu = make_menu(app)
-            threading.Thread(target=do_balance_check, args=(app,), daemon=True).start()
+                app.icon.menu = app._rebuild_menu()
+            app._trigger_check()
             log("Settings saved")
             _cleanup()
 

@@ -1,6 +1,7 @@
 """
 Application state - holds balances, config, timer, and helper methods.
 """
+import os
 import sys
 import threading
 
@@ -115,7 +116,6 @@ _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 def get_auto_start_state():
     if sys.platform == "darwin":
-        import os
         plist_path = os.path.expanduser(f"~/Library/LaunchAgents/{APP_ID}.plist")
         return os.path.exists(plist_path)
     if sys.platform != "win32":
@@ -133,7 +133,6 @@ def get_auto_start_state():
 
 def set_auto_start(enable):
     if sys.platform == "darwin":
-        import os
         plist_dir = os.path.expanduser("~/Library/LaunchAgents")
         plist_path = os.path.join(plist_dir, f"{APP_ID}.plist")
         if enable:

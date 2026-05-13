@@ -27,6 +27,7 @@
 | `export_path` | string | `""` | directory for CSV exports; empty = user home directory |
 | `http_proxy` | string | `""` | HTTP/HTTPS proxy URL, e.g. `http://127.0.0.1:7890` |
 | `proxy_enabled` | bool | `false` | Enable HTTP/HTTPS proxy; when disabled, proxy address is preserved |
+| `rainmeter_enabled` | bool | `true` | enable/disable local Rainmeter HTTP interface |
 | `auto_start` | bool | `false` | |
 
 **补充说明**：
@@ -81,10 +82,10 @@ DeepSeek Balance:                              ← Fixed title
 
 ## i18n
 
-**当前使用的 Key**：`src/config.py` 内 `_T` 字典覆盖当前所有活跃的 i18n Key，各移植版本需同时支持中英文
+**当前使用的 Key**：`src/config.py` 内 `_T` 字典覆盖当前所有活跃的 i18n Key，各移植版本需同时支持中英文；【05-13】当前已将所有硬编码字段迁移为 i18n Key
 
 **已移除的 Key**：以下 Key 已从 Python 版移除，移植版本无需实现：
-`topped_up`, `granted`, `currency`, `checking`, `error_fetch`, `bal_msg`, `bal_error_title`, `bal_empty_title`, `bal_currency_line`, `status_line`, `status_line_no`, `preferred_currency`, `currency_label`, `currency_hint`, `enable_alerts`, `enable_alerts_label`
+`topped_up`, `granted`, `checking`, `error_fetch`, `bal_msg`, `bal_error_title`, `bal_empty_title`, `bal_currency_line`, `status_line`, `status_line_no`, `preferred_currency`, `currency_label`, `currency_hint`, `enable_alerts`, `enable_alerts_label`
 
 ## 当前版本变更 (v1.2.x)
 
@@ -92,24 +93,29 @@ DeepSeek Balance:                              ← Fixed title
 
 - **新增** `proxy_placeholder` i18n key，代理地址输入框空时灰色提示文字
 - **调整** 代理标签 `HTTP 代理` → `HTTP/HTTPS proxy`
+- **新增** `rainmeter_enabled` 配置项（bool，默认 `true`），控制本地 Rainmeter HTTP 接口启停
+- **新增** 通知/历史页 i18n key：【05-13】`rate_line`、`remaining_dh`/`remaining_h`/`remaining_lt1h`、`est_prefix`、`ago_just`/`ago_min`/`ago_hr`、`validate_invalid`/`validate_interval`/`validate_threshold`/`validate_retention`、`hex_invalid`、`alert_never`/`alert_always`/`alert_once`、`load_more`/`all_loaded`、`export_csv_btn`/`export_msg`、`filter_btn`/`cancel_btn`、`rms_fallback`
 
 ### Behaviour
 
 - **自定义图标配色**：5 套预置主题 + custom 模式，`_get_colors(config)` 统一读取。托盘文字和描边颜色基于背景亮度自选黑白（阈值 170）。保存后图标即时刷新。【05-13】custom 模式新增实时预览与颜色值保存前校验。
 - **API Key 加密存储**：`src/secure_settings.py`（Fernet + SQLite），`load_config()` → `_resolve_api_key()` 按 secure_settings → credential_store → config.json 三级回退，`save_config()` 自动清空明文字段。这是为了兼容旧版本，新版本应统一使用 SQLite 加密存储。
-- **Demo 模式**：API Key 填入 `demo` 触发，读取独立 `demo_mode_balance` 表，不请求真实 API。所有版本统一使用此方式。
+- **Demo 模式**：启动时生成模拟历史数据，不请求真实 API；开发者面板可调整数值显示。Python 版由 `--demo` 参数触发，模拟数据使用内存生成；Rust 移植版由 API Key 填入 `demo` 触发，使用独立 `demo_mode_balance` SQLite 表。
 - **历史记录页**：右键新增「📊 历史记录」，展示历史记录、消耗速率，并支持 CSV 导出全部记录；图表/表格的具体格式和实现方式不作为跨平台要求。【05-13】Python-Windows 版本已吸收 Mac 版本的按日期筛选功能。
 - **消耗速率**：`get_consumption_rate(days=7)` 基于 topped 余额 + 加权平均；7 天数据不足时自动扩大到 `retention_days` 窗口
 - **API 服务状态入数据库**：`balance_history` 表新增 `service_status` 列，`save_balance_record` 同步写入
 - **通知卡片视觉优化**：每行增加 emoji 前缀（💰📊🕐📡），上次查询改为仅显示相对时间（N 分钟/小时前）
 - **HTTP 代理**：启动时读取 `http_proxy` 配置并全局安装，设置页修改后即时生效；代理开关：`proxy_enabled` 复选框 + 地址输入框，关闭时保留地址不清除；地址空时灰色 placeholder
 - **设置页优化**：标题简化为 `⚙️ 设置` / `⚙️ Settings`；移除 footer 中的上次查询和余额行
+- **历史记录页解耦**：【05-13】历史记录页抽取为独立模块 `src/history_dialog.py`，`_on_history` 缩减为 thin wrapper。内部含日期筛选（YYYYMMDD 格式）、筛选/取消按钮、分页加载、折线图、消耗速率分析和 CSV 导出
+- **代理修复**：【05-13】`install_proxy("")` 现调用 `build_opener()` 恢复默认 opener（含系统代理），不再使用空 `ProxyHandler` 覆盖系统代理设置
+- **循环依赖消解**：【05-13】`rainmeter_server`、`settings_dialog`、`history_dialog` 不再 import `tray_app`，改为通过 `app` 对象上的回调注入（`app._trigger_check`、`app._rebuild_menu`）
 - **Python 版窗口管理**：设置、历史、开发者面板共用 `_tk_root`，避免多 `tk.Tk()` 导致变量/样式冲突。历史和开发者面板支持重复唤起聚焦；该项不是跨平台实现要求
 
 ### Windows / Port-Specific
 
 - **Rainmeter 小工具**：`rainmeter-widget/`，本地 HTTP 接口 `127.0.0.1:17654`，skin 四版本涵盖中英文、是否高分屏，`.rmskin` CI 打包；添加 Rainmeter 接口开关设置项
-- **Windows 凭据管理器**：自 1.2.1 起，Windows 版本（Rust / Python）统一使用 SQLite 加密存储
+- **Windows 凭据管理器（已过时）**：自 1.2.1 起，Windows 版本（Rust / Python）统一使用 SQLite 加密存储，凭据管理器仅作为兼容性回退
 - **Windows 发布签名（可选）**：SignPath.io（免费版，开源项目），fork 开发者自行配置，详见 [CODE_SIGNING.md](CODE_SIGNING.md)
 
 ### macOS / Port-Specific

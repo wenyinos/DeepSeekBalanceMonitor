@@ -2,34 +2,22 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
-## Python v1.2.5-dev (2026-05-13)
+## Python v1.2.5-dev (upcoming)
 
 ### Added
 
-- Demo mode: `--demo` flag or API key `demo` both trigger; ~200 mock history records generated on startup (decreasing trend + top-up bumps), initial balance from latest record; developer panel preserved
+- Demo mode update: `--demo` flag or API key `demo` both trigger; ~200 mock history records generated on startup; developer panel preserved
 - Custom icon colour live preview with hex validation on save
 - History date filter with `YYYYMMDD` format query
-- System proxy support: restores default opener when custom proxy is disabled, no longer incorrectly overrides system proxy
-- Balance-check key-path logging for easier troubleshooting
 
 ### Changed
 
-- History viewer extracted to `src/history_dialog.py`; `_on_history` reduced to thin wrapper
+- History viewer extracted to `src/history_dialog.py`
 - Tray notification and history page rate/time/prefix bilingual strings fully extracted to i18n keys
-- Rate display line unified to `T("rate_line")` format; only left-click notification adds emoji prefix
-- Date filter query/cancel buttons use full text "Filter"/"Cancel", equal width, cancel disabled before query
-- Close button removed from history page footer; close via window X
-- "Load more" button now correctly re-enables when a full page is returned
 
 ### Fixed
 
-- History page freeze after repeated date queries: Close button bypassed cleanup path, `root.mainloop()` not `quit()`
-- Dev Tools panel leaving dangling thread preventing exit: added `root.quit()`
-- Chart X-axis reversed after date query: `get_history_by_date` returns ASC while `get_history_page` returns DESC
-- Settings "Enable proxy" off calling `install_proxy("")` with empty `ProxyHandler` overriding system proxy
-- Settings language switch using stale language for proxy placeholder comparison
-- History cancel button not restoring placeholder text colour to gray
-- History "Load more" button staying disabled after date query
+- Fixed settings "Enable proxy" off calling `install_proxy("")` with empty `ProxyHandler` overriding system proxy
 
 ## Rust v1.2.5 (2026-05-12)
 
