@@ -402,9 +402,9 @@ class DeepSeekBalanceMacApp(rumps.App):
                     days = int(busy_hours // 24)
                     hrs = int(busy_hours % 24)
                     if self.lang == "en":
-                        self.rate_item.title = f"  Busy: {hourly_rate:.4f}/hr | Est: {days}d {hrs}h"
+                        self.rate_item.title = f"  Busy: {hourly_rate:.2f}/hr | Est: {days}d {hrs}h"
                     else:
-                        self.rate_item.title = f"  忙时消耗: {hourly_rate:.4f}/小时 | 预计可用: {days}天 {hrs}小时"
+                        self.rate_item.title = f"  忙时消耗: {hourly_rate:.2f}/小时 | 预计可用: {days}天 {hrs}小时"
                     self.rate_item.set_callback(self.on_show_balance)
                 else:
                     self.rate_item.title = f"  {T('not_enough_data', self.lang)}" if self.lang == "zh" else "  Not enough data"

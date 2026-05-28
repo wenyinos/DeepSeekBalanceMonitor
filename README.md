@@ -54,7 +54,7 @@ Rust Linux-specific:
 
 > DeepSeek Balance:  
 > 💰 12.34 CNY (Topped 10.00, Granted 2.34)  
-> 📊 Busy: 0.0625/hr  |  Est. 28d 4h remaining  
+> 📊 Busy: 0.06/hr  |  Est. 28d 4h remaining  
 > 📡 DeepSeek API Status: 🟢 All Systems Operational  
 > 🕐 Last Check: 5 min ago
 

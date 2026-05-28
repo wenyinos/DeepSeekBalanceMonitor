@@ -2,6 +2,16 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Python v1.2.7 (2026-05-28)
+
+### Fixed
+
+- Fixed tkinter+pystray dual event-loop deadlock freezing the tray icon when settings/history dialogs were open
+
+### Changed
+
+- Consumption rate switched to busy-hour slicing algorithm: long idle gaps and flat periods are filtered out; displayed as hourly rate instead of daily average
+
 ## Python v1.2.6 (2026-05-13)
 
 ### Fixed
