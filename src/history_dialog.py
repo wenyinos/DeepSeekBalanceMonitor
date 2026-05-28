@@ -30,9 +30,7 @@ def open_history(app):
 
     lang = app.lang
 
-    if app._tk_root is None:
-        app._tk_root = tk.Tk()
-        app._tk_root.withdraw()
+    # tk root is already initialised on the main thread in main()
     root = app._tk_root
     win = tk.Toplevel(root)
     app._history_open = True
@@ -42,7 +40,6 @@ def open_history(app):
         app._history_open = False
         app._history_window = None
         win.destroy()
-        root.quit()
 
     win.protocol("WM_DELETE_WINDOW", _cleanup)
     win.title(T("history", lang))
@@ -315,4 +312,3 @@ def open_history(app):
 
     _load_page()
     win.focus_force()
-    root.mainloop()

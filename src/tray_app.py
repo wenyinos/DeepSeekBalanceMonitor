@@ -298,15 +298,17 @@ def _on_history(icon, item):
         return
 
     from src.history_dialog import open_history
-    open_history(app)
+    app._tk_root.after(0, lambda: open_history(app))
 
 def on_settings(icon, item):
     app = getattr(icon, "_app", None)
     if app is None:
         return
+    # Schedule on the tkinter main thread via root.after() to avoid
+    # cross-thread tkinter calls which deadlock on Windows.
     try:
         from src.settings_dialog import open_settings
-        open_settings(app)
+        app._tk_root.after(0, lambda: open_settings(app))
     except Exception as e:
         log(f"Settings error: {e}")
 
@@ -321,12 +323,18 @@ def on_quit(icon, item):
     if app is None:
         icon.stop()
         return
-    icon.stop()
     app.running = False
     try:
         app.cancel_timer()
     except Exception:
         pass
+    # Schedule tk root destruction on the tkinter main thread.
+    # Using after() ensures we don't call destroy() from the pystray thread.
+    try:
+        app._tk_root.after(0, app._tk_root.destroy)
+    except Exception:
+        pass
+    icon.stop()
     log("Shutting down")
 
 
@@ -335,13 +343,15 @@ def _on_dev_tools(icon, item):
     if app is None:
         return
 
+    # Schedule on the tkinter main thread to avoid cross-thread deadlocks
+    app._tk_root.after(0, lambda: _create_dev_window(app))
+
+def _create_dev_window(app):
+    """Create the Dev Tools window. Must be called on the tkinter main thread."""
     import tkinter as tk
     from tkinter import ttk
 
     lang = app.lang
-    if app._tk_root is None:
-        app._tk_root = tk.Tk()
-        app._tk_root.withdraw()
     win = tk.Toplevel(app._tk_root)
     win.title("Dev Tools")
     win.geometry("300x480")
@@ -404,10 +414,8 @@ def _on_dev_tools(icon, item):
 
     def _dev_cleanup():
         win.destroy()
-        app._tk_root.quit()
     win.protocol("WM_DELETE_WINDOW", _dev_cleanup)
     win.focus_force()
-    app._tk_root.mainloop()
 
 
 def make_menu(app: AppState):
@@ -429,10 +437,22 @@ def make_menu(app: AppState):
 # --- Entry Point ----------------------------------------------------
 
 def main():
+    import tkinter as tk
     log("=" * 50)
     log(f"{APP_NAME} starting")
 
+    # Create the hidden tk.Tk() root on the main thread.  tkinter
+    # requires that the root window and mainloop() run on the same
+    # thread that created tk.Tk().  All UI operations (Toplevel
+    # creation, widget updates, etc.) must also happen on this thread.
+    # We therefore keep tkinter on the main thread and move pystray
+    # to a daemon thread instead — the opposite of the original design
+    # which caused deadlocks on Windows.
+    _tk_root = tk.Tk()
+    _tk_root.withdraw()
+
     app = AppState()
+    app._tk_root = _tk_root
     app._trigger_check = lambda a=app: threading.Thread(target=do_balance_check, args=(a,), daemon=True).start()
     app._rebuild_menu = lambda a=app: make_menu(a)
 
@@ -463,12 +483,19 @@ def main():
     if app.config.get("rainmeter_enabled", True):
         start_rainmeter_server(app)
 
+    # First-time setup: no API key → open settings dialog.
+    # Use wait_window() to block until the settings Toplevel is
+    # destroyed, then reload config and continue normal startup.
     if not app.demo_mode and not app.config.get("api_key", "").strip():
         log("No API key -- opening settings")
         try:
             from src.settings_dialog import open_settings
             open_settings(app)
-            app = AppState()
+            if app._settings_window is not None:
+                _tk_root.wait_window(app._settings_window)
+            # Reload config in case the user saved a new key
+            from src.config import load_config
+            app.config = load_config()
         except Exception as e:
             log(f"Settings failed: {e}")
 
@@ -489,8 +516,21 @@ def main():
     threading.Thread(target=do_balance_check, args=(app,), daemon=True).start()
     log("First balance check scheduled")
 
+    # Run pystray in a daemon thread — it must NOT be on the main
+    # thread because the main thread belongs to tkinter.
+    def _run_pystray():
+        try:
+            app.icon.run()
+        except Exception as e:
+            log(f"Pystray error: {e}")
+    pystray_thread = threading.Thread(target=_run_pystray, daemon=True)
+    pystray_thread.start()
+    log("System tray started")
+
+    # Run tkinter mainloop on the main thread.  This blocks until
+    # _tk_root.destroy() is called (by the quit handler).
     try:
-        app.icon.run()
+        _tk_root.mainloop()
     except KeyboardInterrupt:
         pass
     finally:
