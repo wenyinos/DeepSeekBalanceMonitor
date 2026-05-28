@@ -398,13 +398,13 @@ class DeepSeekBalanceMacApp(rumps.App):
                 from src.storage import get_consumption_rate
                 cr = get_consumption_rate()
                 if cr:
-                    hourly_rate, busy_hours, _curr = cr
-                    days = int(busy_hours // 24)
-                    hrs = int(busy_hours % 24)
+                    daily_rate, hours_left, _curr = cr
+                    days = int(hours_left // 24)
+                    hrs = int(hours_left % 24)
                     if self.lang == "en":
-                        self.rate_item.title = f"  Busy: {hourly_rate:.4f}/hr | Est: {days}d {hrs}h"
+                        self.rate_item.title = f"  Avg: {daily_rate:.2f}/day | Est: {days}d {hrs}h"
                     else:
-                        self.rate_item.title = f"  忙时消耗: {hourly_rate:.4f}/小时 | 预计可用: {days}天 {hrs}小时"
+                        self.rate_item.title = f"  日均消耗: {daily_rate:.2f} | 预计可用: {days}天 {hrs}小时"
                     self.rate_item.set_callback(self.on_show_balance)
                 else:
                     self.rate_item.title = f"  {T('not_enough_data', self.lang)}" if self.lang == "zh" else "  Not enough data"
