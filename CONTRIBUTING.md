@@ -41,7 +41,7 @@
 ```
 DeepSeek 余额：                              ← 固定标题
 💰 12.34 CNY（充值 10.00，赠送 2.34）        ← 有余额时显示
-📊 日均消耗 1.50 | 预计可用 28 天 4 小时  ← 有历史数据时显示
+📊 忙时消耗 0.0625/小时 | 预计可用 28 天 4 小时  ← 有历史数据时显示
 📡 API 服务状态：🟢 服务正常          ← 常驻，emoji 为双指示器
 🕐 上次查询：5 分钟前                          ← 仅显示相对时间
 ```
@@ -50,7 +50,7 @@ DeepSeek 余额：                              ← 固定标题
 ```
 DeepSeek Balance:                              ← Fixed title
 💰 12.34 CNY (Topped 10.00, Granted 2.34)      ← Shown when balance available
-📊 Avg: 1.50/day | Est. 28d 4h remaining       ← Shown with history data
+📊 Busy: 0.0625/hr | Est. 28d 4h remaining       ← Shown with history data
 📡 API Status: 🟢 All Systems Operational       ← Always visible, dual indicator emoji
 🕐 Last Check: 5 min ago                        ← Relative time only
 ```
