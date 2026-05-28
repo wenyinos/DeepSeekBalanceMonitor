@@ -229,8 +229,19 @@ def _get_consumption_rate_for_days(days=7):
 
             elif curr_val < prev_val:
                 if gap_sec > m_sec:
-                    # Rule 2 — long idle gap: slice
-                    eq_start_idx = None
+                    # Rule 2 — long idle gap: slice.
+                    # Process any pending equal run FIRST so long flat
+                    # periods aren't smuggled into the interval.
+                    if eq_start_idx is not None:
+                        eq_dur = (prev_ts - parsed[eq_start_idx][0]).total_seconds()
+                        if eq_dur > m_sec:
+                            if parsed[eq_start_idx][0] > seg_start_ts:
+                                intervals.append((seg_start_val, seg_start_ts,
+                                                 parsed[eq_start_idx][2],
+                                                 parsed[eq_start_idx][0]))
+                            seg_start_val = prev_val
+                            seg_start_ts = prev_ts
+                        eq_start_idx = None
                     if prev_ts > seg_start_ts:
                         intervals.append((seg_start_val, seg_start_ts,
                                          prev_val, prev_ts))
