@@ -233,8 +233,8 @@ class BalanceChart {
         if (rateRes && rateRes.success && rateRes.data) {
             const d = rateRes.data;
             el.innerHTML = `
-                <div><span class="rate-value">${d.daily_rate} ${d.currency}/day</span></div>
-                <div>≈ ${d.hours_left}h remaining</div>
+                <div><span class="rate-value">${d.hourly_rate} ${d.currency}/hr</span></div>
+                <div>≈ ${d.busy_hours}h remaining</div>
             `;
         } else {
             el.innerHTML = '';

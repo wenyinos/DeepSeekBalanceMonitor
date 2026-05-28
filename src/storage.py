@@ -140,10 +140,10 @@ def export_all_csv(path: str) -> int:
 
 
 def get_consumption_rate(days=7):
-    """Calculate weighted daily consumption from topped-up balance.
-    Splits on real top-ups, weights each interval by duration.
-    Minimum 1 day of data required. Returns (daily_rate, hours_remaining, currency)
-    or None. Falls back to the full retention window if default is insufficient."""
+    """Busy-hour weighted hourly consumption rate from topped-up balance.
+    Splits on top-ups, long idle gaps (>m), and long flat periods (>m).
+    Returns (hourly_rate, busy_hours_remaining, currency) or None.
+    Falls back to the full retention window if default is insufficient."""
     result = _get_consumption_rate_for_days(days)
     if result or days != 7:
         return result
@@ -159,6 +159,10 @@ def get_consumption_rate(days=7):
 
 
 def _get_consumption_rate_for_days(days=7):
+    """Busy-hour slicing: split on top-ups, long idle gaps, and long flat periods.
+    Only "busy" intervals (frequent polling with actual consumption) contribute
+    to the weighted hourly rate.  Returns (hourly_rate, busy_hours_remaining,
+    currency) or None."""
     try:
         conn = _connect()
         cur = conn.execute(
@@ -173,48 +177,128 @@ def _get_consumption_rate_for_days(days=7):
         if len(rows) < 2:
             return None
 
-        intervals = []
-        start_val = rows[0][2]
-        start_ts = rows[0][0]
-        currency = rows[0][1]
-        prev_val = start_val
+        # Parse records and determine the busy threshold m
+        parsed = []
+        for r in rows:
+            parsed.append((datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S"),
+                           r[1], r[2]))  # (ts, currency, topped)
 
-        for i in range(1, len(rows)):
-            val = rows[i][2]
-            if val > prev_val:
-                intervals.append((start_val, start_ts, prev_val, rows[i-1][0]))
-                start_val = val
-                start_ts = rows[i][0]
-            prev_val = val
-        intervals.append((start_val, start_ts, prev_val, rows[-1][0]))
+        currency = parsed[0][1]
+        try:
+            from src.config import load_config
+            interval_min = int(load_config().get("interval_minutes", 10))
+        except Exception:
+            interval_min = 10
+        m_minutes = max(30, 2 * interval_min)
+        m_sec = m_minutes * 60
 
+        # --- Build busy intervals ----------------------------------------
+        intervals = []  # (start_val, start_ts, end_val, end_ts)
+        seg_start_val = parsed[0][2]
+        seg_start_ts = parsed[0][0]
+        prev_val = seg_start_val
+        prev_ts = seg_start_ts
+        eq_start_idx = None  # index in parsed where current equal run began
+
+        for i in range(1, len(parsed)):
+            curr_ts, curr_curr, curr_val = parsed[i]
+            gap_sec = (curr_ts - prev_ts).total_seconds()
+
+            if curr_val > prev_val:
+                # Rule 1 — top-up: close previous interval, start fresh
+                if eq_start_idx is not None:
+                    eq_dur = (prev_ts - parsed[eq_start_idx][0]).total_seconds()
+                    if eq_dur > m_sec:
+                        if parsed[eq_start_idx][0] > seg_start_ts:
+                            intervals.append((seg_start_val, seg_start_ts,
+                                             parsed[eq_start_idx][2],
+                                             parsed[eq_start_idx][0]))
+                        seg_start_val = curr_val
+                        seg_start_ts = curr_ts
+                        prev_val = curr_val
+                        prev_ts = curr_ts
+                        eq_start_idx = None
+                        continue
+                    eq_start_idx = None
+
+                if prev_ts > seg_start_ts:
+                    intervals.append((seg_start_val, seg_start_ts,
+                                     prev_val, prev_ts))
+                seg_start_val = curr_val
+                seg_start_ts = curr_ts
+
+            elif curr_val < prev_val:
+                if gap_sec > m_sec:
+                    # Rule 2 — long idle gap: slice
+                    eq_start_idx = None
+                    if prev_ts > seg_start_ts:
+                        intervals.append((seg_start_val, seg_start_ts,
+                                         prev_val, prev_ts))
+                    seg_start_val = curr_val
+                    seg_start_ts = curr_ts
+                else:
+                    # Normal consumption — may follow a short equal run
+                    if eq_start_idx is not None:
+                        eq_dur = (prev_ts - parsed[eq_start_idx][0]).total_seconds()
+                        if eq_dur > m_sec:
+                            # Rule 3 — long flat: discard it
+                            if parsed[eq_start_idx][0] > seg_start_ts:
+                                intervals.append((seg_start_val, seg_start_ts,
+                                                 parsed[eq_start_idx][2],
+                                                 parsed[eq_start_idx][0]))
+                            seg_start_val = curr_val
+                            seg_start_ts = curr_ts
+                            prev_val = curr_val
+                            prev_ts = curr_ts
+                            eq_start_idx = None
+                            continue
+                        eq_start_idx = None
+            else:
+                # curr_val == prev_val — Rule 3: track equal run
+                if eq_start_idx is None:
+                    eq_start_idx = i - 1
+
+            prev_val = curr_val
+            prev_ts = curr_ts
+
+        # Handle trailing equal run (never resolved because value didn't change)
+        if eq_start_idx is not None:
+            eq_dur = (parsed[-1][0] - parsed[eq_start_idx][0]).total_seconds()
+            if eq_dur > m_sec:
+                if parsed[eq_start_idx][0] > seg_start_ts:
+                    intervals.append((seg_start_val, seg_start_ts,
+                                     parsed[eq_start_idx][2],
+                                     parsed[eq_start_idx][0]))
+                seg_start_ts = parsed[-1][0]  # prevent double-add below
+
+        # Close final interval
+        if parsed[-1][0] > seg_start_ts:
+            intervals.append((seg_start_val, seg_start_ts,
+                             prev_val, parsed[-1][0]))
+
+        # --- Weighted average of hourly rates ----------------------------
         total_weight = 0.0
         weighted_sum = 0.0
         for sv, st, ev, et in intervals:
             if ev >= sv:
                 continue
-            try:
-                t1 = datetime.strptime(st, "%Y-%m-%d %H:%M:%S")
-                t2 = datetime.strptime(et, "%Y-%m-%d %H:%M:%S")
-                delta_h = (t2 - t1).total_seconds() / 3600
-                if delta_h < 0.1:
-                    continue
-                rate_24h = (sv - ev) / delta_h * 24
-                weighted_sum += rate_24h * delta_h
-                total_weight += delta_h
-            except ValueError:
+            delta_h = (et - st).total_seconds() / 3600
+            if delta_h < 0.01:
                 continue
+            hourly_rate = (sv - ev) / delta_h
+            weighted_sum += hourly_rate * delta_h
+            total_weight += delta_h
 
         if total_weight == 0:
             return None
 
-        daily_rate = weighted_sum / total_weight
-        if daily_rate <= 0:
+        avg_hourly = weighted_sum / total_weight
+        if avg_hourly <= 0:
             return None
 
-        remaining = rows[-1][2]
-        hours_left = remaining / daily_rate * 24
-        return daily_rate, hours_left, currency
+        remaining = parsed[-1][2]
+        busy_hours = remaining / avg_hourly
+        return avg_hourly, busy_hours, currency
     except Exception as e:
         log(f"Failed to compute consumption rate: {e}")
         return None

@@ -69,11 +69,12 @@ def _generate_demo_history():
 
 def _demo_rate_from(records):
     if len(records) < 2:
-        return 1.0, 0
+        return 0.06, 0
     total_drop = records[-1]["total"] - records[0]["total"]
-    daily = total_drop / 7 if total_drop > 0 else 1.0
-    hrs = records[0]["topped"] / daily * 24 if daily > 0 else 0
-    return daily, hrs
+    daily = total_drop / 7 if total_drop > 0 else 0.04
+    hourly = daily / 24
+    hrs = records[0]["topped"] / hourly if hourly > 0 else 0
+    return hourly, hrs
 
 
 # --- Balance Check --------------------------------------------------
@@ -243,16 +244,16 @@ def on_show_balance(icon, item):
         lines.append(f"💰 {bal}")
 
         if app.demo_mode and hasattr(app, '_demo_rate'):
-            daily_rate = app._demo_rate
-            hours_left = app._demo_hours
+            hourly_rate = app._demo_rate
+            busy_hours = app._demo_hours
         else:
             cr = get_consumption_rate()
-            daily_rate = hours_left = None
+            hourly_rate = busy_hours = None
             if cr:
-                daily_rate, hours_left = cr[:2]
-        if daily_rate is not None:
-            days = int(hours_left // 24)
-            hrs = int(hours_left % 24)
+                hourly_rate, busy_hours = cr[:2]
+        if hourly_rate is not None:
+            days = int(busy_hours // 24)
+            hrs = int(busy_hours % 24)
             if days > 0:
                 remaining = T("remaining_dh", lang, d=days, h=hrs)
             elif hrs >= 1:
@@ -260,7 +261,7 @@ def on_show_balance(icon, item):
             else:
                 remaining = T("remaining_lt1h", lang)
             prefix = T("est_prefix", lang)
-            lines.append(f"📊 {T('rate_line', lang, rate=daily_rate, prefix=prefix, remaining=remaining)}")
+            lines.append(f"📊 {T('rate_line', lang, rate=hourly_rate, prefix=prefix, remaining=remaining)}")
 
     lines.append(f"📡 {status_line}")
     if last:
@@ -473,9 +474,9 @@ def main():
             "topped_up_balance": last["topped"],
             "granted_balance": last["granted"],
         }
-        d_rate, d_hrs = _demo_rate_from(app._demo_history)
-        app._demo_daily = d_rate
-        app._demo_hrs = d_hrs
+        hourly, hrs = _demo_rate_from(app._demo_history)
+        app._demo_rate = hourly
+        app._demo_hrs = hrs
     else:
         retention = int(app.config.get("retention_days", 30))
         prune_old_data(retention)

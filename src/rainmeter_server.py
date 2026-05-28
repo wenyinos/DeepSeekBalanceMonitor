@@ -82,9 +82,9 @@ def _start_server(app):
                 # estimated_line
                 cr = get_consumption_rate()
                 if cr and b:
-                    daily_rate, hours_left, _curr = cr
-                    days = int(hours_left // 24)
-                    hrs = int(hours_left % 24)
+                    hourly_rate, busy_hours, _curr = cr
+                    days = int(busy_hours // 24)
+                    hrs = int(busy_hours % 24)
                     if days > 0:
                         remaining = T("remaining_dh", lang, d=days, h=hrs)
                     elif hrs >= 1:
