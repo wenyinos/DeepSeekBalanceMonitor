@@ -507,8 +507,7 @@ fn print_widget_status() -> Result<(), (i32, String)> {
                 .map(|(currency, balance)| (Some(currency.clone()), Some(balance.total_balance)))
                 .unwrap_or((None, None));
             let history = recent_balance_history(config.retention_days, 5).unwrap_or_default();
-            let rate = consumption_rate_with_fallback(config.retention_days)
-                .unwrap_or(None);
+            let rate = consumption_rate_with_fallback(config.retention_days).unwrap_or(None);
             write_widget_status(WidgetStatus {
                 ok: true,
                 configured: true,
@@ -857,7 +856,12 @@ fn consumption_rate_from_records(
                 let eq_dur = (prev_ts - parsed[eq_idx].0).num_seconds() as f64;
                 if eq_dur > m_sec {
                     if parsed[eq_idx].0 > seg_start_ts {
-                        intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                        intervals.push((
+                            seg_start_val,
+                            seg_start_ts,
+                            parsed[eq_idx].1,
+                            parsed[eq_idx].0,
+                        ));
                     }
                     seg_start_val = curr_val;
                     seg_start_ts = curr_ts;
@@ -883,7 +887,12 @@ fn consumption_rate_from_records(
                     let eq_dur = (prev_ts - parsed[eq_idx].0).num_seconds() as f64;
                     if eq_dur > m_sec {
                         if parsed[eq_idx].0 > seg_start_ts {
-                            intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                            intervals.push((
+                                seg_start_val,
+                                seg_start_ts,
+                                parsed[eq_idx].1,
+                                parsed[eq_idx].0,
+                            ));
                         }
                         seg_start_val = prev_val;
                         seg_start_ts = prev_ts;
@@ -902,7 +911,12 @@ fn consumption_rate_from_records(
                     if eq_dur > m_sec {
                         // Rule 3 — long flat: discard it
                         if parsed[eq_idx].0 > seg_start_ts {
-                            intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                            intervals.push((
+                                seg_start_val,
+                                seg_start_ts,
+                                parsed[eq_idx].1,
+                                parsed[eq_idx].0,
+                            ));
                         }
                         seg_start_val = curr_val;
                         seg_start_ts = curr_ts;
@@ -930,7 +944,12 @@ fn consumption_rate_from_records(
         let eq_dur = (parsed.last().unwrap().0 - parsed[eq_idx].0).num_seconds() as f64;
         if eq_dur > m_sec {
             if parsed[eq_idx].0 > seg_start_ts {
-                intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                intervals.push((
+                    seg_start_val,
+                    seg_start_ts,
+                    parsed[eq_idx].1,
+                    parsed[eq_idx].0,
+                ));
             }
             seg_start_ts = parsed.last().unwrap().0; // prevent double-add below
         }

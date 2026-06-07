@@ -2877,7 +2877,12 @@ mod windows_app {
                     let eq_dur = (prev_ts - parsed[eq_idx].0).num_seconds() as f64;
                     if eq_dur > m_sec {
                         if parsed[eq_idx].0 > seg_start_ts {
-                            intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                            intervals.push((
+                                seg_start_val,
+                                seg_start_ts,
+                                parsed[eq_idx].1,
+                                parsed[eq_idx].0,
+                            ));
                         }
                         seg_start_val = curr_val;
                         seg_start_ts = curr_ts;
@@ -2903,7 +2908,12 @@ mod windows_app {
                         let eq_dur = (prev_ts - parsed[eq_idx].0).num_seconds() as f64;
                         if eq_dur > m_sec {
                             if parsed[eq_idx].0 > seg_start_ts {
-                                intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                                intervals.push((
+                                    seg_start_val,
+                                    seg_start_ts,
+                                    parsed[eq_idx].1,
+                                    parsed[eq_idx].0,
+                                ));
                             }
                             seg_start_val = prev_val;
                             seg_start_ts = prev_ts;
@@ -2922,7 +2932,12 @@ mod windows_app {
                         if eq_dur > m_sec {
                             // Rule 3 — long flat: discard it
                             if parsed[eq_idx].0 > seg_start_ts {
-                                intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                                intervals.push((
+                                    seg_start_val,
+                                    seg_start_ts,
+                                    parsed[eq_idx].1,
+                                    parsed[eq_idx].0,
+                                ));
                             }
                             seg_start_val = curr_val;
                             seg_start_ts = curr_ts;
@@ -2950,7 +2965,12 @@ mod windows_app {
             let eq_dur = (parsed.last().unwrap().0 - parsed[eq_idx].0).num_seconds() as f64;
             if eq_dur > m_sec {
                 if parsed[eq_idx].0 > seg_start_ts {
-                    intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                    intervals.push((
+                        seg_start_val,
+                        seg_start_ts,
+                        parsed[eq_idx].1,
+                        parsed[eq_idx].0,
+                    ));
                 }
                 seg_start_ts = parsed.last().unwrap().0; // prevent double-add below
             }
