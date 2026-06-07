@@ -3680,7 +3680,7 @@ mod windows_app {
             );
             assert_eq!(
                 rainmeter["estimated_line"].as_str(),
-                Some("📊 预计可用 28 天 4 小时")
+                Some("📊 忙时消耗 1.50/小时 | 预计可用 28 天 4 小时")
             );
             assert_eq!(request_language("/widget-status?lang=en", "zh"), "en");
             assert!(is_low_balance(&state));
