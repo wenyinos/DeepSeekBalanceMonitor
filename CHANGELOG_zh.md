@@ -2,6 +2,23 @@
 
 所有值得记录的变更均记录于此。
 
+## Rust v1.2.6 (2026-06-08)
+
+### 变更
+
+- 消耗速率算法升级为忙时切片算法（移植自 Python v1.2.7）：过滤长闲时段与平直段，以忙时小时速率替代日均消耗
+- 统一全平台显示格式：
+  - 中文：`📊 忙时消耗 0.06/小时 | 预计可用 28 天 4 小时`
+  - 英文：`📊 Busy: 0.06/hr | Est. 28d 4h remaining`
+- 更新 `ConsumptionRate` 结构体：`daily_rate` → `hourly_rate`，`hours_left` → `busy_hours_left`
+- 更新演示模式适配新字段
+- Plasma 小组件更新为显示忙时小时消耗速率
+
+### 平台特定
+
+- **Rust Windows**：为 Rainmeter 小组件接口添加 `estimated_line` 字段
+- **Rust Linux**：移除 `estimated_line`（Plasma 小组件不需要，直接使用 `consumption_rate` 字段）
+
 ## Python v1.2.7 (2026-05-28)
 
 ### 修复

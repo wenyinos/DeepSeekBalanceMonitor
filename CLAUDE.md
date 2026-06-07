@@ -105,6 +105,12 @@ dsmon widget-status  # 输出 Plasma 小组件 JSON
 - 返回忙时小时消耗速率（CNY/小时）和预计可用忙时小时数
 - UI 层负责将小时数换算为天/小时格式展示
 - 移植版本调用 `get_consumption_rate()` 时注意返回值语义已变更（hourly_rate 而非 daily_rate）
+- **Rust 版本已跟进**：Rust Windows 和 Rust Linux 均已实现忙时切片算法
+- **显示格式统一**：
+  - 中文：`📊 忙时消耗 0.06/小时 | 预计可用 28 天 4 小时`
+  - 英文：`📊 Busy: 0.06/hr | Est. 28d 4h remaining`
+- **Rainmeter 小组件**（仅 Windows）：通过 `estimated_line` 字段获取格式化文本
+- **Plasma 小组件**（仅 Linux）：直接从 `consumption_rate` 字段计算显示
 
 ### 图标颜色状态
 

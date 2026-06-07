@@ -9,8 +9,8 @@ const CURRENCY: &str = "CNY";
 const TOTAL: f64 = 666.0;
 const TOPPED: f64 = 114_514.0;
 const GRANTED: f64 = 1_919_810.0;
-const DAILY_RATE: f64 = 114_514.0;
-const HOURS_LEFT: f64 = 1_919_810.0;
+const HOURLY_RATE: f64 = 114_514.0;
+const BUSY_HOURS_LEFT: f64 = 1_919_810.0;
 const SNAPSHOTS: &[(i64, f64, f64, f64, &str)] = &[
     (240, 1_919_810.0, 114_514.0, 1_805_296.0, "none"),
     (180, 1_145_140.0, 114_514.0, 1_030_626.0, "none"),
@@ -34,8 +34,8 @@ pub(super) fn prepare(conn: &Connection) -> Result<(), String> {
             total REAL NOT NULL,
             topped REAL NOT NULL,
             granted REAL NOT NULL,
-            daily_rate REAL NOT NULL,
-            hours_left REAL NOT NULL,
+            hourly_rate REAL NOT NULL,
+            busy_hours_left REAL NOT NULL,
             service_status TEXT NOT NULL
         )",
         [],
@@ -44,7 +44,7 @@ pub(super) fn prepare(conn: &Connection) -> Result<(), String> {
     for (minutes_ago, total, topped, granted, service_status) in SNAPSHOTS {
         conn.execute(
             "INSERT INTO demo_mode_balance
-             (currency, timestamp, total, topped, granted, daily_rate, hours_left, service_status)
+             (currency, timestamp, total, topped, granted, hourly_rate, busy_hours_left, service_status)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 CURRENCY,
@@ -52,8 +52,8 @@ pub(super) fn prepare(conn: &Connection) -> Result<(), String> {
                 total,
                 topped,
                 granted,
-                DAILY_RATE,
-                HOURS_LEFT,
+                HOURLY_RATE,
+                BUSY_HOURS_LEFT,
                 service_status
             ],
         )
@@ -93,13 +93,13 @@ pub(super) fn balances(conn: &Connection) -> Result<BTreeMap<String, Balance>, S
 
 pub(super) fn consumption_rate(conn: &Connection) -> Result<ConsumptionRate, String> {
     conn.query_row(
-        "SELECT currency, daily_rate, hours_left FROM demo_mode_balance LIMIT 1",
+        "SELECT currency, hourly_rate, busy_hours_left FROM demo_mode_balance LIMIT 1",
         [],
         |row| {
             Ok(ConsumptionRate {
                 currency: row.get(0)?,
-                daily_rate: row.get(1)?,
-                hours_left: row.get(2)?,
+                hourly_rate: row.get(1)?,
+                busy_hours_left: row.get(2)?,
             })
         },
     )

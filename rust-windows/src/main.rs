@@ -372,8 +372,8 @@ mod windows_app {
 
     #[derive(Clone, Debug)]
     struct ConsumptionRate {
-        daily_rate: f64,
-        hours_left: f64,
+        hourly_rate: f64,
+        busy_hours_left: f64,
         currency: String,
     }
 
@@ -1203,21 +1203,17 @@ mod windows_app {
     }
 
     fn estimated_availability_line(lang: &str, rate: &ConsumptionRate) -> String {
-        let days = (rate.hours_left / 24.0).floor() as i64;
-        let hours = (rate.hours_left % 24.0).floor() as i64;
+        let days = (rate.busy_hours_left / 24.0).floor() as i64;
+        let hours = (rate.busy_hours_left % 24.0).floor() as i64;
         if lang == "en" {
             format!(
-                "{} {}d {}h remaining",
-                tr(lang, "estimated_remaining"),
-                days,
-                hours
+                "Busy: {:.2}/hr | Est. {}d {}h remaining",
+                rate.hourly_rate, days, hours
             )
         } else {
             format!(
-                "{} {} 天 {} 小时",
-                tr(lang, "estimated_remaining"),
-                days,
-                hours
+                "忙时消耗 {:.2}/小时 | 预计可用 {} 天 {} 小时",
+                rate.hourly_rate, days, hours
             )
         }
     }
@@ -2845,85 +2841,172 @@ mod windows_app {
         if records.len() < 2 {
             return Ok(None);
         }
-        let mut intervals = Vec::new();
-        let mut start_total = records[0].topped;
-        let mut start_time = records[0].timestamp.as_str();
-        let mut previous_total = start_total;
-        for index in 1..records.len() {
-            let current_total = records[index].topped;
-            if current_total > previous_total {
-                intervals.push((
-                    start_total,
-                    start_time,
-                    previous_total,
-                    records[index - 1].timestamp.as_str(),
-                ));
-                start_total = current_total;
-                start_time = records[index].timestamp.as_str();
-            }
-            previous_total = current_total;
-        }
-        intervals.push((
-            start_total,
-            start_time,
-            previous_total,
-            records
-                .last()
-                .map(|record| record.timestamp.as_str())
-                .unwrap_or(start_time),
-        ));
 
-        let mut total_consumed = 0.0;
-        let mut total_hours = 0.0;
-        for (start_value, start_ts, end_value, end_ts) in intervals {
-            if end_value >= start_value {
-                continue;
+        // Parse records and get currency
+        let currency = records[0].currency.clone();
+        let parsed: Vec<_> = records
+            .iter()
+            .map(|r| {
+                let ts = NaiveDateTime::parse_from_str(&r.timestamp, "%Y-%m-%d %H:%M:%S")
+                    .map_err(|e| e.to_string())?;
+                Ok((ts, r.topped))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+
+        // Determine busy threshold m (in seconds)
+        // m = max(30, 2 * interval_minutes) minutes
+        let interval_min = 10; // Default interval, could be read from config
+        let m_minutes = 30.max(2 * interval_min);
+        let m_sec = (m_minutes * 60) as f64;
+
+        // --- Build busy intervals ----------------------------------------
+        let mut intervals: Vec<(f64, NaiveDateTime, f64, NaiveDateTime)> = Vec::new();
+        let mut seg_start_val = parsed[0].1;
+        let mut seg_start_ts = parsed[0].0;
+        let mut prev_val = seg_start_val;
+        let mut prev_ts = seg_start_ts;
+        let mut eq_start_idx: Option<usize> = None; // index where current equal run began
+
+        for i in 1..parsed.len() {
+            let (curr_ts, curr_val) = parsed[i];
+            let gap_sec = (curr_ts - prev_ts).num_seconds() as f64;
+
+            if curr_val > prev_val {
+                // Rule 1 — top-up: close previous interval, start fresh
+                if let Some(eq_idx) = eq_start_idx {
+                    let eq_dur = (prev_ts - parsed[eq_idx].0).num_seconds() as f64;
+                    if eq_dur > m_sec {
+                        if parsed[eq_idx].0 > seg_start_ts {
+                            intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                        }
+                        seg_start_val = curr_val;
+                        seg_start_ts = curr_ts;
+                        prev_val = curr_val;
+                        prev_ts = curr_ts;
+                        eq_start_idx = None;
+                        continue;
+                    }
+                    eq_start_idx = None;
+                }
+
+                if prev_ts > seg_start_ts {
+                    intervals.push((seg_start_val, seg_start_ts, prev_val, prev_ts));
+                }
+                seg_start_val = curr_val;
+                seg_start_ts = curr_ts;
+            } else if curr_val < prev_val {
+                if gap_sec > m_sec {
+                    // Rule 2 — long idle gap: slice.
+                    // Process any pending equal run FIRST so long flat
+                    // periods aren't smuggled into the interval.
+                    if let Some(eq_idx) = eq_start_idx {
+                        let eq_dur = (prev_ts - parsed[eq_idx].0).num_seconds() as f64;
+                        if eq_dur > m_sec {
+                            if parsed[eq_idx].0 > seg_start_ts {
+                                intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                            }
+                            seg_start_val = prev_val;
+                            seg_start_ts = prev_ts;
+                        }
+                        eq_start_idx = None;
+                    }
+                    if prev_ts > seg_start_ts {
+                        intervals.push((seg_start_val, seg_start_ts, prev_val, prev_ts));
+                    }
+                    seg_start_val = curr_val;
+                    seg_start_ts = curr_ts;
+                } else {
+                    // Normal consumption — may follow a short equal run
+                    if let Some(eq_idx) = eq_start_idx {
+                        let eq_dur = (prev_ts - parsed[eq_idx].0).num_seconds() as f64;
+                        if eq_dur > m_sec {
+                            // Rule 3 — long flat: discard it
+                            if parsed[eq_idx].0 > seg_start_ts {
+                                intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                            }
+                            seg_start_val = curr_val;
+                            seg_start_ts = curr_ts;
+                            prev_val = curr_val;
+                            prev_ts = curr_ts;
+                            eq_start_idx = None;
+                            continue;
+                        }
+                        eq_start_idx = None;
+                    }
+                }
+            } else {
+                // curr_val == prev_val — Rule 3: track equal run
+                if eq_start_idx.is_none() {
+                    eq_start_idx = Some(i - 1);
+                }
             }
-            let start = NaiveDateTime::parse_from_str(start_ts, "%Y-%m-%d %H:%M:%S")
-                .map_err(|e| e.to_string())?;
-            let end = NaiveDateTime::parse_from_str(end_ts, "%Y-%m-%d %H:%M:%S")
-                .map_err(|e| e.to_string())?;
-            let hours = (end - start).num_seconds() as f64 / 3600.0;
-            if hours < 0.1 {
-                continue;
-            }
-            total_consumed += start_value - end_value;
-            total_hours += hours;
+
+            prev_val = curr_val;
+            prev_ts = curr_ts;
         }
-        if total_hours < 0.1 || total_consumed <= 0.0 {
+
+        // Handle trailing equal run (never resolved because value didn't change)
+        if let Some(eq_idx) = eq_start_idx {
+            let eq_dur = (parsed.last().unwrap().0 - parsed[eq_idx].0).num_seconds() as f64;
+            if eq_dur > m_sec {
+                if parsed[eq_idx].0 > seg_start_ts {
+                    intervals.push((seg_start_val, seg_start_ts, parsed[eq_idx].1, parsed[eq_idx].0));
+                }
+                seg_start_ts = parsed.last().unwrap().0; // prevent double-add below
+            }
+        }
+
+        // Close final interval
+        if parsed.last().unwrap().0 > seg_start_ts {
+            intervals.push((seg_start_val, seg_start_ts, prev_val, prev_ts));
+        }
+
+        // --- Weighted average of hourly rates ----------------------------
+        let mut total_weight = 0.0;
+        let mut weighted_sum = 0.0;
+        for (sv, st, ev, et) in intervals {
+            if ev >= sv {
+                continue;
+            }
+            let delta_h = (et - st).num_seconds() as f64 / 3600.0;
+            if delta_h < 0.01 {
+                continue;
+            }
+            let hourly_rate = (sv - ev) / delta_h;
+            weighted_sum += hourly_rate * delta_h;
+            total_weight += delta_h;
+        }
+
+        if total_weight == 0.0 {
             return Ok(None);
         }
-        let daily_rate = (total_consumed / total_hours) * 24.0;
-        let latest = records.last().expect("records length already checked");
+
+        let avg_hourly = weighted_sum / total_weight;
+        if avg_hourly <= 0.0 {
+            return Ok(None);
+        }
+
+        let remaining = parsed.last().unwrap().1;
+        let busy_hours = remaining / avg_hourly;
         Ok(Some(ConsumptionRate {
-            daily_rate,
-            hours_left: latest.topped / daily_rate * 24.0,
-            currency: latest.currency.clone(),
+            hourly_rate: avg_hourly,
+            busy_hours_left: busy_hours,
+            currency,
         }))
     }
 
     fn consumption_rate_line(lang: &str, rate: &ConsumptionRate) -> String {
-        let days = (rate.hours_left / 24.0).floor() as i64;
-        let hours = (rate.hours_left % 24.0).floor() as i64;
+        let days = (rate.busy_hours_left / 24.0).floor() as i64;
+        let hours = (rate.busy_hours_left % 24.0).floor() as i64;
         if lang == "en" {
             format!(
-                "{}: {:.2} {}/day | {} {}d {}h remaining",
-                tr(lang, "daily_rate"),
-                rate.daily_rate,
-                rate.currency,
-                tr(lang, "estimated_remaining"),
-                days,
-                hours
+                "Busy: {:.2}/hr | Est. {}d {}h remaining",
+                rate.hourly_rate, days, hours
             )
         } else {
             format!(
-                "{} {:.2} {} | {} {} 天 {} 小时",
-                tr(lang, "daily_rate"),
-                rate.daily_rate,
-                rate.currency,
-                tr(lang, "estimated_remaining"),
-                days,
-                hours
+                "忙时消耗 {:.2}/小时 | 预计可用 {} 天 {} 小时",
+                rate.hourly_rate, days, hours
             )
         }
     }
@@ -3531,7 +3614,7 @@ mod windows_app {
             assert_eq!(
                 demo::consumption_rate(&conn)
                     .expect("demo rate loads")
-                    .daily_rate,
+                    .hourly_rate,
                 114_514.0
             );
             assert!(demo::history(&conn, 24).expect("demo history loads").len() > 1);
@@ -3540,8 +3623,8 @@ mod windows_app {
             state.config.threshold_yuan = 10.0;
             state.balances.insert("CNY".to_string(), balance(5.0));
             let rate = ConsumptionRate {
-                daily_rate: 1.5,
-                hours_left: 28.0 * 24.0 + 4.0,
+                hourly_rate: 1.5,
+                busy_hours_left: 28.0 * 24.0 + 4.0,
                 currency: "CNY".to_string(),
             };
             let message = balance_notification_message(
@@ -3554,7 +3637,7 @@ mod windows_app {
                 now,
             );
             assert!(message.contains("💰 5.00 CNY"));
-            assert!(message.contains("📊 日均消耗 1.50 CNY | 预计可用 28 天 4 小时"));
+            assert!(message.contains("📊 忙时消耗 1.50/小时 | 预计可用 28 天 4 小时"));
             assert!(message.contains("📡 DeepSeek API 服务状态：🟢 服务正常"));
             assert!(message.contains("🕐 上次查询：5 分钟前"));
             let snapshot = RainmeterSnapshot {
