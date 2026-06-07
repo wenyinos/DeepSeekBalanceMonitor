@@ -27,9 +27,7 @@ def open_settings(app):
 
         lang = app.lang
 
-        if app._tk_root is None:
-            app._tk_root = tk.Tk()
-            app._tk_root.withdraw()
+        # tk root is already initialised on the main thread in main()
         top = app._tk_root
         root = tk.Toplevel(top)
         app._settings_window = root
@@ -376,7 +374,7 @@ def open_settings(app):
             return lbl
 
         ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=(12, 8))
-        ttk.Label(scroll_frame, text="v1.2.6_260513",
+        ttk.Label(scroll_frame, text="v1.2.7_260528",
                   foreground="gray").pack(anchor="w")
 
         by_frame = tk.Frame(scroll_frame)
@@ -507,6 +505,5 @@ def open_settings(app):
         root.bind("<Return>", lambda e: on_save())
         root.bind("<Escape>", lambda e: _cleanup())
         api_entry.focus_set()
-        top.mainloop()
 
     _dialog()

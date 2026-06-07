@@ -184,10 +184,10 @@ class JsApi:
         try:
             result = _get_consumption_rate()
             if result:
-                daily_rate, hours_left, currency = result
+                hourly_rate, busy_hours, currency = result
                 return {"success": True, "data": {
-                    "daily_rate": round(daily_rate, 2),
-                    "hours_left": round(hours_left, 1),
+                    "hourly_rate": round(hourly_rate, 4),
+                    "busy_hours": round(busy_hours, 1),
                     "currency": currency,
                 }}
             return {"success": True, "data": None}

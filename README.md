@@ -22,7 +22,7 @@ Rainmeter widget preview
 - Custom icon styling with 5 preset colour themes, custom hex colours, and an icon stroke toggle.
 - History viewer with paginated balance records, an interactive trend chart, and consumption rate analysis.
 - CSV export with a configurable save path.
-- Consumption rate estimation in balance notifications and the history viewer.
+- Busy-hour consumption rate estimation (filters idle/flat periods) in balance notifications and the history viewer.
 - HTTP proxy support.
 - Balance detail notifications now use emoji-prefixed lines and relative last-check time.
 - Demo mode for testing without a real API key: developer tools panel on Py-Win/Py-Mac, `demo` API key trigger on Rust.
@@ -54,7 +54,7 @@ Rust Linux-specific:
 
 > DeepSeek Balance:  
 > 💰 12.34 CNY (Topped 10.00, Granted 2.34)  
-> 📊 Avg: 1.50/day  |  Est. 28d 4h remaining  
+> 📊 Busy: 0.06/hr  |  Est. 28d 4h remaining  
 > 📡 DeepSeek API Status: 🟢 All Systems Operational  
 > 🕐 Last Check: 5 min ago
 

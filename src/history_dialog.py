@@ -30,9 +30,7 @@ def open_history(app):
 
     lang = app.lang
 
-    if app._tk_root is None:
-        app._tk_root = tk.Tk()
-        app._tk_root.withdraw()
+    # tk root is already initialised on the main thread in main()
     root = app._tk_root
     win = tk.Toplevel(root)
     app._history_open = True
@@ -42,7 +40,6 @@ def open_history(app):
         app._history_open = False
         app._history_window = None
         win.destroy()
-        root.quit()
 
     win.protocol("WM_DELETE_WINDOW", _cleanup)
     win.title(T("history", lang))
@@ -121,13 +118,13 @@ def open_history(app):
             else:
                 remaining = T("remaining_lt1h", lang)
             prefix = T("est_prefix", lang)
-            rate_var.set(T("rate_line", lang, rate=app._demo_daily, prefix=prefix, remaining=remaining))
+            rate_var.set(T("rate_line", lang, rate=app._demo_rate, prefix=prefix, remaining=remaining))
             return
         cr = get_consumption_rate()
         if cr:
-            daily_rate, hours_left, curr = cr
-            days = int(hours_left // 24)
-            hrs = int(hours_left % 24)
+            hourly_rate, busy_hours, curr = cr
+            days = int(busy_hours // 24)
+            hrs = int(busy_hours % 24)
             if days > 0:
                 remaining = T("remaining_dh", lang, d=days, h=hrs)
             elif hrs >= 1:
@@ -135,7 +132,7 @@ def open_history(app):
             else:
                 remaining = T("remaining_lt1h", lang)
             prefix = T("est_prefix", lang)
-            rate_var.set(T("rate_line", lang, rate=daily_rate, prefix=prefix, remaining=remaining))
+            rate_var.set(T("rate_line", lang, rate=hourly_rate, prefix=prefix, remaining=remaining))
         else:
             rate_var.set(T("not_enough_data", lang))
 
@@ -315,4 +312,3 @@ def open_history(app):
 
     _load_page()
     win.focus_force()
-    root.mainloop()
