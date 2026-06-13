@@ -13,3 +13,5 @@ target/
 .cargo/
 **/.cargo/
 *.rs.bk
+CLAUDE.md
+GEMINI.md
