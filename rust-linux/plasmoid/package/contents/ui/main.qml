@@ -376,7 +376,7 @@ PlasmoidItem {
         if (!consumptionRate) {
             return tr("estimated") + " --"
         }
-        var hoursLeft = Number(consumptionRate.hours_left)
+        var hoursLeft = Number(consumptionRate.busy_hours_left)
         if (!isFinite(hoursLeft) || hoursLeft < 0) {
             return tr("estimated") + " --"
         }
@@ -423,8 +423,8 @@ PlasmoidItem {
                 + (language === "zh" ? "）" : ")"))
             if (consumptionRate) {
                 lines.push("📊 " + (language === "zh"
-                    ? tr("dailyRate") + " " + Number(consumptionRate.daily_rate).toFixed(2) + " " + consumptionRate.currency + " | " + estimatedAvailabilityText()
-                    : tr("dailyRate") + ": " + Number(consumptionRate.daily_rate).toFixed(2) + " " + consumptionRate.currency + "/day | " + estimatedAvailabilityText()))
+                    ? "忙时消耗 " + Number(consumptionRate.hourly_rate).toFixed(2) + "/小时 | " + estimatedAvailabilityText()
+                    : "Busy: " + Number(consumptionRate.hourly_rate).toFixed(2) + "/hr | " + estimatedAvailabilityText()))
             }
         }
         lines.push("📡 " + tr("serviceStatus") + serviceStatusEmoji() + " " + serviceStatusText())

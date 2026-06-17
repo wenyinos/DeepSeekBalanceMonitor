@@ -155,12 +155,12 @@ KCM.SimpleKCM {
         }
         if (payload.consumption_rate) {
             var rate = payload.consumption_rate
-            var hoursLeft = Number(rate.hours_left)
+            var hoursLeft = Number(rate.busy_hours_left)
             var daysLeft = Math.floor(hoursLeft / 24)
             var hoursRemainder = Math.floor(hoursLeft % 24)
-            lines.push(tr("dailyRate") + " " + Number(rate.daily_rate).toFixed(2) + " " + rate.currency
-                + (uiLanguage === "zh" ? " | " + tr("estimated") + " " + daysLeft + " 天 " + hoursRemainder + " 小时"
-                    : "/day | " + tr("estimated") + " " + daysLeft + "d " + hoursRemainder + "h remaining"))
+            lines.push(uiLanguage === "zh"
+                ? "忙时消耗 " + Number(rate.hourly_rate).toFixed(2) + "/小时 | " + tr("estimated") + " " + daysLeft + " 天 " + hoursRemainder + " 小时"
+                : "Busy: " + Number(rate.hourly_rate).toFixed(2) + "/hr | " + tr("estimated") + " " + daysLeft + "d " + hoursRemainder + "h remaining")
         } else {
             lines.push(tr("notEnoughData"))
         }

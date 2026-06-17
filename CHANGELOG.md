@@ -2,6 +2,23 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v1.2.6 (2026-06-08)
+
+### Changed
+
+- Consumption rate algorithm upgraded to busy-hour slicing (ported from Python v1.2.7): filters long idle gaps and flat periods; returns hourly rate instead of daily average
+- Unified display format across all platforms:
+  - Chinese: `📊 忙时消耗 0.06/小时 | 预计可用 28 天 4 小时`
+  - English: `📊 Busy: 0.06/hr | Est. 28d 4h remaining`
+- Updated `ConsumptionRate` struct: `daily_rate` → `hourly_rate`, `hours_left` → `busy_hours_left`
+- Updated demo mode to use new rate fields
+- Plasma widget updated to display hourly consumption rate
+
+### Platform-Specific
+
+- **Rust Windows**: Added `estimated_line` field to Rainmeter widget-status interface
+- **Rust Linux**: Removed `estimated_line` (not needed for Plasma widget; uses `consumption_rate` field directly)
+
 ## Python v1.2.7 (2026-05-28)
 
 ### Fixed
