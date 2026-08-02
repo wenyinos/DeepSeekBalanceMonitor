@@ -28,9 +28,11 @@ Rainmeter widget preview
 - Demo mode for testing without a real API key: developer tools panel on Py-Win/Py-Mac, `demo` API key trigger on Rust.
 - Encrypted API key storage: Fernet + SQLite on Py-Win, SQLite `secure_settings` on Rust, Keychain on Py-Mac.
 - Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
+- OpenCode Go quota display (Rust builds): scrapes the opencode.ai workspace dashboard for rolling (5h), weekly, and monthly usage; credentials stored encrypted in SQLite, never in config.json.
 
 Rust Linux-specific:
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
+- `dsmon opencode-go` prints OpenCode Go quota; `dsmon opencode-go set <workspace_id> <auth_cookie>` stores the credentials encrypted.
 - Plasma 6 widget: transparent liquid-glass desktop view with balance, last check, API service status, estimated availability, refresh control, and emoji status text.
 - Plasma 6 widget display is intentionally compact: the main desktop view shows a balance line, relative last-check time, DeepSeek API status, and estimated remaining time.
 - Refreshing the Linux Plasma widget model: balance, relative last check, API service status, and estimated availability now match the Rainmeter widget layout.
@@ -44,6 +46,7 @@ Rust Linux-specific:
 - **Balance details** — Left-click the icon to see balance (emoji-prefixed), consumption rate, API service status, and relative last-check time.
 - **History viewer** — Paginated table of all balance records with interactive trend chart and consumption rate analysis. CSV export.
 - **Settings** — API key (Fernet + SQLite encrypted storage), check interval, alert threshold, alert mode, icon theme, proxy, and more.
+- **OpenCode Go quota** (Rust builds) — A dedicated Settings tab (Windows) or `dsmon opencode-go` (Linux) shows rolling 5h/weekly/monthly usage from the opencode.ai dashboard, with encrypted credential storage.
 - **Demo mode** — `--demo` flag for testing without an API key, with a developer tools panel.
 - **Optional desktop widgets** — KDE Plasma 6 on Linux, and Rainmeter on Windows (Rust and Python builds both supported).
 - **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (Keychain-secured, WebView settings UI).
@@ -176,6 +179,7 @@ Useful Linux CLI commands:
 | `dsmon history [days]` | Print a balance history summary |
 | `dsmon history export [days] [currency\|all] [path\|-]` | Export history as CSV; `-` writes CSV to stdout |
 | `dsmon widget-status` | Print JSON status consumed by the Plasma widget |
+| `dsmon opencode-go` | Print OpenCode Go quota (5h/weekly/monthly usage); set credentials with `dsmon opencode-go set <workspace_id> <auth_cookie>` |
 
 **MacOS (`src/mac/`):**
 

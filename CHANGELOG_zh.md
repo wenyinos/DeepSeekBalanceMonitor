@@ -2,6 +2,15 @@
 
 所有值得记录的变更均记录于此。
 
+## Rust v1.2.10 (2026-08-02)
+
+### 新增
+
+- OpenCode Go 额度显示（Rust Windows 与 Rust Linux）：爬取 opencode.ai 工作区仪表板，报告 5 小时滚动 / 每周 / 每月三档用量的已用与剩余百分比及重置时间
+- Windows：设置窗口新增「OpenCode Go」标签页，可填写工作区 ID / Auth Cookie 并手动刷新
+- Linux：新增 `dsmon opencode-go`（查询额度）与 `dsmon opencode-go set <workspace_id> <auth_cookie>`（保存凭据）CLI 命令
+- OpenCode Go 凭据加密存储于 `secure_settings` 表（独立 key：`opencode_go_workspace_id`、`opencode_go_auth_cookie`），绝不写入 config.json
+
 ## Rust v1.2.6 (2026-06-08)
 
 ### 变更

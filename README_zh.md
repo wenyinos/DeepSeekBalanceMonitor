@@ -28,9 +28,11 @@ Rainmeter 小组件预览图
 - Demo 模式无需真实 Key 即可测试：Py-Win/Py-Mac 提供开发者面板，Rust 通过保存 `demo` 作为 API Key 触发。
 - API Key 加密存储：Py-Win 使用 Fernet + SQLite，Rust 使用 SQLite `secure_settings`，Py-Mac 使用 Keychain。
 - Rainmeter 桌面小工具：仅本地可访问的状态接口；`.rmskin` 发布打包。Rust/Python Windows 双版均已支持。
+- OpenCode Go 额度显示（Rust 版）：爬取 opencode.ai 工作区仪表板，展示 5 小时滚动 / 每周 / 每月三档用量；凭据加密存于 SQLite，绝不写入 config.json。
 
 Rust Linux 版本限定：
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
+- `dsmon opencode-go` 输出 OpenCode Go 额度；`dsmon opencode-go set <workspace_id> <auth_cookie>` 加密保存凭据。
 - Plasma 6 小组件：透明液态玻璃桌面样式，余额、上次查询、服务状态、预计可用时间、刷新按钮和 emoji 状态。
 - Plasma 6 小组件显示刻意保持紧凑：桌面主视图显示余额行、相对上次查询时间、DeepSeek API 状态和预计剩余时间。
 - 刷新 Linux Plasma 小组件显示模型：余额、相对上次查询、API 服务状态和预计可用时间现在与 Rainmeter 小工具布局一致。
@@ -45,6 +47,7 @@ Rust Linux 版本限定：
 - **余额详情** — 左键单击图标查看余额（emoji 前缀）、消耗速率、API 服务状态和相对时间
 - **历史记录页** — 分页表格展示所有余额记录，附带折线图和消耗分析，支持 CSV 导出
 - **设置** — API Key（Fernet + SQLite加密存储）、查询间隔、预警阈值、提醒模式、图标主题、代理等
+- **OpenCode Go 额度**（Rust 版）— Windows 设置标签页或 Linux `dsmon opencode-go` 展示 opencode.ai 仪表板的 5h/每周/每月用量，凭据加密存储
 - **Demo 模式** — `--demo` 免 Key 体验，开发者面板可调参数
 - **可选桌面小工具** — Linux 支持 KDE Plasma 6，Windows 支持 Rainmeter（Rust/Python 双版均已适配）
 - **社区移植** — Rust-Win（Win7+）、Rust-Linux（CLI + Plasma 6 小组件）、Py-Mac（Keychain 加密，WebView 设置界面）
@@ -177,6 +180,7 @@ CLI 目前仅 Rust Linux 版提供。Windows 和 MacOS 版使用图形界面 / �
 | `dsmon history [days]` | 输出余额历史统计摘要 |
 | `dsmon history export [days] [currency\|all] [path\|-]` | 导出历史 CSV；`-` 表示输出到 stdout |
 | `dsmon widget-status` | 输出 Plasma 小组件读取的 JSON 状态 |
+| `dsmon opencode-go` | 输出 OpenCode Go 额度（5h/每周/每月用量）；凭据用 `dsmon opencode-go set <workspace_id> <auth_cookie>` 设置 |
 
 **MacOS（`src/mac/`）：**
 
