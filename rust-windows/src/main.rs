@@ -4308,6 +4308,8 @@ mod windows_app {
                 r#"</div>"#,
             );
             let quota = parse_opencode_go_quota(slot).expect("data-slot quota parses");
+            let formatted = format_opencode_go_quota(&quota, "en");
+            assert!(formatted.contains("5h:"));
             let rolling = quota.rolling.expect("slot rolling");
             assert_eq!(rolling.usage_percent, 42.5);
             assert_eq!(rolling.reset_in_sec, 6960);
@@ -4324,8 +4326,6 @@ mod windows_app {
             assert_eq!(format_reset_seconds(0), "now");
             assert_eq!(format_reset_seconds(6960), "1h 56m");
             assert_eq!(encode_uri_component("a b"), "a%20b");
-            let formatted = format_opencode_go_quota(&quota, "en");
-            assert!(formatted.contains("5h:"));
 
             // Unparseable HTML (e.g. login page) yields an error.
             assert!(parse_opencode_go_quota("<html>sign in</html>").is_err());
