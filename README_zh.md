@@ -32,7 +32,7 @@ Rainmeter 小组件预览图
 
 Rust Linux 版本限定：
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
-- `dsmon opencode-go` 输出 OpenCode Go 额度；`dsmon opencode-go set <workspace_id> <auth_cookie>` 加密保存凭据；`dsmon opencode-go json` 输出机器可读 JSON。
+- `dsmon opencode-go` 输出 OpenCode Go 额度；`dsmon opencode-go set "workspace_id" "auth_cookie"` 加密保存凭据（两个参数均需用半角双引号包裹，auth cookie 含特殊字符）；`dsmon opencode-go json` 输出机器可读 JSON。
 - Plasma 6 小组件新增独立的「OpenCode Go」设置页面，直接从 `dsmon opencode-go json` 读取。
 - Plasma 6 小组件：透明液态玻璃桌面样式，余额、上次查询、服务状态、预计可用时间、刷新按钮和 emoji 状态。
 - Plasma 6 小组件显示刻意保持紧凑：桌面主视图显示余额行、相对上次查询时间、DeepSeek API 状态和预计剩余时间。
@@ -181,7 +181,7 @@ CLI 目前仅 Rust Linux 版提供。Windows 和 MacOS 版使用图形界面 / �
 | `dsmon history [days]` | 输出余额历史统计摘要 |
 | `dsmon history export [days] [currency\|all] [path\|-]` | 导出历史 CSV；`-` 表示输出到 stdout |
 | `dsmon widget-status` | 输出 Plasma 小组件读取的 JSON 状态 |
-| `dsmon opencode-go` | 输出 OpenCode Go 额度（5h/每周/每月用量）；凭据用 `dsmon opencode-go set <workspace_id> <auth_cookie>` 设置 |
+| `dsmon opencode-go` | 输出 OpenCode Go 额度（5h/每周/每月用量）；凭据用 `dsmon opencode-go set "workspace_id" "auth_cookie"` 设置，两个参数都要用半角双引号包裹（auth cookie 含特殊字符） |
 
 **MacOS（`src/mac/`）：**
 

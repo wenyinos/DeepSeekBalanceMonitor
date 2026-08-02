@@ -32,7 +32,7 @@ Rainmeter widget preview
 
 Rust Linux-specific:
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
-- `dsmon opencode-go` prints OpenCode Go quota; `dsmon opencode-go set <workspace_id> <auth_cookie>` stores the credentials encrypted; `dsmon opencode-go json` emits machine-readable output.
+- `dsmon opencode-go` prints OpenCode Go quota; `dsmon opencode-go set "workspace_id" "auth_cookie"` stores the credentials encrypted — wrap both arguments in double quotes (auth cookies contain special characters); `dsmon opencode-go json` emits machine-readable output.
 - The Plasma 6 widget adds a dedicated "OpenCode Go" settings page, read directly from `dsmon opencode-go json`.
 - Plasma 6 widget: transparent liquid-glass desktop view with balance, last check, API service status, estimated availability, refresh control, and emoji status text.
 - Plasma 6 widget display is intentionally compact: the main desktop view shows a balance line, relative last-check time, DeepSeek API status, and estimated remaining time.
@@ -180,7 +180,7 @@ Useful Linux CLI commands:
 | `dsmon history [days]` | Print a balance history summary |
 | `dsmon history export [days] [currency\|all] [path\|-]` | Export history as CSV; `-` writes CSV to stdout |
 | `dsmon widget-status` | Print JSON status consumed by the Plasma widget |
-| `dsmon opencode-go` | Print OpenCode Go quota (5h/weekly/monthly usage); set credentials with `dsmon opencode-go set <workspace_id> <auth_cookie>` |
+| `dsmon opencode-go` | Print OpenCode Go quota (5h/weekly/monthly usage); set credentials with `dsmon opencode-go set "workspace_id" "auth_cookie"` — wrap both arguments in double quotes (auth cookies contain special characters) |
 
 **MacOS (`src/mac/`):**
 
