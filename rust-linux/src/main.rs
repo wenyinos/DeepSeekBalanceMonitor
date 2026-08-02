@@ -21,6 +21,12 @@ const SECURE_PREFIX: &[u8] = b"DSBM1";
 const SECURE_AAD: &[u8] = b"deepseek-balance-monitor secure_settings api_key v1";
 const NONCE_LEN: usize = 12;
 const API_KEY_MASK: &str = "masked";
+const OPENCODE_GO_URL_PREFIX: &str = "https://opencode.ai/workspace/";
+const OPENCODE_GO_URL_SUFFIX: &str = "/go";
+const OPENCODE_GO_USER_AGENT: &str =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0";
+const OPENCODE_GO_WORKSPACE_KEY: &str = "opencode_go_workspace_id";
+const OPENCODE_GO_AUTH_COOKIE_KEY: &str = "opencode_go_auth_cookie";
 
 #[derive(Clone, Serialize, Deserialize)]
 struct AppConfig {
@@ -131,6 +137,20 @@ struct ConsumptionRate {
     currency: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct OpenCodeGoUsage {
+    usage_percent: f64,
+    percent_remaining: f64,
+    reset_in_sec: i64,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+struct OpenCodeGoQuota {
+    rolling: Option<OpenCodeGoUsage>,
+    weekly: Option<OpenCodeGoUsage>,
+    monthly: Option<OpenCodeGoUsage>,
+}
+
 #[derive(Serialize)]
 struct WidgetStatus {
     ok: bool,
@@ -210,6 +230,7 @@ fn run() -> Result<(), (i32, String)> {
         "set-key" => set_key(&args[2..]),
         "set" => set_config_field(&args[2..]),
         "set-config" => set_config(&args[2..]),
+        "opencode-go" => opencode_go(&args[2..]),
         "-V" | "--version" => {
             println!("dsmon {}", env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -382,7 +403,7 @@ fn clean_logs() -> Result<(), (i32, String)> {
 
 fn print_help() {
     println!(
-        "Usage: dsmon [check|daemon|init-config|config-path|log-path|clean-logs|history|widget-status|config-json|set-key|set|set-config]\nHistory: dsmon history [days] | dsmon history export [days] [currency|all] [path|-]\nSet: dsmon set <field> <value>"
+        "Usage: dsmon [check|daemon|init-config|config-path|log-path|clean-logs|history|widget-status|config-json|set-key|set|set-config|opencode-go]\nHistory: dsmon history [days] | dsmon history export [days] [currency|all] [path|-]\nSet: dsmon set <field> <value>\nOpenCode Go: dsmon opencode-go | dsmon opencode-go set <workspace_id> <auth_cookie>"
     );
 }
 
@@ -1227,6 +1248,323 @@ fn set_config(args: &[String]) -> Result<(), (i32, String)> {
     Ok(())
 }
 
+fn opencode_go(args: &[String]) -> Result<(), (i32, String)> {
+    match args.first().map(String::as_str) {
+        Some("set") | Some("set-key") => opencode_go_set(&args[1..]),
+        Some(other) => Err(fail(format!(
+            "Unknown opencode-go subcommand: {other}\nRun: dsmon opencode-go set <workspace_id> <auth_cookie>"
+        ))),
+        None => opencode_go_check(),
+    }
+}
+
+fn opencode_go_set(args: &[String]) -> Result<(), (i32, String)> {
+    if args.len() < 2 {
+        return Err(fail(
+            "Usage: dsmon opencode-go set <workspace_id> <auth_cookie>",
+        ));
+    }
+    let workspace_id = args[0].trim();
+    let auth_cookie = args[1].trim();
+    if workspace_id.is_empty() || auth_cookie.is_empty() {
+        return Err(fail("workspace_id and auth_cookie are required."));
+    }
+    store_secure_value(OPENCODE_GO_WORKSPACE_KEY, workspace_id).map_err(fail)?;
+    store_secure_value(OPENCODE_GO_AUTH_COOKIE_KEY, auth_cookie).map_err(fail)?;
+    println!("OpenCode Go credentials saved.");
+    Ok(())
+}
+
+fn opencode_go_check() -> Result<(), (i32, String)> {
+    let config = load_config().map_err(fail)?;
+    let workspace_id = read_secure_value(OPENCODE_GO_WORKSPACE_KEY)
+        .map_err(fail)?
+        .unwrap_or_default();
+    let auth_cookie = read_secure_value(OPENCODE_GO_AUTH_COOKIE_KEY)
+        .map_err(fail)?
+        .unwrap_or_default();
+    if workspace_id.is_empty() || auth_cookie.is_empty() {
+        return Err((
+            2,
+            "OpenCode Go credentials are not configured.\nRun: dsmon opencode-go set <workspace_id> <auth_cookie>"
+                .to_string(),
+        ));
+    }
+    match fetch_opencode_go_quota(&workspace_id, &auth_cookie, effective_http_proxy(&config)) {
+        Ok(quota) => {
+            print_opencode_go_quota(&quota);
+            Ok(())
+        }
+        Err(error) => Err((1, error)),
+    }
+}
+
+fn print_opencode_go_quota(quota: &OpenCodeGoQuota) {
+    println!("OpenCode Go:");
+    print_opencode_go_window("5h", quota.rolling.as_ref());
+    print_opencode_go_window("Weekly", quota.weekly.as_ref());
+    print_opencode_go_window("Monthly", quota.monthly.as_ref());
+}
+
+fn print_opencode_go_window(label: &str, usage: Option<&OpenCodeGoUsage>) {
+    match usage {
+        Some(usage) => println!(
+            "  {label:<8} {:.0}% used | {:.0}% remaining | resets in {}",
+            usage.usage_percent,
+            usage.percent_remaining,
+            format_reset_seconds(usage.reset_in_sec)
+        ),
+        None => println!("  {label:<8} (unavailable)"),
+    }
+}
+
+fn fetch_opencode_go_quota(
+    workspace_id: &str,
+    auth_cookie: &str,
+    http_proxy: &str,
+) -> Result<OpenCodeGoQuota, String> {
+    let client = http_client(Duration::from_secs(10), http_proxy)?;
+    let url = format!(
+        "{}{}{}",
+        OPENCODE_GO_URL_PREFIX,
+        encode_uri_component(workspace_id),
+        OPENCODE_GO_URL_SUFFIX
+    );
+    let response = client
+        .get(&url)
+        .header("Accept", "text/html")
+        .header("User-Agent", OPENCODE_GO_USER_AGENT)
+        .header("Cookie", format!("auth={auth_cookie}"))
+        .send()
+        .map_err(|e| format!("OpenCode Go request failed: {e}"))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().unwrap_or_default();
+        return Err(format!(
+            "OpenCode Go dashboard error {status}: {}",
+            sanitize_opencode_go_message(&text)
+        ));
+    }
+    let html = response
+        .text()
+        .map_err(|e| format!("OpenCode Go HTML read failed: {e}"))?;
+    parse_opencode_go_quota(&html)
+}
+
+fn parse_opencode_go_quota(html: &str) -> Result<OpenCodeGoQuota, String> {
+    let ssr = OpenCodeGoQuota {
+        rolling: parse_ssr_window(html, "rollingUsage"),
+        weekly: parse_ssr_window(html, "weeklyUsage"),
+        monthly: parse_ssr_window(html, "monthlyUsage"),
+    };
+    let any = ssr.rolling.is_some() || ssr.weekly.is_some() || ssr.monthly.is_some();
+    let quota = if any {
+        ssr
+    } else {
+        parse_opencode_go_data_slot(html)
+    };
+    if quota.rolling.is_none() && quota.weekly.is_none() && quota.monthly.is_none() {
+        return Err(
+            "Could not parse any known OpenCode Go dashboard usage windows (rollingUsage, weeklyUsage, monthlyUsage)"
+                .to_string(),
+        );
+    }
+    Ok(quota)
+}
+
+fn parse_ssr_window(html: &str, window: &str) -> Option<OpenCodeGoUsage> {
+    let marker = format!("{window}:$R[");
+    let start = html.find(&marker)?;
+    let rest = &html[start + marker.len()..];
+    let open = rest.find('{')? + 1;
+    let content_end = rest[open..].find('}')?;
+    let content = &rest[open..open + content_end];
+    let usage_percent = number_after_key(content, "usagePercent")?.max(0.0);
+    let reset_in_sec = number_after_key(content, "resetInSec")?.max(0.0);
+    Some(OpenCodeGoUsage {
+        usage_percent,
+        percent_remaining: (100.0 - usage_percent).max(0.0),
+        reset_in_sec: reset_in_sec as i64,
+    })
+}
+
+fn parse_opencode_go_data_slot(html: &str) -> OpenCodeGoQuota {
+    let mut quota = OpenCodeGoQuota::default();
+    for item in html.split("data-slot=\"usage-item\"").skip(1) {
+        let Some(label) = tag_text(item, "data-slot=\"usage-label\"") else {
+            continue;
+        };
+        let Some(usage_text) = tag_text(item, "data-slot=\"usage-value\"") else {
+            continue;
+        };
+        let Some(usage_percent) = first_number(&usage_text) else {
+            continue;
+        };
+        let reset_in_sec = if item.contains("data-slot=\"reset-now\"") {
+            0
+        } else {
+            let Some(reset_text) = tag_text(item, "data-slot=\"reset-time\"") else {
+                continue;
+            };
+            match parse_human_readable_time(&reset_text) {
+                Some(secs) => secs,
+                None => continue,
+            }
+        };
+        let window_key = if label.to_lowercase().contains("rolling") {
+            Some("rolling")
+        } else if label.to_lowercase().contains("weekly") {
+            Some("weekly")
+        } else if label.to_lowercase().contains("monthly") {
+            Some("monthly")
+        } else {
+            None
+        };
+        let Some(window_key) = window_key else {
+            continue;
+        };
+        let usage = OpenCodeGoUsage {
+            usage_percent,
+            percent_remaining: (100.0 - usage_percent).max(0.0),
+            reset_in_sec,
+        };
+        match window_key {
+            "rolling" => quota.rolling = Some(usage),
+            "weekly" => quota.weekly = Some(usage),
+            _ => quota.monthly = Some(usage),
+        }
+    }
+    quota
+}
+
+fn tag_text<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
+    let start = text.find(marker)? + marker.len();
+    let rest = &text[start..];
+    let open = rest.find('>')? + 1;
+    let content = &rest[open..];
+    let end = content.find('<')?;
+    Some(content[..end].trim())
+}
+
+fn number_after_key(text: &str, key: &str) -> Option<f64> {
+    let rest = &text[text.find(key)? + key.len()..];
+    let rest = rest.strip_prefix(':')?;
+    let number: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '+')
+        .collect();
+    if number.is_empty() {
+        return None;
+    }
+    number.parse().ok()
+}
+
+fn first_number(text: &str) -> Option<f64> {
+    let start = text.find(|c: char| c.is_ascii_digit())?;
+    let rest = &text[start..];
+    let number: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    if number.is_empty() {
+        return None;
+    }
+    number.parse().ok()
+}
+
+fn parse_human_readable_time(text: &str) -> Option<i64> {
+    let normalized = text.to_lowercase();
+    if normalized.contains("reset now")
+        || normalized.contains("resets now")
+        || normalized.trim() == "now"
+    {
+        return Some(0);
+    }
+    let mut total: i64 = 0;
+    let mut found = false;
+    for (plural, singular, multiplier) in [
+        ("days", "day", 86400i64),
+        ("hours", "hour", 3600),
+        ("minutes", "minute", 60),
+        ("seconds", "second", 1),
+    ] {
+        let unit = if normalized.contains(plural) {
+            plural
+        } else {
+            singular
+        };
+        if let Some(prefix) = number_before_word(&normalized, unit) {
+            if let Ok(n) = prefix.parse::<f64>() {
+                total += (n * multiplier as f64) as i64;
+                found = true;
+            }
+        }
+    }
+    found.then_some(total)
+}
+
+fn number_before_word<'a>(text: &'a str, word: &str) -> Option<&'a str> {
+    let index = text.find(word)?;
+    let before = text[..index].trim_end();
+    if before.is_empty() {
+        return None;
+    }
+    let start = before
+        .rfind(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let candidate = &before[start..];
+    if candidate.is_empty() || !candidate.starts_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(candidate)
+}
+
+fn format_reset_seconds(secs: i64) -> String {
+    if secs <= 0 {
+        return "now".to_string();
+    }
+    let days = secs / 86400;
+    let hours = (secs % 86400) / 3600;
+    let minutes = (secs % 3600) / 60;
+    let mut parts = Vec::new();
+    if days > 0 {
+        parts.push(format!("{days}d"));
+    }
+    if hours > 0 {
+        parts.push(format!("{hours}h"));
+    }
+    if minutes > 0 {
+        parts.push(format!("{minutes}m"));
+    }
+    if parts.is_empty() {
+        parts.push(format!("{}s", secs % 60));
+    }
+    parts.join(" ")
+}
+
+fn encode_uri_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push('%');
+            out.push_str(&format!("{byte:02X}"));
+        }
+    }
+    out
+}
+
+fn sanitize_opencode_go_message(text: &str) -> String {
+    let cleaned: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.is_empty() {
+        "unknown".to_string()
+    } else {
+        cleaned.chars().take(120).collect()
+    }
+}
+
 fn fetch_balance(api_key: &str, http_proxy: &str) -> Result<BTreeMap<String, Balance>, String> {
     let client = http_client(Duration::from_secs(15), http_proxy)?;
     let response = client
@@ -1640,6 +1978,32 @@ fn store_secure_api_key(api_key: &str) -> Result<(), String> {
     conn.execute(
         "INSERT OR REPLACE INTO secure_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
         params!["api_key", encrypted, format_time(Local::now())],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn read_secure_value(key: &str) -> Result<Option<String>, String> {
+    let conn = open_history_db()?;
+    let encrypted = match conn.query_row(
+        "SELECT value FROM secure_settings WHERE key = ?1",
+        params![key],
+        |row| row.get::<_, Vec<u8>>(0),
+    ) {
+        Ok(value) => value,
+        Err(SqlError::QueryReturnedNoRows) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    let value = decrypt_secret(&encrypted)?;
+    Ok((!value.trim().is_empty()).then_some(value))
+}
+
+fn store_secure_value(key: &str, value: &str) -> Result<(), String> {
+    let encrypted = encrypt_secret(value.trim())?;
+    let conn = open_history_db()?;
+    conn.execute(
+        "INSERT OR REPLACE INTO secure_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+        params![key, encrypted, format_time(Local::now())],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -2302,5 +2666,77 @@ mod tests {
         assert!(!keep_log_line("[2026-01-01 23:59:59] old", cutoff));
         assert!(keep_log_line("[2026-01-02 00:00:00] keep", cutoff));
         assert!(keep_log_line("unstructured line", cutoff));
+    }
+
+    #[test]
+    fn parses_opencode_go_dashboard_html() {
+        let ssr = concat!(
+            "<script>",
+            "rollingUsage:$R[40]={usagePercent:42.5,resetInSec:6960}",
+            "weeklyUsage:$R[41]={resetInSec:2307600,usagePercent:80}",
+            "monthlyUsage:$R[42]={usagePercent:15,resetInSec:2307600}",
+            "</script>",
+        );
+        let quota = parse_opencode_go_quota(ssr).expect("SSR quota parses");
+        let rolling = quota.rolling.expect("rolling window");
+        assert_eq!(rolling.usage_percent, 42.5);
+        assert_eq!(rolling.reset_in_sec, 6960);
+        assert!((rolling.percent_remaining - 57.5).abs() < 1e-9);
+        let weekly = quota.weekly.expect("weekly window");
+        assert_eq!(weekly.usage_percent, 80.0);
+        assert_eq!(weekly.reset_in_sec, 2307600);
+        let monthly = quota.monthly.expect("monthly window");
+        assert_eq!(monthly.usage_percent, 15.0);
+
+        let slot = concat!(
+            r#"<div data-slot="usage-item">"#,
+            r#"<span data-slot="usage-label">Rolling Usage</span>"#,
+            r#"<span data-slot="usage-value">42.5%</span>"#,
+            r#"<span data-slot="reset-time">1 hour 56 minutes</span>"#,
+            r#"</div>"#,
+            r#"<div data-slot="usage-item">"#,
+            r#"<span data-slot="usage-label">Weekly Usage</span>"#,
+            r#"<span data-slot="usage-value">80%</span>"#,
+            r#"<span data-slot="reset-time">26 days 17 hours</span>"#,
+            r#"</div>"#,
+            r#"<div data-slot="usage-item">"#,
+            r#"<span data-slot="usage-label">Monthly Usage</span>"#,
+            r#"<span data-slot="usage-value">15%</span>"#,
+            r#"<span data-slot="reset-now">Resets now</span>"#,
+            r#"</div>"#,
+        );
+        let quota = parse_opencode_go_quota(slot).expect("data-slot quota parses");
+        let rolling = quota.rolling.expect("slot rolling");
+        assert_eq!(rolling.usage_percent, 42.5);
+        assert_eq!(rolling.reset_in_sec, 6960);
+        let weekly = quota.weekly.expect("slot weekly");
+        assert_eq!(weekly.usage_percent, 80.0);
+        assert_eq!(weekly.reset_in_sec, 26 * 86400 + 17 * 3600);
+        let monthly = quota.monthly.expect("slot monthly");
+        assert_eq!(monthly.reset_in_sec, 0);
+
+        assert_eq!(parse_human_readable_time("1 hour 56 minutes"), Some(6960));
+        assert_eq!(
+            parse_human_readable_time("26 days 17 hours"),
+            Some(2_307_600)
+        );
+        assert_eq!(parse_human_readable_time("Resets now"), Some(0));
+        assert_eq!(parse_human_readable_time("reset now"), Some(0));
+        assert_eq!(parse_human_readable_time("garbage"), None);
+        assert_eq!(format_reset_seconds(0), "now");
+        assert_eq!(format_reset_seconds(6960), "1h 56m");
+        assert_eq!(format_reset_seconds(2_307_600), "26d 17h");
+        assert_eq!(encode_uri_component("abc-123"), "abc-123");
+        assert_eq!(encode_uri_component("a b"), "a%20b");
+
+        // Unparseable HTML (e.g. login page) yields an error.
+        assert!(parse_opencode_go_quota("<html>sign in</html>").is_err());
+
+        // A partial SSR payload keeps only the windows that are present.
+        let partial = r#"rollingUsage:$R[1]={usagePercent:10,resetInSec:3600}"#;
+        let quota = parse_opencode_go_quota(partial).expect("partial SSR parses");
+        assert!(quota.rolling.is_some());
+        assert!(quota.weekly.is_none());
+        assert!(quota.monthly.is_none());
     }
 }
