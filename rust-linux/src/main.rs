@@ -403,7 +403,7 @@ fn clean_logs() -> Result<(), (i32, String)> {
 
 fn print_help() {
     println!(
-        "Usage: dsmon [check|daemon|init-config|config-path|log-path|clean-logs|history|widget-status|config-json|set-key|set|set-config|opencode-go]\nHistory: dsmon history [days] | dsmon history export [days] [currency|all] [path|-]\nSet: dsmon set <field> <value>\nOpenCode Go: dsmon opencode-go | dsmon opencode-go set <workspace_id> <auth_cookie>"
+        "Usage: dsmon [check|daemon|init-config|config-path|log-path|clean-logs|history|widget-status|config-json|set-key|set|set-config|opencode-go]\nHistory: dsmon history [days] | dsmon history export [days] [currency|all] [path|-]\nSet: dsmon set <field> <value>\nOpenCode Go: dsmon opencode-go | dsmon opencode-go set <workspace_id> <auth_cookie> | dsmon opencode-go json"
     );
 }
 
@@ -1251,6 +1251,7 @@ fn set_config(args: &[String]) -> Result<(), (i32, String)> {
 fn opencode_go(args: &[String]) -> Result<(), (i32, String)> {
     match args.first().map(String::as_str) {
         Some("set") | Some("set-key") => opencode_go_set(&args[1..]),
+        Some("json") => opencode_go_json(),
         Some(other) => Err(fail(format!(
             "Unknown opencode-go subcommand: {other}\nRun: dsmon opencode-go set <workspace_id> <auth_cookie>"
         ))),
@@ -1297,6 +1298,41 @@ fn opencode_go_check() -> Result<(), (i32, String)> {
         }
         Err(error) => Err((1, error)),
     }
+}
+
+fn opencode_go_json() -> Result<(), (i32, String)> {
+    let config = load_config().map_err(fail)?;
+    let workspace_id = read_secure_value(OPENCODE_GO_WORKSPACE_KEY)
+        .map_err(fail)?
+        .unwrap_or_default();
+    let auth_cookie = read_secure_value(OPENCODE_GO_AUTH_COOKIE_KEY)
+        .map_err(fail)?
+        .unwrap_or_default();
+    let payload = if workspace_id.is_empty() || auth_cookie.is_empty() {
+        serde_json::json!({
+            "configured": false,
+            "error": "OpenCode Go credentials are not configured.\nRun: dsmon opencode-go set <workspace_id> <auth_cookie>"
+        })
+    } else {
+        match fetch_opencode_go_quota(&workspace_id, &auth_cookie, effective_http_proxy(&config)) {
+            Ok(quota) => serde_json::json!({
+                "configured": true,
+                "error": null,
+                "rolling": quota.rolling,
+                "weekly": quota.weekly,
+                "monthly": quota.monthly
+            }),
+            Err(error) => serde_json::json!({
+                "configured": true,
+                "error": error,
+                "rolling": null,
+                "weekly": null,
+                "monthly": null
+            }),
+        }
+    };
+    println!("{payload}");
+    Ok(())
 }
 
 fn print_opencode_go_quota(quota: &OpenCodeGoQuota) {
@@ -2563,6 +2599,14 @@ mod tests {
         assert!(config_qml.contains("config.export_path"));
         assert!(config_qml.contains("/usr/local/bin/dsmon set "));
         assert!(!config_qml.contains("set-config"));
+        let opencode_go_qml = include_str!("../plasmoid/package/contents/ui/configOpencodeGo.qml");
+        assert!(opencode_go_qml.contains("/usr/local/bin/dsmon opencode-go json"));
+        assert!(opencode_go_qml.contains("opencodeGoTitle"));
+        assert!(opencode_go_qml.contains("formatOgWindow"));
+        assert!(opencode_go_qml.contains("ogNotConfigured"));
+        let config_model = include_str!("../plasmoid/package/contents/config/config.qml");
+        assert!(config_model.contains("configOpencodeGo.qml"));
+        assert!(config_model.contains("opencodeGo"));
     }
 
     #[test]

@@ -10,8 +10,8 @@ ConfigModel {
     }
 
     function tr(key) {
-        var zh = { general: "常规", history: "历史" }
-        var en = { general: "General", history: "History" }
+        var zh = { general: "常规", history: "历史", opencodeGo: "OpenCode Go" }
+        var en = { general: "General", history: "History", opencodeGo: "OpenCode Go" }
         var table = systemLanguage() === "zh" ? zh : en
         return table[key] || key
     }
@@ -25,5 +25,10 @@ ConfigModel {
         name: tr("history")
         icon: "view-history"
         source: "configHistory.qml"
+    }
+    ConfigCategory {
+        name: tr("opencodeGo")
+        icon: "network-server"
+        source: "configOpencodeGo.qml"
     }
 }
