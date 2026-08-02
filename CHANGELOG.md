@@ -8,7 +8,8 @@ All notable changes to DeepSeek Balance Monitor are documented here.
 
 - OpenCode Go quota display (Rust Windows and Rust Linux): scrapes the opencode.ai workspace dashboard and reports rolling (~5h), weekly, and monthly usage as used/remaining percentages with reset time
 - Windows: the settings dialog gains an "OpenCode Go" tab with workspace ID / auth cookie inputs and a manual refresh button
-- Linux: new `dsmon opencode-go` (query quota) and `dsmon opencode-go set <workspace_id> <auth_cookie>` (store credentials) CLI commands
+- Linux: new `dsmon opencode-go` (query quota), `dsmon opencode-go set <workspace_id> <auth_cookie>` (store credentials), and `dsmon opencode-go json` (JSON output) CLI commands
+- Linux: the Plasma 6 widget adds a dedicated "OpenCode Go" settings page showing quota, read directly from `dsmon opencode-go json`
 - OpenCode Go credentials are stored encrypted in the `secure_settings` table under dedicated keys (`opencode_go_workspace_id`, `opencode_go_auth_cookie`), never written to config.json
 
 ## Rust v1.2.6 (2026-06-08)

@@ -32,7 +32,8 @@ Rainmeter 小组件预览图
 
 Rust Linux 版本限定：
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
-- `dsmon opencode-go` 输出 OpenCode Go 额度；`dsmon opencode-go set <workspace_id> <auth_cookie>` 加密保存凭据。
+- `dsmon opencode-go` 输出 OpenCode Go 额度；`dsmon opencode-go set <workspace_id> <auth_cookie>` 加密保存凭据；`dsmon opencode-go json` 输出机器可读 JSON。
+- Plasma 6 小组件新增独立的「OpenCode Go」设置页面，直接从 `dsmon opencode-go json` 读取。
 - Plasma 6 小组件：透明液态玻璃桌面样式，余额、上次查询、服务状态、预计可用时间、刷新按钮和 emoji 状态。
 - Plasma 6 小组件显示刻意保持紧凑：桌面主视图显示余额行、相对上次查询时间、DeepSeek API 状态和预计剩余时间。
 - 刷新 Linux Plasma 小组件显示模型：余额、相对上次查询、API 服务状态和预计可用时间现在与 Rainmeter 小工具布局一致。

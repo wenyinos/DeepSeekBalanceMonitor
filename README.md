@@ -32,7 +32,8 @@ Rainmeter widget preview
 
 Rust Linux-specific:
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
-- `dsmon opencode-go` prints OpenCode Go quota; `dsmon opencode-go set <workspace_id> <auth_cookie>` stores the credentials encrypted.
+- `dsmon opencode-go` prints OpenCode Go quota; `dsmon opencode-go set <workspace_id> <auth_cookie>` stores the credentials encrypted; `dsmon opencode-go json` emits machine-readable output.
+- The Plasma 6 widget adds a dedicated "OpenCode Go" settings page, read directly from `dsmon opencode-go json`.
 - Plasma 6 widget: transparent liquid-glass desktop view with balance, last check, API service status, estimated availability, refresh control, and emoji status text.
 - Plasma 6 widget display is intentionally compact: the main desktop view shows a balance line, relative last-check time, DeepSeek API status, and estimated remaining time.
 - Refreshing the Linux Plasma widget model: balance, relative last check, API service status, and estimated availability now match the Rainmeter widget layout.
