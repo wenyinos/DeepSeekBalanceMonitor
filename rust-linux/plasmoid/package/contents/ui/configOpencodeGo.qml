@@ -11,6 +11,12 @@ KCM.SimpleKCM {
     property bool busy: false
     property string statusText: ""
     property string opencodeGoText: ""
+    property real rollingPercent: 0
+    property real weeklyPercent: 0
+    property real monthlyPercent: 0
+    property string rollingText: "--"
+    property string weeklyText: "--"
+    property string monthlyText: "--"
     property string pageLanguage: systemLanguage()
     property string cfg_language: pageLanguage
     property string cfg_languageDefault: systemLanguage()
@@ -59,13 +65,21 @@ KCM.SimpleKCM {
         return table[key] || key
     }
 
-    function formatOgWindow(label, usage) {
-        if (!usage) {
-            return label + ": " + tr("ogUnavailable")
+    function barColor(percent) {
+        if (percent >= 80) {
+            return "#e53935"
         }
-        return label + ": " + Math.round(usage.usage_percent) + "% used | "
-            + Math.round(usage.percent_remaining) + "% remaining | resets in "
-            + formatResetSeconds(usage.reset_in_sec)
+        if (percent >= 60) {
+            return "#ffb300"
+        }
+        return "#4caf50"
+    }
+
+    function formatOgValue(usage) {
+        if (!usage) {
+            return tr("ogUnavailable")
+        }
+        return Math.round(usage.usage_percent) + "% · " + formatResetSeconds(usage.reset_in_sec)
     }
 
     function formatResetSeconds(secs) {
@@ -101,6 +115,12 @@ KCM.SimpleKCM {
         busy = true
         statusText = tr("loading")
         opencodeGoText = tr("ogChecking")
+        rollingPercent = 0
+        weeklyPercent = 0
+        monthlyPercent = 0
+        rollingText = "--"
+        weeklyText = "--"
+        monthlyText = "--"
         loader.connectSource("/usr/local/bin/dsmon opencode-go json")
     }
 
@@ -141,11 +161,13 @@ KCM.SimpleKCM {
                     } else if (status.error && status.error.length > 0) {
                         opencodeGoText = tr("ogError") + status.error
                     } else {
-                        var lines = [tr("opencodeGoTitle")]
-                        lines.push(formatOgWindow(tr("og5h"), status.rolling))
-                        lines.push(formatOgWindow(tr("ogWeekly"), status.weekly))
-                        lines.push(formatOgWindow(tr("ogMonthly"), status.monthly))
-                        opencodeGoText = lines.join("\n")
+                        rollingPercent = status.rolling ? status.rolling.usage_percent : 0
+                        weeklyPercent = status.weekly ? status.weekly.usage_percent : 0
+                        monthlyPercent = status.monthly ? status.monthly.usage_percent : 0
+                        rollingText = formatOgValue(status.rolling)
+                        weeklyText = formatOgValue(status.weekly)
+                        monthlyText = formatOgValue(status.monthly)
+                        opencodeGoText = tr("opencodeGoTitle")
                     }
                     statusText = tr("loaded")
                 } catch (error) {
@@ -162,6 +184,99 @@ KCM.SimpleKCM {
             text: tr("refresh")
             enabled: !busy
             onClicked: refresh()
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.smallSpacing
+
+            QtControls.Label {
+                text: tr("og5h")
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+            }
+            Rectangle {
+                id: rollingTrack
+                Layout.fillWidth: true
+                Layout.preferredHeight: 12
+                radius: 6
+                color: Kirigami.Theme.backgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                border.width: 1
+                Rectangle {
+                    id: rollingFill
+                    width: parent.width * Math.min(1, page.rollingPercent / 100)
+                    height: parent.height
+                    radius: 6
+                    color: page.barColor(page.rollingPercent)
+                }
+            }
+            QtControls.Label {
+                text: page.rollingText
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 7
+                horizontalAlignment: Text.AlignRight
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.smallSpacing
+
+            QtControls.Label {
+                text: tr("ogWeekly")
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+            }
+            Rectangle {
+                id: weeklyTrack
+                Layout.fillWidth: true
+                Layout.preferredHeight: 12
+                radius: 6
+                color: Kirigami.Theme.backgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                border.width: 1
+                Rectangle {
+                    id: weeklyFill
+                    width: parent.width * Math.min(1, page.weeklyPercent / 100)
+                    height: parent.height
+                    radius: 6
+                    color: page.barColor(page.weeklyPercent)
+                }
+            }
+            QtControls.Label {
+                text: page.weeklyText
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 7
+                horizontalAlignment: Text.AlignRight
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.smallSpacing
+
+            QtControls.Label {
+                text: tr("ogMonthly")
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+            }
+            Rectangle {
+                id: monthlyTrack
+                Layout.fillWidth: true
+                Layout.preferredHeight: 12
+                radius: 6
+                color: Kirigami.Theme.backgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                border.width: 1
+                Rectangle {
+                    id: monthlyFill
+                    width: parent.width * Math.min(1, page.monthlyPercent / 100)
+                    height: parent.height
+                    radius: 6
+                    color: page.barColor(page.monthlyPercent)
+                }
+            }
+            QtControls.Label {
+                text: page.monthlyText
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 7
+                horizontalAlignment: Text.AlignRight
+            }
         }
 
         QtControls.Label {

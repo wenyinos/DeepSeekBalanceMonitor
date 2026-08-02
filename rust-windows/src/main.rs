@@ -1255,6 +1255,15 @@ mod windows_app {
         og_cookie_input: nwg::TextInput,
         og_show_cookie: nwg::CheckBox,
         _og_hint_box: nwg::TextBox,
+        _og_rolling_label: nwg::Label,
+        og_rolling_bar: nwg::ProgressBar,
+        _og_rolling_value: nwg::Label,
+        _og_weekly_label: nwg::Label,
+        og_weekly_bar: nwg::ProgressBar,
+        _og_weekly_value: nwg::Label,
+        _og_monthly_label: nwg::Label,
+        og_monthly_bar: nwg::ProgressBar,
+        _og_monthly_value: nwg::Label,
         og_box: nwg::TextBox,
         refresh_og_button: nwg::Button,
         _api_label: nwg::Label,
@@ -1315,6 +1324,15 @@ mod windows_app {
             let mut og_cookie_input = Default::default();
             let mut og_show_cookie = Default::default();
             let mut og_hint_box = Default::default();
+            let mut og_rolling_label = Default::default();
+            let mut og_rolling_bar = Default::default();
+            let mut og_rolling_value = Default::default();
+            let mut og_weekly_label = Default::default();
+            let mut og_weekly_bar = Default::default();
+            let mut og_weekly_value = Default::default();
+            let mut og_monthly_label = Default::default();
+            let mut og_monthly_bar = Default::default();
+            let mut og_monthly_value = Default::default();
             let mut og_box = Default::default();
             let mut refresh_og_button = Default::default();
             let mut api_label = Default::default();
@@ -1724,6 +1742,63 @@ mod windows_app {
                 .size((86, 30))
                 .parent(&opencode_go_tab)
                 .build(&mut refresh_og_button)?;
+            nwg::Label::builder()
+                .text(tr(lang, "og_window_5h"))
+                .position((20, 292))
+                .size((70, 22))
+                .parent(&opencode_go_tab)
+                .build(&mut og_rolling_label)?;
+            nwg::ProgressBar::builder()
+                .position((95, 290))
+                .size((270, 14))
+                .range(0..100)
+                .pos(0)
+                .parent(&opencode_go_tab)
+                .build(&mut og_rolling_bar)?;
+            nwg::Label::builder()
+                .text("--")
+                .position((370, 292))
+                .size((90, 22))
+                .parent(&opencode_go_tab)
+                .build(&mut og_rolling_value)?;
+            nwg::Label::builder()
+                .text(tr(lang, "og_window_weekly"))
+                .position((20, 330))
+                .size((70, 22))
+                .parent(&opencode_go_tab)
+                .build(&mut og_weekly_label)?;
+            nwg::ProgressBar::builder()
+                .position((95, 328))
+                .size((270, 14))
+                .range(0..100)
+                .pos(0)
+                .parent(&opencode_go_tab)
+                .build(&mut og_weekly_bar)?;
+            nwg::Label::builder()
+                .text("--")
+                .position((370, 330))
+                .size((90, 22))
+                .parent(&opencode_go_tab)
+                .build(&mut og_weekly_value)?;
+            nwg::Label::builder()
+                .text(tr(lang, "og_window_monthly"))
+                .position((20, 368))
+                .size((70, 22))
+                .parent(&opencode_go_tab)
+                .build(&mut og_monthly_label)?;
+            nwg::ProgressBar::builder()
+                .position((95, 366))
+                .size((270, 14))
+                .range(0..100)
+                .pos(0)
+                .parent(&opencode_go_tab)
+                .build(&mut og_monthly_bar)?;
+            nwg::Label::builder()
+                .text("--")
+                .position((370, 368))
+                .size((90, 22))
+                .parent(&opencode_go_tab)
+                .build(&mut og_monthly_value)?;
             nwg::TextBox::builder()
                 .text(&og_box_text)
                 .flags(
@@ -1733,8 +1808,8 @@ mod windows_app {
                         | nwg::TextBoxFlags::TAB_STOP,
                 )
                 .readonly(true)
-                .position((20, 292))
-                .size((440, 230))
+                .position((20, 406))
+                .size((440, 80))
                 .parent(&opencode_go_tab)
                 .build(&mut og_box)?;
             nwg::Button::builder()
@@ -1763,6 +1838,15 @@ mod windows_app {
                 og_cookie_input,
                 og_show_cookie,
                 _og_hint_box: og_hint_box,
+                _og_rolling_label: og_rolling_label,
+                og_rolling_bar,
+                _og_rolling_value: og_rolling_value,
+                _og_weekly_label: og_weekly_label,
+                og_weekly_bar,
+                _og_weekly_value: og_weekly_value,
+                _og_monthly_label: og_monthly_label,
+                og_monthly_bar,
+                _og_monthly_value: og_monthly_value,
                 og_box,
                 refresh_og_button,
                 _api_label: api_label,
@@ -1877,6 +1961,7 @@ mod windows_app {
             let auth_cookie = self.og_cookie_input.text().trim().to_string();
             if workspace_id.is_empty() || auth_cookie.is_empty() {
                 self.og_box.set_text(tr(&lang, "og_not_configured"));
+                self.reset_opencode_go_bars();
                 return;
             }
             let proxy = if self.proxy_enabled.check_state() == nwg::CheckBoxState::Checked {
@@ -1885,13 +1970,83 @@ mod windows_app {
                 String::new()
             };
             self.og_box.set_text(tr(&lang, "og_checking"));
+            self.reset_opencode_go_bars();
             match fetch_opencode_go_quota(&workspace_id, &auth_cookie, &proxy) {
-                Ok(quota) => self
-                    .og_box
-                    .set_text(&format_opencode_go_quota(&quota, &lang)),
+                Ok(quota) => {
+                    self.update_opencode_go_bars(&quota, &lang);
+                    self.og_box.set_text(tr(&lang, "og_loaded"));
+                }
                 Err(error) => self
                     .og_box
                     .set_text(&format!("{} {error}", tr(&lang, "og_refresh_failed"))),
+            }
+        }
+
+        fn update_opencode_go_bars(&self, quota: &OpenCodeGoQuota, lang: &str) {
+            self.set_opencode_go_bar(
+                &self.og_rolling_bar,
+                &self._og_rolling_value,
+                quota.rolling.as_ref(),
+                lang,
+            );
+            self.set_opencode_go_bar(
+                &self.og_weekly_bar,
+                &self._og_weekly_value,
+                quota.weekly.as_ref(),
+                lang,
+            );
+            self.set_opencode_go_bar(
+                &self.og_monthly_bar,
+                &self._og_monthly_value,
+                quota.monthly.as_ref(),
+                lang,
+            );
+        }
+
+        fn set_opencode_go_bar(
+            &self,
+            bar: &nwg::ProgressBar,
+            value: &nwg::Label,
+            usage: Option<&OpenCodeGoUsage>,
+            lang: &str,
+        ) {
+            match usage {
+                Some(usage) => {
+                    bar.set_pos(usage.usage_percent.clamp(0.0, 100.0) as u32);
+                    bar.set_state(match usage.usage_percent {
+                        percent if percent >= 80.0 => nwg::ProgressBarState::Error,
+                        percent if percent >= 60.0 => nwg::ProgressBarState::Paused,
+                        _ => nwg::ProgressBarState::Normal,
+                    });
+                    value.set_text(&format!(
+                        "{:.0}% · {}",
+                        usage.usage_percent,
+                        format_reset_seconds(usage.reset_in_sec)
+                    ));
+                }
+                None => {
+                    bar.set_pos(0);
+                    bar.set_state(nwg::ProgressBarState::Normal);
+                    value.set_text(tr(lang, "og_unavailable"));
+                }
+            }
+        }
+
+        fn reset_opencode_go_bars(&self) {
+            for bar in [
+                &self.og_rolling_bar,
+                &self.og_weekly_bar,
+                &self.og_monthly_bar,
+            ] {
+                bar.set_pos(0);
+                bar.set_state(nwg::ProgressBarState::Normal);
+            }
+            for value in [
+                &self._og_rolling_value,
+                &self._og_weekly_value,
+                &self._og_monthly_value,
+            ] {
+                value.set_text("--");
             }
         }
 
@@ -2302,31 +2457,6 @@ mod windows_app {
             parts.push(format!("{}s", secs % 60));
         }
         parts.join(" ")
-    }
-
-    fn format_opencode_go_quota(quota: &OpenCodeGoQuota, lang: &str) -> String {
-        let mut lines = vec![tr(lang, "og_title").to_string()];
-        for (label_key, usage) in [
-            ("og_window_5h", quota.rolling.as_ref()),
-            ("og_window_weekly", quota.weekly.as_ref()),
-            ("og_window_monthly", quota.monthly.as_ref()),
-        ] {
-            match usage {
-                Some(usage) => lines.push(format!(
-                    "{}: {:.0}% used | {:.0}% remaining | resets in {}",
-                    tr(lang, label_key),
-                    usage.usage_percent,
-                    usage.percent_remaining,
-                    format_reset_seconds(usage.reset_in_sec)
-                )),
-                None => lines.push(format!(
-                    "{}: {}",
-                    tr(lang, label_key),
-                    tr(lang, "og_unavailable")
-                )),
-            }
-        }
-        lines.join("\n")
     }
 
     fn encode_uri_component(value: &str) -> String {
@@ -3976,6 +4106,7 @@ mod windows_app {
             ("en", "og_not_configured") => "OpenCode Go credentials are not configured. Enter a workspace ID and auth cookie, then click Save.",
             ("en", "og_credentials_saved") => "Credentials saved.",
             ("en", "og_refresh_failed") => "Refresh failed:",
+            ("en", "og_loaded") => "Loaded.",
             ("en", "og_cookie_hint") => "Leave blank to keep the existing credentials.",
             ("en", "warn_title") => "Warning",
             (_, "checking") => "查询中...",
@@ -4095,6 +4226,7 @@ mod windows_app {
             (_, "og_not_configured") => "尚未配置 OpenCode Go 凭据。请填写工作区 ID 和 Auth Cookie 后点击保存。",
             (_, "og_credentials_saved") => "凭据已保存。",
             (_, "og_refresh_failed") => "刷新失败：",
+            (_, "og_loaded") => "已加载。",
             (_, "og_cookie_hint") => "留空则保留现有凭据。",
             (_, "warn_title") => "警告",
             _ => "",
@@ -4308,8 +4440,6 @@ mod windows_app {
                 r#"</div>"#,
             );
             let quota = parse_opencode_go_quota(slot).expect("data-slot quota parses");
-            let formatted = format_opencode_go_quota(&quota, "en");
-            assert!(formatted.contains("5h:"));
             let rolling = quota.rolling.expect("slot rolling");
             assert_eq!(rolling.usage_percent, 42.5);
             assert_eq!(rolling.reset_in_sec, 6960);

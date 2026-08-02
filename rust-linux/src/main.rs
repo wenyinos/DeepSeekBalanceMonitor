@@ -2602,7 +2602,9 @@ mod tests {
         let opencode_go_qml = include_str!("../plasmoid/package/contents/ui/configOpencodeGo.qml");
         assert!(opencode_go_qml.contains("/usr/local/bin/dsmon opencode-go json"));
         assert!(opencode_go_qml.contains("opencodeGoTitle"));
-        assert!(opencode_go_qml.contains("formatOgWindow"));
+        assert!(opencode_go_qml.contains("barColor"));
+        assert!(opencode_go_qml.contains("rollingPercent"));
+        assert!(opencode_go_qml.contains("formatOgValue"));
         assert!(opencode_go_qml.contains("ogNotConfigured"));
         let config_model = include_str!("../plasmoid/package/contents/config/config.qml");
         assert!(config_model.contains("configOpencodeGo.qml"));
