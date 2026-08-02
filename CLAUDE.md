@@ -45,6 +45,8 @@ dsmon set <field> <value># 修改配置
 dsmon history [days]     # 查看历史
 dsmon history export [days] [currency|all] [path|-]  # 导出 CSV
 dsmon widget-status      # 输出 Plasma 小组件 JSON
+dsmon opencode-go        # 查询 OpenCode Go 额度
+dsmon opencode-go set <workspace_id> <auth_cookie>   # 加密保存凭据
 ```
 
 ## 高层架构
@@ -115,6 +117,14 @@ dsmon widget-status      # 输出 Plasma 小组件 JSON
 | Red | 余额不足或 API 错误 |
 | Warm Gray | API 服务降级 |
 | Gray | 尚未查询或未配置 Key |
+
+### Opencode Go 额度（两 Rust 平台）
+
+- 爬取 `https://opencode.ai/workspace/{workspace_id}/go` 页面（请求头 `Cookie: auth={auth_cookie}`），解析 **5h 滚动 / 每周 / 每月** 三档用量的已用百分比与重置秒数
+- 解析优先 SolidJS SSR 格式（`rollingUsage:$R[n]={usagePercent:X,resetInSec:Y}`），失败回退 `data-slot` HTML 格式；用字符串查找实现，**不引入 regex 依赖**
+- 凭据 `workspace_id` 与 `auth_cookie` **均加密存入 `secure_settings` 表**（独立 key `opencode_go_workspace_id` / `opencode_go_auth_cookie`，与 API Key 同一加密机制），**不写入 config.json**
+- 入口：rust-windows 设置窗口第三个「Opencode Go」标签页（可配置凭据 + 手动刷新）；rust-linux 为 `dsmon opencode-go` / `dsmon opencode-go set`
+- 凭据获取方式：workspace ID 在 opencode.ai 工作区 URL 中；auth cookie 在浏览器开发者工具 → Storage → Cookies 中查看
 
 ### API 端点与代理
 
