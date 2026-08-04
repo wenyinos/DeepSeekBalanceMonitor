@@ -1,51 +1,33 @@
-# Repository Guidelines
+# AGENTS.md
 
-## Project Structure & Module Organization
+跨平台 DeepSeek API 余额监控工具。**权威项目细节见 `CLAUDE.md`（架构、算法、i18n、密钥存储、多平台矩阵）**，本文件只列 agent 容易踩坑的高信号事实。
 
-本仓库是一个 Python Windows 托盘应用，用于监控 DeepSeek API 余额。运行时代码放在
-`src/`，`main.py` 只作为入口。`src/api_client.py` 负责余额接口请求，
-`src/config.py` 管理配置、日志和中英文文案，`src/icon_renderer.py` 生成托盘图标，
-`src/settings_dialog.py` 负责设置窗口，`src/app_state.py` 保存共享状态，
-`src/tray_app.py` 组装应用流程。构建和辅助脚本放在 `scripts/`，根目录保留
-`README.md`、`requirements.txt`、`preview_taskbar.png` 等项目级文件。
+## 多实现同步（最高优先级约定）
 
-## Build, Test, and Development Commands
+同一功能有 Python（`src/`、`main.py`）与 Rust 双实现，另有 Rainmeter（Windows）与 Plasma 6（Linux）小组件：
 
-```bash
-pip install -r requirements.txt
-python main.py
-python scripts/test_api.py YOUR_DEEPSEEK_API_KEY
-scripts\build_exe.bat
-```
+- 改 API 客户端 / 忙时速率算法 / 告警逻辑时，**必须同步检查 Python 与 Rust 两端**
+- `src/` 是 Python 运行时，`main.py` 仅入口，勿改动
 
-- `pip install -r requirements.txt`：安装运行依赖。
-- `python main.py`：从源码启动托盘应用。
-- `python scripts/test_api.py ...`：使用真实 API Key 验证 DeepSeek 接口连接。
-- `scripts\build_exe.bat`：生成图标并构建 Windows 单文件可执行程序。
+## 命令与工具链
 
-## Coding Style & Naming Conventions
+- Python 测试（与 CI 一致）：`python -m unittest discover -s tests -v`
+  - 单文件：`python -m unittest discover -s tests -p test_core.py`
+  - 测试文件无 `__main__` 入口，不能直接 `python tests/test_core.py`
+- Rust **工具链固定 1.77.2**（`rust-toolchain.toml` 强制），务必用 `cargo +1.77.2 ...`，勿用系统默认工具链：
+  - `cd rust-linux && cargo +1.77.2 test --locked` / `cargo +1.77.2 fmt --check`
+  - `cd rust-windows && cargo +1.77.2 build --release --target x86_64-pc-windows-msvc --locked`
+- Linux 安装产物为 `dsmon`（rust-linux crate 名）；CI 在 rockylinux:8 容器构建并检查 glibc 符号，保持 RHEL 8 兼容
 
-使用 Python 3.10+，缩进为 4 个空格。函数、变量和模块使用 `snake_case`，常量使用
-`UPPER_CASE`。保持现有的直接函数式写法，公共辅助函数优先补充类型标注。新增界面文案
-应写入 `src/config.py` 的 `_T` 翻译表，不要散落在各 UI 模块。修改时保持小范围，
-不要顺手重构无关代码。
+## 关键陷阱
 
-## Testing Guidelines
+- **API Key 永不写入 `config.json`**：Python 用 Fernet+SQLite（`src/secure_settings.py`），Rust 用 SQLite `secure_settings` 表；Opencode Go 凭据同样加密入库
+- Python 版 UI 文案集中在 `src/config.py` 的 `_T` 字典，新增文案必须加进去，不硬编码；CLI 输出固定英文
+- `get_consumption_rate()` 返回 `hourly_rate`（忙时小时速率），非旧版 `daily_rate`
+- API Key 设为 `demo` 会触发 rust-linux 演示模式（`src/demo.rs`）
+- Python 版 tkinter + pystray 双事件循环，改动时避免死锁
 
-当前没有正式测试目录。涉及 API 的改动，运行
-`python scripts/test_api.py YOUR_DEEPSEEK_API_KEY` 验证连接和响应解析。涉及 UI、配置、
-图标或托盘行为的改动，应在 Windows 上运行 `python main.py`，手动检查首次启动、设置
-保存/读取、托盘菜单、余额不足状态和退出流程。不要提交真实 API Key 或本地配置文件。
+## 发布触发
 
-## Commit & Pull Request Guidelines
-
-提交历史以简短说明为主，中文描述和 `fix:` 前缀都可接受。每次 commit 只做一件事，
-示例：`fix: handle empty balance response`、`优化设置窗口文案`。Pull Request 应说明
-用户可见变化、列出手动验证步骤、标明配置或 API 影响；如果改动托盘图标或设置窗口，
-附上截图。
-
-## Security & Configuration Tips
-
-配置文件位于 `%APPDATA%\DeepSeek Balance Monitor\config.json`，日志也写入同一目录。
-禁止在源码、脚本、截图或文档中硬编码 API Key、token 或其他密钥。`build/`、`dist/`、
-`*.spec`、`app_icon.ico`、日志等生成物应保持在版本控制之外。
+- tag `v*` → Python 构建（GitHub Actions）；`rust-v*` → Rust 构建
+- 发布 / 签名 / Rainmeter 打包细节见 `CLAUDE.md` 与 `CODE_SIGNING.md`
