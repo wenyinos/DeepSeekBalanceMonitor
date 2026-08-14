@@ -2,15 +2,25 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v1.3.0 (2026-08-14)
+
+### Changed
+
+- OpenCode Go quota now uses the official API (`opencode.ai/zen/go/v1/usage`) with a Bearer API key, replacing the workspace-dashboard scraper (workspace ID + auth cookie)
+- Credentials simplified to a single API key, stored encrypted in the `secure_settings` table under `opencode_go_api_key`, never written to config.json
+- Windows: the "OpenCode Go" settings tab now takes an API key instead of workspace ID / auth cookie
+- Linux: `dsmon opencode-go set-key <api_key>` stores the API key; without an argument it reads from stdin, matching `dsmon set-key`
+- Plasma: the "OpenCode Go" settings page gains API key input with save (same pattern as the DeepSeek key), and the quota progress bars use `QtControls.ProgressBar` for reliable rendering
+
 ## Rust v1.2.10 (2026-08-02)
 
 ### Added
 
-- OpenCode Go quota display (Rust Windows and Rust Linux): scrapes the opencode.ai workspace dashboard and reports rolling (~5h), weekly, and monthly usage as used/remaining percentages with reset time
-- Windows: the settings dialog gains an "OpenCode Go" tab with workspace ID / auth cookie inputs and a manual refresh button
-- Linux: new `dsmon opencode-go` (query quota), `dsmon opencode-go set <workspace_id> <auth_cookie>` (store credentials), and `dsmon opencode-go json` (JSON output) CLI commands
+- OpenCode Go quota display (Rust Windows and Rust Linux): queries the official `opencode.ai/zen/go/v1/usage` API with a Bearer API key and reports rolling (~5h), weekly, and monthly usage as used/remaining percentages with reset time
+- Windows: the settings dialog gains an "OpenCode Go" tab with an API key input and a manual refresh button
+- Linux: new `dsmon opencode-go` (query quota), `dsmon opencode-go set-key <api_key>` (store the API key), and `dsmon opencode-go json` (JSON output) CLI commands
 - Linux: the Plasma 6 widget adds a dedicated "OpenCode Go" settings page showing quota, read directly from `dsmon opencode-go json`
-- OpenCode Go credentials are stored encrypted in the `secure_settings` table under dedicated keys (`opencode_go_workspace_id`, `opencode_go_auth_cookie`), never written to config.json
+- OpenCode Go API key is stored encrypted in the `secure_settings` table under the `opencode_go_api_key` key, never written to config.json
 
 ## Rust v1.2.6 (2026-06-08)
 
