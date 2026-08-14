@@ -1265,9 +1265,23 @@ mod windows_app {
         base_config: AppConfig,
         window: nwg::Window,
         _tabs: nwg::TabsContainer,
+        _account_tab: nwg::Tab,
         _general_tab: nwg::Tab,
         _history_tab: nwg::Tab,
         _opencode_go_tab: nwg::Tab,
+        bold_font: nwg::Font,
+        _group_credentials_label: nwg::Label,
+        _credentials_sep: nwg::Frame,
+        _group_query_label: nwg::Label,
+        _query_sep: nwg::Frame,
+        _group_general_label: nwg::Label,
+        _general_sep: nwg::Frame,
+        _group_proxy_label: nwg::Label,
+        _proxy_sep: nwg::Frame,
+        _group_appearance_label: nwg::Label,
+        _appearance_sep: nwg::Frame,
+        _group_quota_label: nwg::Label,
+        _quota_sep: nwg::Frame,
         _og_api_key_label: nwg::Label,
         og_api_key_input: nwg::TextInput,
         og_show_api_key: nwg::CheckBox,
@@ -1332,9 +1346,23 @@ mod windows_app {
 
             let mut window = Default::default();
             let mut tabs = Default::default();
+            let mut account_tab = Default::default();
             let mut general_tab = Default::default();
             let mut history_tab = Default::default();
             let mut opencode_go_tab = Default::default();
+            let mut bold_font = Default::default();
+            let mut group_credentials_label = Default::default();
+            let mut credentials_sep = Default::default();
+            let mut group_query_label = Default::default();
+            let mut query_sep = Default::default();
+            let mut group_general_label = Default::default();
+            let mut general_sep = Default::default();
+            let mut group_proxy_label = Default::default();
+            let mut proxy_sep = Default::default();
+            let mut group_appearance_label = Default::default();
+            let mut appearance_sep = Default::default();
+            let mut group_quota_label = Default::default();
+            let mut quota_sep = Default::default();
             let mut og_api_key_label = Default::default();
             let mut og_api_key_input = Default::default();
             let mut og_show_api_key = Default::default();
@@ -1399,6 +1427,15 @@ mod windows_app {
                 .size((500, 635))
                 .parent(&window)
                 .build(&mut tabs)?;
+            nwg::Font::builder()
+                .family("Segoe UI")
+                .size(9)
+                .weight(700)
+                .build(&mut bold_font)?;
+            nwg::Tab::builder()
+                .text(tr(lang, "account_tab"))
+                .parent(&tabs)
+                .build(&mut account_tab)?;
             nwg::Tab::builder()
                 .text(tr(lang, "settings_tab"))
                 .parent(&tabs)
@@ -1411,82 +1448,124 @@ mod windows_app {
                 .text(tr(lang, "og_tab"))
                 .parent(&tabs)
                 .build(&mut opencode_go_tab)?;
+            let og_api_key = read_secure_value(OPENCODE_GO_API_KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            // ===== 账户页 =====
+            nwg::Label::builder()
+                .text(tr(lang, "group_credentials"))
+                .position((20, 20))
+                .size((200, 20))
+                .parent(&account_tab)
+                .build(&mut group_credentials_label)?;
+            group_credentials_label.set_font(Some(&bold_font));
+            nwg::Frame::builder()
+                .position((20, 44))
+                .size((460, 1))
+                .flags(nwg::FrameFlags::VISIBLE | nwg::FrameFlags::BORDER)
+                .parent(&account_tab)
+                .build(&mut credentials_sep)?;
             nwg::Label::builder()
                 .text(tr(lang, "api_key_label"))
-                .position((20, 20))
-                .size((460, 22))
-                .parent(&general_tab)
+                .position((20, 62))
+                .size((220, 20))
+                .parent(&account_tab)
                 .build(&mut api_label)?;
             nwg::TextInput::builder()
                 .text(&config.api_key)
                 .placeholder_text(
                     (!config.api_key.trim().is_empty()).then_some(API_KEY_PLACEHOLDER),
                 )
-                .position((20, 48))
+                .position((20, 86))
                 .size((460, 28))
-                .parent(&general_tab)
+                .parent(&account_tab)
                 .focus(true)
                 .build(&mut api_input)?;
             api_input.set_password_char(Some('*'));
             nwg::CheckBox::builder()
                 .text(tr(lang, "show_key"))
-                .position((20, 82))
-                .size((180, 24))
-                .parent(&general_tab)
+                .position((20, 120))
+                .size((200, 24))
+                .parent(&account_tab)
                 .check_state(unchecked)
                 .build(&mut show_key)?;
             nwg::Label::builder()
+                .text(tr(lang, "og_api_key_label"))
+                .position((20, 154))
+                .size((220, 20))
+                .parent(&account_tab)
+                .build(&mut og_api_key_label)?;
+            nwg::TextInput::builder()
+                .text(&og_api_key)
+                .placeholder_text((!og_api_key.is_empty()).then_some(tr(lang, "og_api_key_hint")))
+                .position((20, 178))
+                .size((460, 28))
+                .parent(&account_tab)
+                .build(&mut og_api_key_input)?;
+            og_api_key_input.set_password_char(Some('*'));
+            nwg::CheckBox::builder()
+                .text(tr(lang, "og_show_api_key"))
+                .position((20, 212))
+                .size((200, 24))
+                .parent(&account_tab)
+                .check_state(unchecked)
+                .build(&mut og_show_api_key)?;
+            nwg::TextBox::builder()
+                .text(tr(lang, "og_hint"))
+                .flags(
+                    nwg::TextBoxFlags::VISIBLE
+                        | nwg::TextBoxFlags::VSCROLL
+                        | nwg::TextBoxFlags::TAB_STOP,
+                )
+                .readonly(true)
+                .position((20, 246))
+                .size((460, 56))
+                .parent(&account_tab)
+                .build(&mut og_hint_box)?;
+
+            // ===== 常规页：查询组 =====
+            nwg::Label::builder()
+                .text(tr(lang, "group_query"))
+                .position((20, 20))
+                .size((200, 20))
+                .parent(&general_tab)
+                .build(&mut group_query_label)?;
+            group_query_label.set_font(Some(&bold_font));
+            nwg::Frame::builder()
+                .position((20, 44))
+                .size((460, 1))
+                .flags(nwg::FrameFlags::VISIBLE | nwg::FrameFlags::BORDER)
+                .parent(&general_tab)
+                .build(&mut query_sep)?;
+            nwg::Label::builder()
                 .text(tr(lang, "interval_label"))
-                .position((20, 120))
-                .size((220, 22))
+                .position((20, 60))
+                .size((220, 20))
                 .parent(&general_tab)
                 .build(&mut interval_label)?;
             nwg::TextInput::builder()
                 .text(&config.interval_minutes.to_string())
-                .position((250, 116))
-                .size((100, 28))
+                .position((250, 56))
+                .size((230, 28))
                 .parent(&general_tab)
                 .build(&mut interval_input)?;
             nwg::Label::builder()
                 .text(tr(lang, "threshold_label"))
-                .position((20, 158))
-                .size((220, 22))
+                .position((20, 90))
+                .size((220, 20))
                 .parent(&general_tab)
                 .build(&mut threshold_label)?;
             nwg::TextInput::builder()
                 .text(&format!("{:.2}", config.threshold_yuan))
-                .position((250, 154))
-                .size((100, 28))
+                .position((250, 86))
+                .size((230, 28))
                 .parent(&general_tab)
                 .build(&mut threshold_input)?;
             nwg::Label::builder()
-                .text(tr(lang, "language_label"))
-                .position((20, 196))
-                .size((220, 22))
-                .parent(&general_tab)
-                .build(&mut language_label)?;
-            nwg::ComboBox::builder()
-                .collection(vec!["中文", "English"])
-                .selected_index(Some(if config.ui_language == "en" { 1 } else { 0 }))
-                .position((250, 192))
-                .size((140, 100))
-                .parent(&general_tab)
-                .build(&mut language_combo)?;
-            nwg::CheckBox::builder()
-                .text(tr(lang, "auto_start"))
-                .position((20, 548))
-                .size((220, 24))
-                .parent(&general_tab)
-                .check_state(if config.auto_start {
-                    checked
-                } else {
-                    unchecked
-                })
-                .build(&mut auto_start)?;
-            nwg::Label::builder()
                 .text(tr(lang, "alert_mode_label"))
-                .position((20, 235))
-                .size((220, 22))
+                .position((20, 120))
+                .size((220, 20))
                 .parent(&general_tab)
                 .build(&mut alert_mode_label)?;
             nwg::ComboBox::builder()
@@ -1500,26 +1579,104 @@ mod windows_app {
                     "never" => 2,
                     _ => 0,
                 }))
-                .position((250, 231))
-                .size((140, 100))
+                .position((250, 116))
+                .size((230, 100))
                 .parent(&general_tab)
                 .build(&mut alert_mode_combo)?;
+            nwg::CheckBox::builder()
+                .text(tr(lang, "api_alert_label"))
+                .position((20, 150))
+                .size((260, 24))
+                .parent(&general_tab)
+                .check_state(if config.api_alert_enabled {
+                    checked
+                } else {
+                    unchecked
+                })
+                .build(&mut api_alerts)?;
+
+            // ===== 常规页：通用组 =====
+            nwg::Label::builder()
+                .text(tr(lang, "group_general"))
+                .position((20, 180))
+                .size((200, 20))
+                .parent(&general_tab)
+                .build(&mut group_general_label)?;
+            group_general_label.set_font(Some(&bold_font));
+            nwg::Frame::builder()
+                .position((20, 204))
+                .size((460, 1))
+                .flags(nwg::FrameFlags::VISIBLE | nwg::FrameFlags::BORDER)
+                .parent(&general_tab)
+                .build(&mut general_sep)?;
+            nwg::Label::builder()
+                .text(tr(lang, "language_label"))
+                .position((20, 220))
+                .size((220, 20))
+                .parent(&general_tab)
+                .build(&mut language_label)?;
+            nwg::ComboBox::builder()
+                .collection(vec!["中文", "English"])
+                .selected_index(Some(if config.ui_language == "en" { 1 } else { 0 }))
+                .position((250, 216))
+                .size((230, 100))
+                .parent(&general_tab)
+                .build(&mut language_combo)?;
+            nwg::CheckBox::builder()
+                .text(tr(lang, "auto_start"))
+                .position((20, 250))
+                .size((220, 24))
+                .parent(&general_tab)
+                .check_state(if config.auto_start {
+                    checked
+                } else {
+                    unchecked
+                })
+                .build(&mut auto_start)?;
             nwg::Label::builder()
                 .text(tr(lang, "retention_label"))
-                .position((20, 311))
-                .size((220, 22))
+                .position((20, 280))
+                .size((220, 20))
                 .parent(&general_tab)
                 .build(&mut retention_label)?;
             nwg::TextInput::builder()
                 .text(&config.retention_days.to_string())
-                .position((250, 307))
-                .size((100, 28))
+                .position((250, 276))
+                .size((230, 28))
                 .parent(&general_tab)
                 .build(&mut retention_input)?;
+            nwg::Label::builder()
+                .text(tr(lang, "export_path_label"))
+                .position((20, 310))
+                .size((220, 20))
+                .parent(&general_tab)
+                .build(&mut export_path_label)?;
+            nwg::TextInput::builder()
+                .text(&config.export_path)
+                .placeholder_text(Some("%USERPROFILE%"))
+                .position((250, 306))
+                .size((230, 28))
+                .parent(&general_tab)
+                .build(&mut export_path_input)?;
+
+            // ===== 常规页：代理组 =====
+            nwg::Label::builder()
+                .text(tr(lang, "group_proxy"))
+                .position((20, 340))
+                .size((200, 20))
+                .parent(&general_tab)
+                .build(&mut group_proxy_label)?;
+            group_proxy_label.set_font(Some(&bold_font));
+            nwg::Frame::builder()
+                .position((20, 364))
+                .size((460, 1))
+                .flags(nwg::FrameFlags::VISIBLE | nwg::FrameFlags::BORDER)
+                .parent(&general_tab)
+                .build(&mut proxy_sep)?;
             nwg::CheckBox::builder()
                 .text(tr(lang, "proxy_enable"))
-                .position((20, 387))
-                .size((220, 24))
+                .position((20, 380))
+                .size((260, 24))
                 .parent(&general_tab)
                 .check_state(if config.proxy_enabled {
                     checked
@@ -1527,30 +1684,38 @@ mod windows_app {
                     unchecked
                 })
                 .build(&mut proxy_enabled)?;
+            nwg::Label::builder()
+                .text(tr(lang, "proxy_label"))
+                .position((20, 410))
+                .size((220, 20))
+                .parent(&general_tab)
+                .build(&mut proxy_label)?;
             nwg::TextInput::builder()
                 .text(&config.http_proxy)
                 .placeholder_text(Some(tr(lang, "proxy_placeholder")))
-                .position((250, 383))
+                .position((250, 406))
                 .size((230, 28))
                 .parent(&general_tab)
                 .build(&mut proxy_input)?;
+
+            // ===== 常规页：图标外观组 =====
             nwg::Label::builder()
-                .text(tr(lang, "export_path_label"))
-                .position((20, 349))
-                .size((220, 22))
+                .text(tr(lang, "group_appearance"))
+                .position((20, 446))
+                .size((200, 20))
                 .parent(&general_tab)
-                .build(&mut export_path_label)?;
-            nwg::TextInput::builder()
-                .text(&config.export_path)
-                .placeholder_text(Some("%USERPROFILE%"))
-                .position((250, 345))
-                .size((230, 28))
+                .build(&mut group_appearance_label)?;
+            group_appearance_label.set_font(Some(&bold_font));
+            nwg::Frame::builder()
+                .position((20, 470))
+                .size((460, 1))
+                .flags(nwg::FrameFlags::VISIBLE | nwg::FrameFlags::BORDER)
                 .parent(&general_tab)
-                .build(&mut export_path_input)?;
+                .build(&mut appearance_sep)?;
             nwg::Label::builder()
                 .text(tr(lang, "theme_label"))
-                .position((20, 425))
-                .size((220, 22))
+                .position((20, 486))
+                .size((220, 20))
                 .parent(&general_tab)
                 .build(&mut theme_label)?;
             nwg::ComboBox::builder()
@@ -1570,13 +1735,13 @@ mod windows_app {
                     "custom" => 5,
                     _ => 0,
                 }))
-                .position((250, 421))
-                .size((140, 100))
+                .position((250, 482))
+                .size((230, 100))
                 .parent(&general_tab)
                 .build(&mut theme_combo)?;
             nwg::CheckBox::builder()
                 .text(tr(lang, "icon_stroke_label"))
-                .position((20, 454))
+                .position((20, 516))
                 .size((220, 24))
                 .parent(&general_tab)
                 .check_state(if config.icon_stroke {
@@ -1587,20 +1752,20 @@ mod windows_app {
                 .build(&mut icon_stroke)?;
             nwg::Label::builder()
                 .text(tr(lang, "custom_colors_label"))
-                .position((20, 486))
-                .size((220, 22))
+                .position((20, 546))
+                .size((220, 20))
                 .parent(&general_tab)
                 .build(&mut custom_color_label)?;
             let colors = custom_or_default_colors(&config);
             nwg::TextInput::builder()
                 .text(colors.get("ok").map(String::as_str).unwrap_or("3c6966"))
-                .position((20, 514))
+                .position((20, 570))
                 .size((100, 28))
                 .parent(&general_tab)
                 .build(&mut ok_color_input)?;
             nwg::TextInput::builder()
                 .text(colors.get("low").map(String::as_str).unwrap_or("b9463c"))
-                .position((135, 514))
+                .position((135, 570))
                 .size((100, 28))
                 .parent(&general_tab)
                 .build(&mut low_color_input)?;
@@ -1611,31 +1776,20 @@ mod windows_app {
                         .map(String::as_str)
                         .unwrap_or("78695a"),
                 )
-                .position((250, 514))
+                .position((250, 570))
                 .size((100, 28))
                 .parent(&general_tab)
                 .build(&mut degraded_color_input)?;
             nwg::TextInput::builder()
                 .text(colors.get("nodata").map(String::as_str).unwrap_or("69696e"))
-                .position((365, 514))
+                .position((365, 570))
                 .size((100, 28))
                 .parent(&general_tab)
                 .build(&mut nodata_color_input)?;
-            nwg::CheckBox::builder()
-                .text(tr(lang, "api_alert_label"))
-                .position((20, 273))
-                .size((260, 24))
-                .parent(&general_tab)
-                .check_state(if config.api_alert_enabled {
-                    checked
-                } else {
-                    unchecked
-                })
-                .build(&mut api_alerts)?;
 
             nwg::Label::builder()
                 .text("")
-                .position((20, 586))
+                .position((20, 604))
                 .size((0, 0))
                 .parent(&general_tab)
                 .build(&mut status_label)?;
@@ -1691,62 +1845,43 @@ mod windows_app {
                 .size((455, 330))
                 .parent(&history_tab)
                 .build(&mut history_box)?;
-            let og_api_key = read_secure_value(OPENCODE_GO_API_KEY)
+            let og_box_text = if read_secure_value(OPENCODE_GO_API_KEY)
                 .ok()
                 .flatten()
-                .unwrap_or_default();
-            let og_box_text = if og_api_key.is_empty() {
+                .unwrap_or_default()
+                .is_empty()
+            {
                 tr(lang, "og_not_configured").to_string()
             } else {
                 String::new()
             };
             nwg::Label::builder()
-                .text(tr(lang, "og_api_key_label"))
+                .text(tr(lang, "group_quota"))
                 .position((20, 20))
-                .size((200, 22))
+                .size((200, 20))
                 .parent(&opencode_go_tab)
-                .build(&mut og_api_key_label)?;
-            nwg::TextInput::builder()
-                .text(&og_api_key)
-                .placeholder_text((!og_api_key.is_empty()).then_some(tr(lang, "og_api_key_hint")))
-                .position((20, 48))
-                .size((440, 28))
+                .build(&mut group_quota_label)?;
+            group_quota_label.set_font(Some(&bold_font));
+            nwg::Frame::builder()
+                .position((20, 44))
+                .size((460, 1))
+                .flags(nwg::FrameFlags::VISIBLE | nwg::FrameFlags::BORDER)
                 .parent(&opencode_go_tab)
-                .build(&mut og_api_key_input)?;
-            og_api_key_input.set_password_char(Some('*'));
-            nwg::CheckBox::builder()
-                .text(tr(lang, "og_show_api_key"))
-                .position((20, 82))
-                .size((220, 24))
-                .parent(&opencode_go_tab)
-                .check_state(unchecked)
-                .build(&mut og_show_api_key)?;
-            nwg::TextBox::builder()
-                .text(tr(lang, "og_hint"))
-                .flags(
-                    nwg::TextBoxFlags::VISIBLE
-                        | nwg::TextBoxFlags::VSCROLL
-                        | nwg::TextBoxFlags::TAB_STOP,
-                )
-                .readonly(true)
-                .position((20, 116))
-                .size((440, 50))
-                .parent(&opencode_go_tab)
-                .build(&mut og_hint_box)?;
+                .build(&mut quota_sep)?;
             nwg::Button::builder()
                 .text(tr(lang, "og_refresh"))
-                .position((20, 178))
+                .position((20, 60))
                 .size((86, 30))
                 .parent(&opencode_go_tab)
                 .build(&mut refresh_og_button)?;
             nwg::Label::builder()
                 .text(tr(lang, "og_window_5h"))
-                .position((20, 222))
+                .position((20, 100))
                 .size((70, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_rolling_label)?;
             nwg::ProgressBar::builder()
-                .position((95, 220))
+                .position((95, 98))
                 .size((270, 14))
                 .range(0..100)
                 .pos(0)
@@ -1754,18 +1889,18 @@ mod windows_app {
                 .build(&mut og_rolling_bar)?;
             nwg::Label::builder()
                 .text("--")
-                .position((370, 222))
+                .position((370, 100))
                 .size((90, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_rolling_value)?;
             nwg::Label::builder()
                 .text(tr(lang, "og_window_weekly"))
-                .position((20, 260))
+                .position((20, 138))
                 .size((70, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_weekly_label)?;
             nwg::ProgressBar::builder()
-                .position((95, 258))
+                .position((95, 136))
                 .size((270, 14))
                 .range(0..100)
                 .pos(0)
@@ -1773,18 +1908,18 @@ mod windows_app {
                 .build(&mut og_weekly_bar)?;
             nwg::Label::builder()
                 .text("--")
-                .position((370, 260))
+                .position((370, 138))
                 .size((90, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_weekly_value)?;
             nwg::Label::builder()
                 .text(tr(lang, "og_window_monthly"))
-                .position((20, 298))
+                .position((20, 176))
                 .size((70, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_monthly_label)?;
             nwg::ProgressBar::builder()
-                .position((95, 296))
+                .position((95, 174))
                 .size((270, 14))
                 .range(0..100)
                 .pos(0)
@@ -1792,7 +1927,7 @@ mod windows_app {
                 .build(&mut og_monthly_bar)?;
             nwg::Label::builder()
                 .text("--")
-                .position((370, 298))
+                .position((370, 176))
                 .size((90, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_monthly_value)?;
@@ -1805,7 +1940,7 @@ mod windows_app {
                         | nwg::TextBoxFlags::TAB_STOP,
                 )
                 .readonly(true)
-                .position((20, 336))
+                .position((20, 214))
                 .size((440, 80))
                 .parent(&opencode_go_tab)
                 .build(&mut og_box)?;
@@ -1826,9 +1961,23 @@ mod windows_app {
                 base_config: config.clone(),
                 window,
                 _tabs: tabs,
+                _account_tab: account_tab,
                 _general_tab: general_tab,
                 _history_tab: history_tab,
                 _opencode_go_tab: opencode_go_tab,
+                bold_font,
+                _group_credentials_label: group_credentials_label,
+                _credentials_sep: credentials_sep,
+                _group_query_label: group_query_label,
+                _query_sep: query_sep,
+                _group_general_label: group_general_label,
+                _general_sep: general_sep,
+                _group_proxy_label: group_proxy_label,
+                _proxy_sep: proxy_sep,
+                _group_appearance_label: group_appearance_label,
+                _appearance_sep: appearance_sep,
+                _group_quota_label: group_quota_label,
+                _quota_sep: quota_sep,
                 _og_api_key_label: og_api_key_label,
                 og_api_key_input,
                 og_show_api_key,
@@ -3832,8 +3981,15 @@ mod windows_app {
             ("en", "settings") => "Settings...",
             ("en", "quit") => "Quit",
             ("en", "settings_title") => "⚙️ Settings",
+            ("en", "account_tab") => "Account",
             ("en", "settings_tab") => "Settings",
             ("en", "history_tab") => "History",
+            ("en", "group_credentials") => "Credentials",
+            ("en", "group_query") => "Query",
+            ("en", "group_general") => "General",
+            ("en", "group_proxy") => "Proxy",
+            ("en", "group_appearance") => "Icon Appearance",
+            ("en", "group_quota") => "Quota",
             ("en", "api_key_label") => "DeepSeek API Key:",
             ("en", "show_key") => "Show API Key",
             ("en", "interval_label") => "Check interval (minutes, 1-1440):",
@@ -3939,7 +4095,7 @@ mod windows_app {
             ("en", "og_window_monthly") => "Monthly",
             ("en", "og_unavailable") => "unavailable",
             ("en", "og_checking") => "Checking...",
-            ("en", "og_not_configured") => "OpenCode Go API key is not configured. Enter an API key, then click Save.",
+            ("en", "og_not_configured") => "OpenCode Go API key is not configured. Add it on the Account tab.",
             ("en", "og_credentials_saved") => "Credentials saved.",
             ("en", "og_refresh_failed") => "Refresh failed:",
             ("en", "og_loaded") => "Loaded.",
@@ -3953,8 +4109,15 @@ mod windows_app {
             (_, "settings") => "设置...",
             (_, "quit") => "退出",
             (_, "settings_title") => "⚙️ 设置",
+            (_, "account_tab") => "账户",
             (_, "settings_tab") => "设置",
             (_, "history_tab") => "历史",
+            (_, "group_credentials") => "凭据",
+            (_, "group_query") => "查询",
+            (_, "group_general") => "通用",
+            (_, "group_proxy") => "代理",
+            (_, "group_appearance") => "图标外观",
+            (_, "group_quota") => "额度",
             (_, "api_key_label") => "DeepSeek API Key:",
             (_, "show_key") => "显示 API Key",
             (_, "interval_label") => "查询间隔（分钟，1-1440）：",
@@ -4058,7 +4221,7 @@ mod windows_app {
             (_, "og_window_monthly") => "每月",
             (_, "og_unavailable") => "不可用",
             (_, "og_checking") => "查询中...",
-            (_, "og_not_configured") => "尚未配置 OpenCode Go API Key。请填写 API Key 后点击保存。",
+            (_, "og_not_configured") => "尚未配置 OpenCode Go API Key。请在「账户」标签页配置。",
             (_, "og_credentials_saved") => "凭据已保存。",
             (_, "og_refresh_failed") => "刷新失败：",
             (_, "og_loaded") => "已加载。",
