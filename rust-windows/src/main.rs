@@ -1314,6 +1314,7 @@ mod windows_app {
         _export_path_label: nwg::Label,
         export_path_input: nwg::TextInput,
         proxy_enabled: nwg::CheckBox,
+        _proxy_label: nwg::Label,
         proxy_input: nwg::TextInput,
         _theme_label: nwg::Label,
         theme_combo: nwg::ComboBox<&'static str>,
@@ -1395,6 +1396,7 @@ mod windows_app {
             let mut export_path_label = Default::default();
             let mut export_path_input = Default::default();
             let mut proxy_enabled = Default::default();
+            let mut proxy_label = Default::default();
             let mut proxy_input = Default::default();
             let mut theme_label = Default::default();
             let mut theme_combo = Default::default();
@@ -2010,6 +2012,7 @@ mod windows_app {
                 _export_path_label: export_path_label,
                 export_path_input,
                 proxy_enabled,
+                _proxy_label: proxy_label,
                 proxy_input,
                 _theme_label: theme_label,
                 theme_combo,
