@@ -2,6 +2,12 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v1.3.1 (2026-08-14)
+
+### Changed
+
+- Windows settings window redesigned: a new "Account" tab groups the DeepSeek and OpenCode Go API keys; the Settings tab is organised into Query / General / Proxy / Icon Appearance groups with bold titles and separator lines; all controls are aligned to a consistent grid with unified label and input columns
+
 ## Rust v1.3.0 (2026-08-14)
 
 ### Changed
