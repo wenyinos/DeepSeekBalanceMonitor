@@ -2,6 +2,14 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v1.3.2 (2026-08-14)
+
+### Changed
+
+- Plasma 6 widget settings redesigned to match rust-windows: a new "Account" page holds both API keys (DeepSeek and OpenCode Go) plus the OpenCode quota bars; the General page is organised into Query / General / Proxy / Icon Appearance groups; the separate "OpenCode Go" settings page is merged into Account
+- Plasma widget main view redesigned: the DeepSeek section follows a four-line layout (balance, last check, API status, estimated availability) with the refresh button moved to the top-right corner refreshing DeepSeek and OpenCode together; the OpenCode section shows three usage progress bars with larger type and bars
+- Font hierarchy and spacing adjusted across both sections for a clearer visual order
+
 ## Rust v1.3.1 (2026-08-14)
 
 ### Changed
