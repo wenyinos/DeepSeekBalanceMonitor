@@ -11,6 +11,8 @@ KCM.SimpleKCM {
     property bool busy: false
     property string statusText: ""
     property string opencodeGoText: ""
+    property bool hasOgApiKey: false
+    property string loadedOgApiKey: ""
     property real rollingPercent: 0
     property real weeklyPercent: 0
     property real monthlyPercent: 0
@@ -35,13 +37,20 @@ KCM.SimpleKCM {
     function tr(key) {
         var zh = {
             opencodeGoTitle: "OpenCode Go 额度",
-            ogNotConfigured: "未配置 OpenCode Go 凭据。请在终端运行 dsmon opencode-go set <workspace_id> <auth_cookie> 进行配置。",
+            ogNotConfigured: "未配置 OpenCode Go API Key。请在终端运行 dsmon opencode-go set-key <api_key> 进行配置。",
             ogChecking: "查询 OpenCode Go 额度中...",
             ogError: "OpenCode Go 额度查询失败：",
             og5h: "5h",
             ogWeekly: "每周",
             ogMonthly: "每月",
             ogUnavailable: "不可用",
+            apiKey: "OpenCode Go API Key：",
+            apiKeyStored: "********",
+            save: "保存",
+            saving: "正在保存...",
+            saved: "已保存。",
+            saveFailed: "保存失败：",
+            ogSetKeyPlaceholder: "dsmon opencode-go set-key",
             loading: "正在加载...",
             loaded: "已加载。",
             loadFailed: "加载失败：",
@@ -49,13 +58,20 @@ KCM.SimpleKCM {
         }
         var en = {
             opencodeGoTitle: "OpenCode Go Quota",
-            ogNotConfigured: "OpenCode Go credentials are not configured. Run dsmon opencode-go set <workspace_id> <auth_cookie> in a terminal.",
+            ogNotConfigured: "OpenCode Go API key is not configured. Run dsmon opencode-go set-key <api_key> in a terminal.",
             ogChecking: "Checking OpenCode Go quota...",
             ogError: "Failed to fetch OpenCode Go quota: ",
             og5h: "5h",
             ogWeekly: "Weekly",
             ogMonthly: "Monthly",
             ogUnavailable: "unavailable",
+            apiKey: "OpenCode Go API key:",
+            apiKeyStored: "********",
+            save: "Save",
+            saving: "Saving...",
+            saved: "Saved.",
+            saveFailed: "Failed to save: ",
+            ogSetKeyPlaceholder: "dsmon opencode-go set-key",
             loading: "Loading...",
             loaded: "Loaded.",
             loadFailed: "Failed to load: ",
@@ -128,6 +144,20 @@ KCM.SimpleKCM {
         loadOpencodeGo()
     }
 
+    function shellQuote(value) {
+        return "'" + String(value).replace(/'/g, "'\\''") + "'"
+    }
+
+    function saveApiKey() {
+        var value = ogApiKeyField.text.trim()
+        if (value.length === 0 || value === tr("apiKeyStored")) {
+            return
+        }
+        busy = true
+        statusText = tr("saving")
+        loader.connectSource("/usr/local/bin/dsmon opencode-go set-key " + shellQuote(value))
+    }
+
     Component.onCompleted: loadConfig()
 
     Plasma5Support.DataSource {
@@ -150,6 +180,17 @@ KCM.SimpleKCM {
                 loadOpencodeGo()
                 return
             }
+            if (String(sourceName).indexOf("opencode-go set-key") !== -1) {
+                busy = false
+                if (stderr.trim().length > 0) {
+                    statusText = tr("saveFailed") + stderr.trim()
+                } else {
+                    statusText = tr("saved")
+                    loadOpencodeGo()
+                }
+                disconnectSource(sourceName)
+                return
+            }
             busy = false
             if (stderr.trim().length > 0 && stdout.trim().length === 0) {
                 statusText = tr("ogError") + stderr.trim()
@@ -157,17 +198,26 @@ KCM.SimpleKCM {
                 try {
                     var status = JSON.parse(stdout)
                     if (!status.configured) {
+                        hasOgApiKey = false
+                        ogApiKeyField.text = ""
+                        ogApiKeyField.placeholderText = tr("ogSetKeyPlaceholder")
                         opencodeGoText = tr("ogNotConfigured")
-                    } else if (status.error && status.error.length > 0) {
-                        opencodeGoText = tr("ogError") + status.error
                     } else {
-                        rollingPercent = status.rolling ? status.rolling.usage_percent : 0
-                        weeklyPercent = status.weekly ? status.weekly.usage_percent : 0
-                        monthlyPercent = status.monthly ? status.monthly.usage_percent : 0
-                        rollingText = formatOgValue(status.rolling)
-                        weeklyText = formatOgValue(status.weekly)
-                        monthlyText = formatOgValue(status.monthly)
-                        opencodeGoText = tr("opencodeGoTitle")
+                        hasOgApiKey = true
+                        loadedOgApiKey = tr("apiKeyStored")
+                        ogApiKeyField.text = loadedOgApiKey
+                        ogApiKeyField.placeholderText = tr("apiKeyStored")
+                        if (status.error && status.error.length > 0) {
+                            opencodeGoText = tr("ogError") + status.error
+                        } else {
+                            rollingPercent = status.rolling ? status.rolling.usage_percent : 0
+                            weeklyPercent = status.weekly ? status.weekly.usage_percent : 0
+                            monthlyPercent = status.monthly ? status.monthly.usage_percent : 0
+                            rollingText = formatOgValue(status.rolling)
+                            weeklyText = formatOgValue(status.weekly)
+                            monthlyText = formatOgValue(status.monthly)
+                            opencodeGoText = tr("opencodeGoTitle")
+                        }
                     }
                     statusText = tr("loaded")
                 } catch (error) {
@@ -180,10 +230,26 @@ KCM.SimpleKCM {
     }
 
     Kirigami.FormLayout {
-        QtControls.Button {
-            text: tr("refresh")
-            enabled: !busy
-            onClicked: refresh()
+        QtControls.TextField {
+            id: ogApiKeyField
+            Kirigami.FormData.label: tr("apiKey")
+            Layout.fillWidth: true
+            echoMode: TextInput.Password
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+
+            QtControls.Button {
+                text: tr("save")
+                enabled: !busy
+                onClicked: saveApiKey()
+            }
+            QtControls.Button {
+                text: tr("refresh")
+                enabled: !busy
+                onClicked: refresh()
+            }
         }
 
         RowLayout {
@@ -194,20 +260,26 @@ KCM.SimpleKCM {
                 text: tr("og5h")
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 4
             }
-            Rectangle {
-                id: rollingTrack
+            QtControls.ProgressBar {
+                id: rollingBar
                 Layout.fillWidth: true
-                Layout.preferredHeight: 12
-                radius: 6
-                color: Kirigami.Theme.backgroundColor
-                border.color: Kirigami.Theme.disabledTextColor
-                border.width: 1
-                Rectangle {
-                    id: rollingFill
-                    width: parent.width * Math.min(1, page.rollingPercent / 100)
-                    height: parent.height
-                    radius: 6
-                    color: page.barColor(page.rollingPercent)
+                Layout.preferredHeight: 14
+                from: 0
+                to: 100
+                value: page.rollingPercent
+                background: Rectangle {
+                    radius: 7
+                    color: Kirigami.Theme.backgroundColor
+                    border.color: Kirigami.Theme.disabledTextColor
+                    border.width: 1
+                }
+                contentItem: Item {
+                    Rectangle {
+                        width: rollingBar.visualPosition * parent.width
+                        height: parent.height
+                        radius: 7
+                        color: page.barColor(rollingBar.value)
+                    }
                 }
             }
             QtControls.Label {
@@ -225,20 +297,26 @@ KCM.SimpleKCM {
                 text: tr("ogWeekly")
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 4
             }
-            Rectangle {
-                id: weeklyTrack
+            QtControls.ProgressBar {
+                id: weeklyBar
                 Layout.fillWidth: true
-                Layout.preferredHeight: 12
-                radius: 6
-                color: Kirigami.Theme.backgroundColor
-                border.color: Kirigami.Theme.disabledTextColor
-                border.width: 1
-                Rectangle {
-                    id: weeklyFill
-                    width: parent.width * Math.min(1, page.weeklyPercent / 100)
-                    height: parent.height
-                    radius: 6
-                    color: page.barColor(page.weeklyPercent)
+                Layout.preferredHeight: 14
+                from: 0
+                to: 100
+                value: page.weeklyPercent
+                background: Rectangle {
+                    radius: 7
+                    color: Kirigami.Theme.backgroundColor
+                    border.color: Kirigami.Theme.disabledTextColor
+                    border.width: 1
+                }
+                contentItem: Item {
+                    Rectangle {
+                        width: weeklyBar.visualPosition * parent.width
+                        height: parent.height
+                        radius: 7
+                        color: page.barColor(weeklyBar.value)
+                    }
                 }
             }
             QtControls.Label {
@@ -256,20 +334,26 @@ KCM.SimpleKCM {
                 text: tr("ogMonthly")
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 4
             }
-            Rectangle {
-                id: monthlyTrack
+            QtControls.ProgressBar {
+                id: monthlyBar
                 Layout.fillWidth: true
-                Layout.preferredHeight: 12
-                radius: 6
-                color: Kirigami.Theme.backgroundColor
-                border.color: Kirigami.Theme.disabledTextColor
-                border.width: 1
-                Rectangle {
-                    id: monthlyFill
-                    width: parent.width * Math.min(1, page.monthlyPercent / 100)
-                    height: parent.height
-                    radius: 6
-                    color: page.barColor(page.monthlyPercent)
+                Layout.preferredHeight: 14
+                from: 0
+                to: 100
+                value: page.monthlyPercent
+                background: Rectangle {
+                    radius: 7
+                    color: Kirigami.Theme.backgroundColor
+                    border.color: Kirigami.Theme.disabledTextColor
+                    border.width: 1
+                }
+                contentItem: Item {
+                    Rectangle {
+                        width: monthlyBar.visualPosition * parent.width
+                        height: parent.height
+                        radius: 7
+                        color: page.barColor(monthlyBar.value)
+                    }
                 }
             }
             QtControls.Label {

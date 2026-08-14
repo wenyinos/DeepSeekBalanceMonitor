@@ -34,12 +34,8 @@ mod windows_app {
     const RAINMETER_ADDR: &str = "127.0.0.1:17654";
     const STARTUP_LINK_NAME: &str = "DeepSeek Balance Monitor.lnk";
     const API_KEY_PLACEHOLDER: &str = "Stored securely. Leave blank to keep the existing API key.";
-    const OPENCODE_GO_URL_PREFIX: &str = "https://opencode.ai/workspace/";
-    const OPENCODE_GO_URL_SUFFIX: &str = "/go";
-    const OPENCODE_GO_USER_AGENT: &str =
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0";
-    const OPENCODE_GO_WORKSPACE_KEY: &str = "opencode_go_workspace_id";
-    const OPENCODE_GO_AUTH_COOKIE_KEY: &str = "opencode_go_auth_cookie";
+    const OPENCODE_GO_API_URL: &str = "https://opencode.ai/zen/go/v1/usage";
+    const OPENCODE_GO_API_KEY: &str = "opencode_go_api_key";
     const CSIDL_STARTUP: i32 = 0x0007;
     const CSIDL_FLAG_CREATE: i32 = 0x8000;
     const COINIT_APARTMENTTHREADED: u32 = 0x2;
@@ -374,6 +370,29 @@ mod windows_app {
         rolling: Option<OpenCodeGoUsage>,
         weekly: Option<OpenCodeGoUsage>,
         monthly: Option<OpenCodeGoUsage>,
+    }
+
+    #[derive(Deserialize)]
+    struct OpenCodeGoApiResponse {
+        usage: OpenCodeGoApiUsage,
+    }
+
+    #[derive(Deserialize)]
+    struct OpenCodeGoApiUsage {
+        #[serde(default)]
+        rolling: Option<OpenCodeGoApiWindow>,
+        #[serde(default)]
+        weekly: Option<OpenCodeGoApiWindow>,
+        #[serde(default)]
+        monthly: Option<OpenCodeGoApiWindow>,
+    }
+
+    #[derive(Deserialize)]
+    struct OpenCodeGoApiWindow {
+        #[serde(default)]
+        percent: f64,
+        #[serde(rename = "resetsAt", default)]
+        resets_at: Option<String>,
     }
 
     struct HistorySummary {
@@ -1249,11 +1268,9 @@ mod windows_app {
         _general_tab: nwg::Tab,
         _history_tab: nwg::Tab,
         _opencode_go_tab: nwg::Tab,
-        _og_workspace_label: nwg::Label,
-        og_workspace_input: nwg::TextInput,
-        _og_cookie_label: nwg::Label,
-        og_cookie_input: nwg::TextInput,
-        og_show_cookie: nwg::CheckBox,
+        _og_api_key_label: nwg::Label,
+        og_api_key_input: nwg::TextInput,
+        og_show_api_key: nwg::CheckBox,
         _og_hint_box: nwg::TextBox,
         _og_rolling_label: nwg::Label,
         og_rolling_bar: nwg::ProgressBar,
@@ -1318,11 +1335,9 @@ mod windows_app {
             let mut general_tab = Default::default();
             let mut history_tab = Default::default();
             let mut opencode_go_tab = Default::default();
-            let mut og_workspace_label = Default::default();
-            let mut og_workspace_input = Default::default();
-            let mut og_cookie_label = Default::default();
-            let mut og_cookie_input = Default::default();
-            let mut og_show_cookie = Default::default();
+            let mut og_api_key_label = Default::default();
+            let mut og_api_key_input = Default::default();
+            let mut og_show_api_key = Default::default();
             let mut og_hint_box = Default::default();
             let mut og_rolling_label = Default::default();
             let mut og_rolling_bar = Default::default();
@@ -1676,54 +1691,36 @@ mod windows_app {
                 .size((455, 330))
                 .parent(&history_tab)
                 .build(&mut history_box)?;
-            let og_workspace_id = read_secure_value(OPENCODE_GO_WORKSPACE_KEY)
+            let og_api_key = read_secure_value(OPENCODE_GO_API_KEY)
                 .ok()
                 .flatten()
                 .unwrap_or_default();
-            let og_auth_cookie = read_secure_value(OPENCODE_GO_AUTH_COOKIE_KEY)
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            let og_box_text = if og_workspace_id.is_empty() || og_auth_cookie.is_empty() {
+            let og_box_text = if og_api_key.is_empty() {
                 tr(lang, "og_not_configured").to_string()
             } else {
                 String::new()
             };
             nwg::Label::builder()
-                .text(tr(lang, "og_workspace_label"))
+                .text(tr(lang, "og_api_key_label"))
                 .position((20, 20))
                 .size((200, 22))
                 .parent(&opencode_go_tab)
-                .build(&mut og_workspace_label)?;
+                .build(&mut og_api_key_label)?;
             nwg::TextInput::builder()
-                .text(&og_workspace_id)
+                .text(&og_api_key)
+                .placeholder_text((!og_api_key.is_empty()).then_some(tr(lang, "og_api_key_hint")))
                 .position((20, 48))
                 .size((440, 28))
                 .parent(&opencode_go_tab)
-                .build(&mut og_workspace_input)?;
-            nwg::Label::builder()
-                .text(tr(lang, "og_cookie_label"))
-                .position((20, 90))
-                .size((200, 22))
-                .parent(&opencode_go_tab)
-                .build(&mut og_cookie_label)?;
-            nwg::TextInput::builder()
-                .text(&og_auth_cookie)
-                .placeholder_text(
-                    (!og_auth_cookie.is_empty()).then_some(tr(lang, "og_cookie_hint")),
-                )
-                .position((20, 118))
-                .size((440, 28))
-                .parent(&opencode_go_tab)
-                .build(&mut og_cookie_input)?;
-            og_cookie_input.set_password_char(Some('*'));
+                .build(&mut og_api_key_input)?;
+            og_api_key_input.set_password_char(Some('*'));
             nwg::CheckBox::builder()
-                .text(tr(lang, "og_show_cookie"))
-                .position((20, 152))
+                .text(tr(lang, "og_show_api_key"))
+                .position((20, 82))
                 .size((220, 24))
                 .parent(&opencode_go_tab)
                 .check_state(unchecked)
-                .build(&mut og_show_cookie)?;
+                .build(&mut og_show_api_key)?;
             nwg::TextBox::builder()
                 .text(tr(lang, "og_hint"))
                 .flags(
@@ -1732,24 +1729,24 @@ mod windows_app {
                         | nwg::TextBoxFlags::TAB_STOP,
                 )
                 .readonly(true)
-                .position((20, 186))
+                .position((20, 116))
                 .size((440, 50))
                 .parent(&opencode_go_tab)
                 .build(&mut og_hint_box)?;
             nwg::Button::builder()
                 .text(tr(lang, "og_refresh"))
-                .position((20, 248))
+                .position((20, 178))
                 .size((86, 30))
                 .parent(&opencode_go_tab)
                 .build(&mut refresh_og_button)?;
             nwg::Label::builder()
                 .text(tr(lang, "og_window_5h"))
-                .position((20, 292))
+                .position((20, 222))
                 .size((70, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_rolling_label)?;
             nwg::ProgressBar::builder()
-                .position((95, 290))
+                .position((95, 220))
                 .size((270, 14))
                 .range(0..100)
                 .pos(0)
@@ -1757,18 +1754,18 @@ mod windows_app {
                 .build(&mut og_rolling_bar)?;
             nwg::Label::builder()
                 .text("--")
-                .position((370, 292))
+                .position((370, 222))
                 .size((90, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_rolling_value)?;
             nwg::Label::builder()
                 .text(tr(lang, "og_window_weekly"))
-                .position((20, 330))
+                .position((20, 260))
                 .size((70, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_weekly_label)?;
             nwg::ProgressBar::builder()
-                .position((95, 328))
+                .position((95, 258))
                 .size((270, 14))
                 .range(0..100)
                 .pos(0)
@@ -1776,18 +1773,18 @@ mod windows_app {
                 .build(&mut og_weekly_bar)?;
             nwg::Label::builder()
                 .text("--")
-                .position((370, 330))
+                .position((370, 260))
                 .size((90, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_weekly_value)?;
             nwg::Label::builder()
                 .text(tr(lang, "og_window_monthly"))
-                .position((20, 368))
+                .position((20, 298))
                 .size((70, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_monthly_label)?;
             nwg::ProgressBar::builder()
-                .position((95, 366))
+                .position((95, 296))
                 .size((270, 14))
                 .range(0..100)
                 .pos(0)
@@ -1795,7 +1792,7 @@ mod windows_app {
                 .build(&mut og_monthly_bar)?;
             nwg::Label::builder()
                 .text("--")
-                .position((370, 368))
+                .position((370, 298))
                 .size((90, 22))
                 .parent(&opencode_go_tab)
                 .build(&mut og_monthly_value)?;
@@ -1808,7 +1805,7 @@ mod windows_app {
                         | nwg::TextBoxFlags::TAB_STOP,
                 )
                 .readonly(true)
-                .position((20, 406))
+                .position((20, 336))
                 .size((440, 80))
                 .parent(&opencode_go_tab)
                 .build(&mut og_box)?;
@@ -1832,11 +1829,9 @@ mod windows_app {
                 _general_tab: general_tab,
                 _history_tab: history_tab,
                 _opencode_go_tab: opencode_go_tab,
-                _og_workspace_label: og_workspace_label,
-                og_workspace_input,
-                _og_cookie_label: og_cookie_label,
-                og_cookie_input,
-                og_show_cookie,
+                _og_api_key_label: og_api_key_label,
+                og_api_key_input,
+                og_show_api_key,
                 _og_hint_box: og_hint_box,
                 _og_rolling_label: og_rolling_label,
                 og_rolling_bar,
@@ -1913,12 +1908,12 @@ mod windows_app {
                                 settings.api_input.set_password_char(Some('*'));
                             }
                         }
-                        nwg::Event::OnButtonClick if &handle == &settings.og_show_cookie => {
-                            if settings.og_show_cookie.check_state() == nwg::CheckBoxState::Checked
+                        nwg::Event::OnButtonClick if &handle == &settings.og_show_api_key => {
+                            if settings.og_show_api_key.check_state() == nwg::CheckBoxState::Checked
                             {
-                                settings.og_cookie_input.set_password_char(None);
+                                settings.og_api_key_input.set_password_char(None);
                             } else {
-                                settings.og_cookie_input.set_password_char(Some('*'));
+                                settings.og_api_key_input.set_password_char(Some('*'));
                             }
                         }
                         nwg::Event::OnButtonClick if &handle == &settings.refresh_og_button => {
@@ -1957,9 +1952,8 @@ mod windows_app {
 
         fn refresh_opencode_go(&self) {
             let lang = self.current_language();
-            let workspace_id = self.og_workspace_input.text().trim().to_string();
-            let auth_cookie = self.og_cookie_input.text().trim().to_string();
-            if workspace_id.is_empty() || auth_cookie.is_empty() {
+            let api_key = self.og_api_key_input.text().trim().to_string();
+            if api_key.is_empty() {
                 self.og_box.set_text(tr(&lang, "og_not_configured"));
                 self.reset_opencode_go_bars();
                 return;
@@ -1971,7 +1965,7 @@ mod windows_app {
             };
             self.og_box.set_text(tr(&lang, "og_checking"));
             self.reset_opencode_go_bars();
-            match fetch_opencode_go_quota(&workspace_id, &auth_cookie, &proxy) {
+            match fetch_opencode_go_quota(&api_key, &proxy) {
                 Ok(quota) => {
                     self.update_opencode_go_bars(&quota, &lang);
                     self.og_box.set_text(tr(&lang, "og_loaded"));
@@ -2110,13 +2104,9 @@ mod windows_app {
                 store_secure_api_key(&api_key)?;
                 config.api_key = api_key;
             }
-            let og_workspace_id = self.og_workspace_input.text().trim().to_string();
-            if !og_workspace_id.is_empty() {
-                store_secure_value(OPENCODE_GO_WORKSPACE_KEY, &og_workspace_id)?;
-            }
-            let og_auth_cookie = self.og_cookie_input.text().trim().to_string();
-            if !og_auth_cookie.is_empty() {
-                store_secure_value(OPENCODE_GO_AUTH_COOKIE_KEY, &og_auth_cookie)?;
+            let og_api_key = self.og_api_key_input.text().trim().to_string();
+            if !og_api_key.is_empty() {
+                store_secure_value(OPENCODE_GO_API_KEY, &og_api_key)?;
             }
             let interval_minutes = self
                 .interval_input
@@ -2234,206 +2224,66 @@ mod windows_app {
         Ok(balances)
     }
 
-    fn fetch_opencode_go_quota(
-        workspace_id: &str,
-        auth_cookie: &str,
-        http_proxy: &str,
-    ) -> Result<OpenCodeGoQuota, String> {
+    fn fetch_opencode_go_quota(api_key: &str, http_proxy: &str) -> Result<OpenCodeGoQuota, String> {
         let client = http_client(Duration::from_secs(10), http_proxy)?;
-        let url = format!(
-            "{}{}{}",
-            OPENCODE_GO_URL_PREFIX,
-            encode_uri_component(workspace_id),
-            OPENCODE_GO_URL_SUFFIX
-        );
         let response = client
-            .get(&url)
-            .header("Accept", "text/html")
-            .header("User-Agent", OPENCODE_GO_USER_AGENT)
-            .header("Cookie", format!("auth={auth_cookie}"))
+            .get(OPENCODE_GO_API_URL)
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", api_key.trim()))
             .send()
             .map_err(|e| format!("OpenCode Go request failed: {e}"))?;
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().unwrap_or_default();
-            return Err(format!(
-                "OpenCode Go dashboard error {status}: {}",
-                sanitize_opencode_go_message(&text)
-            ));
+            let message = parse_opencode_go_api_error(&text)
+                .unwrap_or_else(|| sanitize_opencode_go_message(&text));
+            return Err(format!("OpenCode Go API error {status}: {message}"));
         }
-        let html = response
-            .text()
-            .map_err(|e| format!("OpenCode Go HTML read failed: {e}"))?;
-        parse_opencode_go_quota(&html)
-    }
-
-    fn parse_opencode_go_quota(html: &str) -> Result<OpenCodeGoQuota, String> {
-        let ssr = OpenCodeGoQuota {
-            rolling: parse_ssr_window(html, "rollingUsage"),
-            weekly: parse_ssr_window(html, "weeklyUsage"),
-            monthly: parse_ssr_window(html, "monthlyUsage"),
-        };
-        let any = ssr.rolling.is_some() || ssr.weekly.is_some() || ssr.monthly.is_some();
-        let quota = if any {
-            ssr
-        } else {
-            parse_opencode_go_data_slot(html)
+        let payload: OpenCodeGoApiResponse = response
+            .error_for_status()
+            .map_err(|e| e.to_string())?
+            .json()
+            .map_err(|e| format!("OpenCode Go JSON parse failed: {e}"))?;
+        let now = Local::now().timestamp();
+        let quota = OpenCodeGoQuota {
+            rolling: payload
+                .usage
+                .rolling
+                .map(|window| api_window_to_usage(window, now)),
+            weekly: payload
+                .usage
+                .weekly
+                .map(|window| api_window_to_usage(window, now)),
+            monthly: payload
+                .usage
+                .monthly
+                .map(|window| api_window_to_usage(window, now)),
         };
         if quota.rolling.is_none() && quota.weekly.is_none() && quota.monthly.is_none() {
-            return Err(
-                "Could not parse any known OpenCode Go dashboard usage windows (rollingUsage, weeklyUsage, monthlyUsage)"
-                    .to_string(),
-            );
+            return Err("OpenCode Go API returned no usage windows.".to_string());
         }
         Ok(quota)
     }
 
-    fn parse_ssr_window(html: &str, window: &str) -> Option<OpenCodeGoUsage> {
-        let marker = format!("{window}:$R[");
-        let start = html.find(&marker)?;
-        let rest = &html[start + marker.len()..];
-        let open = rest.find('{')? + 1;
-        let content_end = rest[open..].find('}')?;
-        let content = &rest[open..open + content_end];
-        let usage_percent = number_after_key(content, "usagePercent")?.max(0.0);
-        let reset_in_sec = number_after_key(content, "resetInSec")?.max(0.0);
-        Some(OpenCodeGoUsage {
+    fn api_window_to_usage(window: OpenCodeGoApiWindow, now: i64) -> OpenCodeGoUsage {
+        let usage_percent = window.percent.max(0.0);
+        let reset_in_sec = window
+            .resets_at
+            .as_deref()
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .map(|dt| (dt.timestamp() - now).max(0))
+            .unwrap_or(0);
+        OpenCodeGoUsage {
             usage_percent,
             percent_remaining: (100.0 - usage_percent).max(0.0),
-            reset_in_sec: reset_in_sec as i64,
-        })
+            reset_in_sec,
+        }
     }
 
-    fn parse_opencode_go_data_slot(html: &str) -> OpenCodeGoQuota {
-        let mut quota = OpenCodeGoQuota::default();
-        for item in html.split("data-slot=\"usage-item\"").skip(1) {
-            let Some(label) = tag_text(item, "data-slot=\"usage-label\"") else {
-                continue;
-            };
-            let Some(usage_text) = tag_text(item, "data-slot=\"usage-value\"") else {
-                continue;
-            };
-            let Some(usage_percent) = first_number(&usage_text) else {
-                continue;
-            };
-            let reset_in_sec = if item.contains("data-slot=\"reset-now\"") {
-                0
-            } else {
-                let Some(reset_text) = tag_text(item, "data-slot=\"reset-time\"") else {
-                    continue;
-                };
-                match parse_human_readable_time(&reset_text) {
-                    Some(secs) => secs,
-                    None => continue,
-                }
-            };
-            let window_key = if label.to_lowercase().contains("rolling") {
-                Some("rolling")
-            } else if label.to_lowercase().contains("weekly") {
-                Some("weekly")
-            } else if label.to_lowercase().contains("monthly") {
-                Some("monthly")
-            } else {
-                None
-            };
-            let Some(window_key) = window_key else {
-                continue;
-            };
-            let usage = OpenCodeGoUsage {
-                usage_percent,
-                percent_remaining: (100.0 - usage_percent).max(0.0),
-                reset_in_sec,
-            };
-            match window_key {
-                "rolling" => quota.rolling = Some(usage),
-                "weekly" => quota.weekly = Some(usage),
-                _ => quota.monthly = Some(usage),
-            }
-        }
-        quota
-    }
-
-    fn tag_text<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
-        let start = text.find(marker)? + marker.len();
-        let rest = &text[start..];
-        let open = rest.find('>')? + 1;
-        let content = &rest[open..];
-        let end = content.find('<')?;
-        Some(content[..end].trim())
-    }
-
-    fn number_after_key(text: &str, key: &str) -> Option<f64> {
-        let rest = &text[text.find(key)? + key.len()..];
-        let rest = rest.strip_prefix(':')?;
-        let number: String = rest
-            .chars()
-            .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '+')
-            .collect();
-        if number.is_empty() {
-            return None;
-        }
-        number.parse().ok()
-    }
-
-    fn first_number(text: &str) -> Option<f64> {
-        let start = text.find(|c: char| c.is_ascii_digit())?;
-        let rest = &text[start..];
-        let number: String = rest
-            .chars()
-            .take_while(|c| c.is_ascii_digit() || *c == '.')
-            .collect();
-        if number.is_empty() {
-            return None;
-        }
-        number.parse().ok()
-    }
-
-    fn parse_human_readable_time(text: &str) -> Option<i64> {
-        let normalized = text.to_lowercase();
-        if normalized.contains("reset now")
-            || normalized.contains("resets now")
-            || normalized.trim() == "now"
-        {
-            return Some(0);
-        }
-        let mut total: i64 = 0;
-        let mut found = false;
-        for (plural, singular, multiplier) in [
-            ("days", "day", 86400i64),
-            ("hours", "hour", 3600),
-            ("minutes", "minute", 60),
-            ("seconds", "second", 1),
-        ] {
-            let unit = if normalized.contains(plural) {
-                plural
-            } else {
-                singular
-            };
-            if let Some(prefix) = number_before_word(&normalized, unit) {
-                if let Ok(n) = prefix.parse::<f64>() {
-                    total += (n * multiplier as f64) as i64;
-                    found = true;
-                }
-            }
-        }
-        found.then_some(total)
-    }
-
-    fn number_before_word<'a>(text: &'a str, word: &str) -> Option<&'a str> {
-        let index = text.find(word)?;
-        let before = text[..index].trim_end();
-        if before.is_empty() {
-            return None;
-        }
-        let start = before
-            .rfind(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
-            .map(|i| i + 1)
-            .unwrap_or(0);
-        let candidate = &before[start..];
-        if candidate.is_empty() || !candidate.starts_with(|c: char| c.is_ascii_digit()) {
-            return None;
-        }
-        Some(candidate)
+    fn parse_opencode_go_api_error(text: &str) -> Option<String> {
+        let value: serde_json::Value = serde_json::from_str(text).ok()?;
+        let message = value.get("error")?.get("message")?.as_str()?;
+        Some(message.to_string())
     }
 
     fn format_reset_seconds(secs: i64) -> String {
@@ -2457,19 +2307,6 @@ mod windows_app {
             parts.push(format!("{}s", secs % 60));
         }
         parts.join(" ")
-    }
-
-    fn encode_uri_component(value: &str) -> String {
-        let mut out = String::with_capacity(value.len());
-        for byte in value.bytes() {
-            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-                out.push(byte as char);
-            } else {
-                out.push('%');
-                out.push_str(&format!("{byte:02X}"));
-            }
-        }
-        out
     }
 
     fn sanitize_opencode_go_message(text: &str) -> String {
@@ -4093,21 +3930,20 @@ mod windows_app {
             ("en", "api_recovered_msg") => "API service is back to normal.",
             ("en", "og_tab") => "OpenCode Go",
             ("en", "og_title") => "OpenCode Go",
-            ("en", "og_workspace_label") => "Workspace ID:",
-            ("en", "og_cookie_label") => "Auth cookie:",
-            ("en", "og_show_cookie") => "Show auth cookie",
-            ("en", "og_hint") => "Get the workspace ID from the opencode.ai workspace URL, and the auth cookie from browser Developer Tools -> Storage -> Cookies for opencode.ai. Credentials are encrypted and stored locally.",
+            ("en", "og_api_key_label") => "OpenCode Go API key:",
+            ("en", "og_show_api_key") => "Show API key",
+            ("en", "og_hint") => "Get an API key from https://opencode.ai/auth and enter it above. The key is encrypted and stored locally.",
             ("en", "og_refresh") => "Refresh",
             ("en", "og_window_5h") => "5h",
             ("en", "og_window_weekly") => "Weekly",
             ("en", "og_window_monthly") => "Monthly",
             ("en", "og_unavailable") => "unavailable",
             ("en", "og_checking") => "Checking...",
-            ("en", "og_not_configured") => "OpenCode Go credentials are not configured. Enter a workspace ID and auth cookie, then click Save.",
+            ("en", "og_not_configured") => "OpenCode Go API key is not configured. Enter an API key, then click Save.",
             ("en", "og_credentials_saved") => "Credentials saved.",
             ("en", "og_refresh_failed") => "Refresh failed:",
             ("en", "og_loaded") => "Loaded.",
-            ("en", "og_cookie_hint") => "Leave blank to keep the existing credentials.",
+            ("en", "og_api_key_hint") => "Leave blank to keep the existing API key.",
             ("en", "warn_title") => "Warning",
             (_, "checking") => "查询中...",
             (_, "error") => "错误",
@@ -4213,21 +4049,20 @@ mod windows_app {
             (_, "api_recovered_msg") => "API 服务已恢复正常。",
             (_, "og_tab") => "OpenCode Go",
             (_, "og_title") => "OpenCode Go",
-            (_, "og_workspace_label") => "工作区 ID：",
-            (_, "og_cookie_label") => "Auth Cookie：",
-            (_, "og_show_cookie") => "显示 Auth Cookie",
-            (_, "og_hint") => "工作区 ID 可在 opencode.ai 工作区 URL 中获取；auth cookie 可在浏览器开发者工具 → Storage → Cookies（opencode.ai）中查看。凭据将加密存储在本机。",
+            (_, "og_api_key_label") => "OpenCode Go API Key：",
+            (_, "og_show_api_key") => "显示 API Key",
+            (_, "og_hint") => "API Key 可在 https://opencode.ai/auth 获取并填入上方。密钥将加密存储在本机。",
             (_, "og_refresh") => "刷新",
             (_, "og_window_5h") => "5h",
             (_, "og_window_weekly") => "每周",
             (_, "og_window_monthly") => "每月",
             (_, "og_unavailable") => "不可用",
             (_, "og_checking") => "查询中...",
-            (_, "og_not_configured") => "尚未配置 OpenCode Go 凭据。请填写工作区 ID 和 Auth Cookie 后点击保存。",
+            (_, "og_not_configured") => "尚未配置 OpenCode Go API Key。请填写 API Key 后点击保存。",
             (_, "og_credentials_saved") => "凭据已保存。",
             (_, "og_refresh_failed") => "刷新失败：",
             (_, "og_loaded") => "已加载。",
-            (_, "og_cookie_hint") => "留空则保留现有凭据。",
+            (_, "og_api_key_hint") => "留空则保留现有 API Key。",
             (_, "warn_title") => "警告",
             _ => "",
         }
@@ -4410,62 +4245,64 @@ mod windows_app {
         }
 
         #[test]
-        fn parses_opencode_go_dashboard_html() {
-            let ssr = concat!(
-                "<script>",
-                "rollingUsage:$R[40]={usagePercent:42.5,resetInSec:6960}",
-                "weeklyUsage:$R[41]={resetInSec:2307600,usagePercent:80}",
-                "monthlyUsage:$R[42]={usagePercent:15,resetInSec:2307600}",
-                "</script>",
-            );
-            let quota = parse_opencode_go_quota(ssr).expect("SSR quota parses");
+        fn parses_opencode_go_api_json() {
+            // 模拟 /zen/go/v1/usage 的真实响应
+            let payload = r#"{
+                "usage": {
+                    "rolling": {"status": "ok", "percent": 42.5, "resetsAt": "2026-01-02T00:00:00Z"},
+                    "weekly": {"status": "ok", "percent": 80, "resetsAt": "2026-01-08T00:00:00Z"},
+                    "monthly": {"status": "ok", "percent": 15, "resetsAt": "2026-01-01T00:00:00Z"}
+                }
+            }"#;
+            let parsed: OpenCodeGoApiResponse =
+                serde_json::from_str(payload).expect("API response parses");
+            let now = 1_767_225_600; // 2026-01-01T00:00:00Z
+            let quota = OpenCodeGoQuota {
+                rolling: parsed
+                    .usage
+                    .rolling
+                    .map(|window| api_window_to_usage(window, now)),
+                weekly: parsed
+                    .usage
+                    .weekly
+                    .map(|window| api_window_to_usage(window, now)),
+                monthly: parsed
+                    .usage
+                    .monthly
+                    .map(|window| api_window_to_usage(window, now)),
+            };
             let rolling = quota.rolling.expect("rolling window");
             assert_eq!(rolling.usage_percent, 42.5);
-            assert_eq!(rolling.reset_in_sec, 6960);
+            assert_eq!(rolling.reset_in_sec, 86400);
             assert!((rolling.percent_remaining - 57.5).abs() < 1e-9);
             let weekly = quota.weekly.expect("weekly window");
             assert_eq!(weekly.usage_percent, 80.0);
-            assert_eq!(weekly.reset_in_sec, 2307600);
-
-            let slot = concat!(
-                r#"<div data-slot="usage-item">"#,
-                r#"<span data-slot="usage-label">Rolling Usage</span>"#,
-                r#"<span data-slot="usage-value">42.5%</span>"#,
-                r#"<span data-slot="reset-time">1 hour 56 minutes</span>"#,
-                r#"</div>"#,
-                r#"<div data-slot="usage-item">"#,
-                r#"<span data-slot="usage-label">Monthly Usage</span>"#,
-                r#"<span data-slot="usage-value">15%</span>"#,
-                r#"<span data-slot="reset-now">Resets now</span>"#,
-                r#"</div>"#,
-            );
-            let quota = parse_opencode_go_quota(slot).expect("data-slot quota parses");
-            let rolling = quota.rolling.expect("slot rolling");
-            assert_eq!(rolling.usage_percent, 42.5);
-            assert_eq!(rolling.reset_in_sec, 6960);
-            let monthly = quota.monthly.expect("slot monthly");
+            assert_eq!(weekly.reset_in_sec, 7 * 86400);
+            let monthly = quota.monthly.expect("monthly window");
+            assert_eq!(monthly.usage_percent, 15.0);
             assert_eq!(monthly.reset_in_sec, 0);
 
-            assert_eq!(parse_human_readable_time("1 hour 56 minutes"), Some(6960));
+            // 部分响应只含 rolling 窗口
+            let partial =
+                r#"{"usage": {"rolling": {"percent": 10, "resetsAt": "2026-01-01T00:00:00Z"}}}"#;
+            let parsed: OpenCodeGoApiResponse =
+                serde_json::from_str(partial).expect("partial API response parses");
+            assert!(parsed.usage.rolling.is_some());
+            assert!(parsed.usage.weekly.is_none());
+            assert!(parsed.usage.monthly.is_none());
+
+            // 错误响应 message 提取
+            let error_body =
+                r#"{"type":"error","error":{"type":"AuthError","message":"Invalid API key."}}"#;
             assert_eq!(
-                parse_human_readable_time("26 days 17 hours"),
-                Some(2_307_600)
+                parse_opencode_go_api_error(error_body).as_deref(),
+                Some("Invalid API key.")
             );
-            assert_eq!(parse_human_readable_time("Resets now"), Some(0));
-            assert_eq!(parse_human_readable_time("garbage"), None);
+            assert_eq!(parse_opencode_go_api_error("not json"), None);
+
+            // 显示格式保留
             assert_eq!(format_reset_seconds(0), "now");
             assert_eq!(format_reset_seconds(6960), "1h 56m");
-            assert_eq!(encode_uri_component("a b"), "a%20b");
-
-            // Unparseable HTML (e.g. login page) yields an error.
-            assert!(parse_opencode_go_quota("<html>sign in</html>").is_err());
-
-            // A partial SSR payload keeps only the windows that are present.
-            let partial = r#"rollingUsage:$R[1]={usagePercent:10,resetInSec:3600}"#;
-            let quota = parse_opencode_go_quota(partial).expect("partial SSR parses");
-            assert!(quota.rolling.is_some());
-            assert!(quota.weekly.is_none());
-            assert!(quota.monthly.is_none());
         }
     }
 }
