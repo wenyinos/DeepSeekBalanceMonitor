@@ -28,6 +28,7 @@ Rainmeter 小组件预览图
 - Demo 模式无需真实 Key 即可测试：Py-Win/Py-Mac 提供开发者面板，Rust 通过保存 `demo` 作为 API Key 触发。
 - API Key 加密存储：Py-Win 使用 Fernet + SQLite，Rust 使用 SQLite `secure_settings`，Py-Mac 使用 Keychain。
 - Rainmeter 桌面小工具：仅本地可访问的状态接口；`.rmskin` 发布打包。Rust/Python Windows 双版均已支持。
+- Rainmeter `/widget-status` 现包含 OpenCode Go 额度字段（`og_*`），后台每 10 分钟刷新；接口约定与 Python 版实施建议见 `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`。
 - OpenCode Go 额度显示（Rust 版）：爬取 opencode.ai 工作区仪表板，展示 5 小时滚动 / 每周 / 每月三档用量；凭据加密存于 SQLite，绝不写入 config.json。
 
 Rust Linux 版本限定：
@@ -96,7 +97,7 @@ Plasma 小组件是可选功能，需要 KDE Plasma 6。它从本机 `dsmon` 读
 
 ### 可选 Rainmeter 小工具（Windows）
 
-Rainmeter 桌面小工具是可选功能。它通过本地地址 `127.0.0.1:17654` 从运行中的主进程获取状态，不保存也不接收 API Key。Rust 和 Python Windows 版均已支持。
+Rainmeter 桌面小工具是可选功能。它通过本地地址 `127.0.0.1:17654` 从运行中的主进程获取状态，不保存也不接收 API Key。Rust 和 Python Windows 版均已支持。`/widget-status` 响应包含 DeepSeek 余额、服务状态、消耗速率，以及（Rust Windows 版）OpenCode Go 额度字段（`og_configured`、`og_error`、`og_rolling|weekly|monthly_percent`/`_line`），后台每 10 分钟自动刷新。
 
 1. 从 [rainmeter.net](https://www.rainmeter.net/) 下载并安装 Rainmeter。
 2. 运行任意 Windows 版本（Python 或 Rust）——本地状态接口会自动启动。

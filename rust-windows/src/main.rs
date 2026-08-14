@@ -426,6 +426,9 @@ mod windows_app {
         alert_suppressed: bool,
         service_status: String,
         service_status_checked: bool,
+        opencode_configured: bool,
+        opencode: Option<OpenCodeGoQuota>,
+        opencode_error: Option<String>,
     }
 
     struct CheckResult {
@@ -485,6 +488,7 @@ mod windows_app {
         }
 
         ui.start_check();
+        spawn_opencode_refresh(ui.state.clone());
         nwg::dispatch_thread_events();
         log_line("Rust Windows app exited");
         Ok(())
@@ -998,6 +1002,43 @@ mod windows_app {
         error: Option<String>,
         checking: bool,
         service_status: String,
+        opencode_configured: bool,
+        opencode: Option<OpenCodeGoQuota>,
+        opencode_error: Option<String>,
+    }
+
+    fn spawn_opencode_refresh(state: Arc<Mutex<RuntimeState>>) {
+        thread::spawn(move || loop {
+            let api_key = read_secure_value(OPENCODE_GO_API_KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let configured = !api_key.is_empty();
+            let config = state.lock().unwrap().config.clone();
+            let result = if configured {
+                fetch_opencode_go_quota(&api_key, effective_http_proxy(&config)).map(Some)
+            } else {
+                Ok(None)
+            };
+            {
+                let mut state = state.lock().unwrap();
+                state.opencode_configured = configured;
+                match result {
+                    Ok(Some(quota)) => {
+                        state.opencode = Some(quota);
+                        state.opencode_error = None;
+                    }
+                    Ok(None) => {
+                        state.opencode = None;
+                        state.opencode_error = None;
+                    }
+                    Err(error) => {
+                        state.opencode_error = Some(error);
+                    }
+                }
+            }
+            thread::sleep(Duration::from_secs(600));
+        });
     }
 
     fn spawn_balance_check(config: AppConfig, tx: Sender<UiMessage>, notice: nwg::NoticeSender) {
@@ -1121,6 +1162,9 @@ mod windows_app {
                 error: state.error.clone(),
                 checking: state.checking,
                 service_status: state.service_status.clone(),
+                opencode_configured: state.opencode_configured,
+                opencode: state.opencode.clone(),
+                opencode_error: state.opencode_error.clone(),
             }
         };
         let lang = request_language(target, &snapshot.config.ui_language);
@@ -1209,15 +1253,68 @@ mod windows_app {
                     "📊 预计可用 --".to_string()
                 }
             });
+        let (
+            og_error,
+            og_rolling_percent,
+            og_rolling_line,
+            og_weekly_percent,
+            og_weekly_line,
+            og_monthly_percent,
+            og_monthly_line,
+        ) = match &snapshot.opencode {
+            Some(quota) => (
+                snapshot.opencode_error.clone().unwrap_or_default(),
+                og_window_percent(quota.rolling.as_ref()),
+                og_window_line(lang, quota.rolling.as_ref()),
+                og_window_percent(quota.weekly.as_ref()),
+                og_window_line(lang, quota.weekly.as_ref()),
+                og_window_percent(quota.monthly.as_ref()),
+                og_window_line(lang, quota.monthly.as_ref()),
+            ),
+            None => (
+                snapshot.opencode_error.clone().unwrap_or_default(),
+                0,
+                "--".to_string(),
+                0,
+                "--".to_string(),
+                0,
+                "--".to_string(),
+            ),
+        };
         format!(
-            "{{\"accent_color\":{},\"balance_line\":{},\"status_line\":{},\"last_check\":{},\"service_status_line\":{},\"estimated_line\":{}}}",
+            "{{\"accent_color\":{},\"balance_line\":{},\"status_line\":{},\"last_check\":{},\"service_status_line\":{},\"estimated_line\":{},\"og_configured\":{},\"og_error\":{},\"og_rolling_percent\":{},\"og_rolling_line\":{},\"og_weekly_percent\":{},\"og_weekly_line\":{},\"og_monthly_percent\":{},\"og_monthly_line\":{}}}",
             json_string(&rainmeter_accent_color(snapshot)),
             json_string(&balance_line),
             json_string(&status_line),
             json_string(&last_check),
             json_string(&service_status_line),
-            json_string(&estimated_line)
+            json_string(&estimated_line),
+            if snapshot.opencode_configured { "true" } else { "false" },
+            json_string(&og_error),
+            og_rolling_percent,
+            json_string(&og_rolling_line),
+            og_weekly_percent,
+            json_string(&og_weekly_line),
+            og_monthly_percent,
+            json_string(&og_monthly_line),
         )
+    }
+
+    fn og_window_percent(usage: Option<&OpenCodeGoUsage>) -> i64 {
+        usage
+            .map(|usage| usage.usage_percent.clamp(0.0, 100.0) as i64)
+            .unwrap_or(0)
+    }
+
+    fn og_window_line(lang: &str, usage: Option<&OpenCodeGoUsage>) -> String {
+        match usage {
+            Some(usage) => format!(
+                "{:.0}% · {}",
+                usage.usage_percent,
+                format_reset_seconds(usage.reset_in_sec)
+            ),
+            None => tr(lang, "og_unavailable").to_string(),
+        }
     }
 
     fn rainmeter_accent_color(snapshot: &RainmeterSnapshot) -> String {
@@ -4307,6 +4404,21 @@ mod windows_app {
                 error: None,
                 checking: false,
                 service_status: "none".to_string(),
+                opencode_configured: true,
+                opencode: Some(OpenCodeGoQuota {
+                    rolling: Some(OpenCodeGoUsage {
+                        usage_percent: 42.0,
+                        percent_remaining: 58.0,
+                        reset_in_sec: 6960,
+                    }),
+                    weekly: None,
+                    monthly: Some(OpenCodeGoUsage {
+                        usage_percent: 30.0,
+                        percent_remaining: 70.0,
+                        reset_in_sec: 1_548_000,
+                    }),
+                }),
+                opencode_error: None,
             };
             let rainmeter_json = rainmeter_status_json(&snapshot, Some(&rate), "zh", now);
             let rainmeter: serde_json::Value =
@@ -4322,6 +4434,12 @@ mod windows_app {
                 rainmeter["estimated_line"].as_str(),
                 Some("📊 忙时消耗 1.50/小时 | 预计可用 28 天 4 小时")
             );
+            assert_eq!(rainmeter["og_configured"].as_bool(), Some(true));
+            assert_eq!(rainmeter["og_rolling_percent"].as_i64(), Some(42));
+            assert_eq!(rainmeter["og_rolling_line"].as_str(), Some("42% · 1h 56m"));
+            assert_eq!(rainmeter["og_weekly_line"].as_str(), Some("不可用"));
+            assert_eq!(rainmeter["og_monthly_percent"].as_i64(), Some(30));
+            assert_eq!(rainmeter["og_monthly_line"].as_str(), Some("30% · 17d 22h"));
             assert_eq!(request_language("/widget-status?lang=en", "zh"), "en");
             assert!(is_low_balance(&state));
             assert!(should_low_balance_alert(&mut state, true));

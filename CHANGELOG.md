@@ -9,6 +9,7 @@ All notable changes to DeepSeek Balance Monitor are documented here.
 - Plasma 6 widget settings redesigned to match rust-windows: a new "Account" page holds both API keys (DeepSeek and OpenCode Go) plus the OpenCode quota bars; the General page is organised into Query / General / Proxy / Icon Appearance groups; the separate "OpenCode Go" settings page is merged into Account
 - Plasma widget main view redesigned: the DeepSeek section follows a four-line layout (balance, last check, API status, estimated availability) with the refresh button moved to the top-right corner refreshing DeepSeek and OpenCode together; the OpenCode section shows three usage progress bars with larger type and bars
 - Font hierarchy and spacing adjusted across both sections for a clearer visual order
+- Rust Windows: the local Rainmeter `/widget-status` interface now includes OpenCode Go quota fields (`og_configured`, `og_error`, `og_rolling/weekly/monthly_percent` and `_line`), refreshed every 10 minutes by a background thread with last-good retention on failure; the interface contract and Python-port guidance are documented in `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`
 
 ## Rust v1.3.1 (2026-08-14)
 

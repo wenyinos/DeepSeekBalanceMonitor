@@ -28,6 +28,7 @@ Rainmeter widget preview
 - Demo mode for testing without a real API key: developer tools panel on Py-Win/Py-Mac, `demo` API key trigger on Rust.
 - Encrypted API key storage: Fernet + SQLite on Py-Win, SQLite `secure_settings` on Rust, Keychain on Py-Mac.
 - Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
+- Rainmeter `/widget-status` now includes OpenCode Go quota fields (`og_*`), refreshed every 10 minutes in the background; interface contract documented with Python-port guidance.
 - OpenCode Go quota display (Rust builds): scrapes the opencode.ai workspace dashboard for rolling (5h), weekly, and monthly usage; credentials stored encrypted in SQLite, never in config.json.
 
 Rust Linux-specific:
@@ -95,7 +96,7 @@ If you only need the widget, download `deepseek-balance-monitor-*-plasmoid.plasm
 
 ### Optional Rainmeter Widget (Windows)
 
-The Rainmeter desktop widget is optional. It reads local status from a running DeepSeek Balance Monitor process (`127.0.0.1:17654`); it does not store or receive your API key. Supported on both Rust and Python Windows builds.
+The Rainmeter desktop widget is optional. It reads local status from a running DeepSeek Balance Monitor process (`127.0.0.1:17654`); it does not store or receive your API key. Supported on both Rust and Python Windows builds. The `/widget-status` response includes DeepSeek balance, service status, consumption rate and — on the Rust Windows build — OpenCode Go quota fields (`og_configured`, `og_error`, and `og_rolling|weekly|monthly_percent`/`_line`), refreshed every 10 minutes in the background.
 
 1. Install Rainmeter from [rainmeter.net](https://www.rainmeter.net/).
 2. Run any Windows build (Python or Rust) — the local status interface starts automatically.

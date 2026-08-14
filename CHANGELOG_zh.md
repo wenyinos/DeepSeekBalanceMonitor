@@ -9,6 +9,7 @@
 - Plasma 6 小组件设置页仿照 rust-windows 重新设计：新增「账户」页集中管理 DeepSeek 与 OpenCode Go 两个 API Key 及 OpenCode 额度进度条；「常规」页按「查询 / 通用 / 代理 / 图标外观」分组；独立的「OpenCode Go」设置页并入「账户」页
 - Plasma 小组件主视图重新设计：DeepSeek 区采用四行布局（余额、上次查询、API 服务状态、预计可用），刷新按钮移至右上角并同时刷新 DeepSeek 与 OpenCode；OpenCode 区展示三档用量进度条，字号与进度条高度增大
 - 两个区块统一字号层级与间距，视觉层次更清晰
+- Rust Windows：本地 Rainmeter `/widget-status` 接口新增 OpenCode Go 额度字段（`og_configured`、`og_error`、`og_rolling|weekly|monthly_percent` 与 `_line`），后台线程每 10 分钟刷新缓存、查询失败保留上次成功数据；接口约定与 Python 版实施建议见 `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`
 
 ## Rust v1.3.1 (2026-08-14)
 
