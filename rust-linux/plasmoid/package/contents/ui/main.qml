@@ -34,6 +34,13 @@ PlasmoidItem {
     property var iconColors: ({})
     property bool iconStroke: false
     property var consumptionRate: null
+    property real ogRollingPercent: 0
+    property real ogWeeklyPercent: 0
+    property real ogMonthlyPercent: 0
+    property string ogRollingText: "--"
+    property string ogWeeklyText: "--"
+    property string ogMonthlyText: "--"
+    property string ogStatusText: ""
     readonly property string notificationIconPath: "/usr/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
     readonly property color warmGray: "#8a8078"
     readonly property color glassTextColor: "#ffffff"
@@ -176,7 +183,12 @@ PlasmoidItem {
             fallbackBalanceLine: "⚠ 请打开原进程",
             fallbackLastCheck: "尚未查询",
             fallbackServiceStatusLine: "⚪ 未连接",
-            fallbackEstimatedLine: "📊 等待数据"
+            fallbackEstimatedLine: "📊 等待数据",
+            og5h: "5h",
+            ogWeekly: "每周",
+            ogMonthly: "每月",
+            ogUnavailable: "不可用",
+            ogNotConfigured: "未配置 OpenCode API Key"
         }
         var en = {
             title: "DeepSeek Balance Monitor",
@@ -225,7 +237,12 @@ PlasmoidItem {
             fallbackBalanceLine: "⚠ Open the main app",
             fallbackLastCheck: "Not checked",
             fallbackServiceStatusLine: "⚪ Not Connected",
-            fallbackEstimatedLine: "📊 Waiting for data"
+            fallbackEstimatedLine: "📊 Waiting for data",
+            og5h: "Session",
+            ogWeekly: "Weekly",
+            ogMonthly: "Monthly",
+            ogUnavailable: "unavailable",
+            ogNotConfigured: "OpenCode API key not configured"
         }
         var table = language === "zh" ? zh : en
         return table[key] || key
@@ -235,6 +252,47 @@ PlasmoidItem {
         checking = true
         runCommand("systemctl --user is-active dsmon.service")
         runCommand("/usr/local/bin/dsmon widget-status")
+        runCommand("/usr/local/bin/dsmon opencode-go json")
+    }
+
+    function barColor(percent) {
+        if (percent >= 80) {
+            return "#e53935"
+        }
+        if (percent >= 60) {
+            return "#ffb300"
+        }
+        return "#4caf50"
+    }
+
+    function formatOgValue(usage) {
+        if (!usage) {
+            return tr("ogUnavailable")
+        }
+        return Math.round(usage.usage_percent) + "% · " + formatResetSeconds(usage.reset_in_sec)
+    }
+
+    function formatResetSeconds(secs) {
+        if (secs <= 0) {
+            return "now"
+        }
+        var days = Math.floor(secs / 86400)
+        var hours = Math.floor((secs % 86400) / 3600)
+        var minutes = Math.floor((secs % 3600) / 60)
+        var parts = []
+        if (days > 0) {
+            parts.push(days + "d")
+        }
+        if (hours > 0) {
+            parts.push(hours + "h")
+        }
+        if (minutes > 0) {
+            parts.push(minutes + "m")
+        }
+        if (parts.length === 0) {
+            parts.push((secs % 60) + "s")
+        }
+        return parts.join(" ")
     }
 
     function toggleDaemon() {
@@ -499,6 +557,39 @@ PlasmoidItem {
         }
     }
 
+    function applyOpencodeGo(stdout, stderr) {
+        if (!stdout || stdout.trim().length === 0) {
+            ogStatusText = stderr && stderr.length > 0 ? stderr.trim() : ""
+            return
+        }
+        try {
+            var status = JSON.parse(stdout)
+            if (!status.configured) {
+                ogRollingPercent = 0
+                ogWeeklyPercent = 0
+                ogMonthlyPercent = 0
+                ogRollingText = "--"
+                ogWeeklyText = "--"
+                ogMonthlyText = "--"
+                ogStatusText = tr("ogNotConfigured")
+                return
+            }
+            if (status.error && status.error.length > 0) {
+                ogStatusText = status.error
+                return
+            }
+            ogRollingPercent = status.rolling ? status.rolling.usage_percent : 0
+            ogWeeklyPercent = status.weekly ? status.weekly.usage_percent : 0
+            ogMonthlyPercent = status.monthly ? status.monthly.usage_percent : 0
+            ogRollingText = formatOgValue(status.rolling)
+            ogWeeklyText = formatOgValue(status.weekly)
+            ogMonthlyText = formatOgValue(status.monthly)
+            ogStatusText = ""
+        } catch (error) {
+            ogStatusText = String(error)
+        }
+    }
+
     Timer {
         interval: Math.max(1, intervalMinutes) * 60 * 1000
         repeat: true
@@ -516,6 +607,8 @@ PlasmoidItem {
             var stderr = data["stderr"] || ""
             if (String(sourceName).indexOf("widget-status") !== -1) {
                 root.applyStatus(stdout, stderr)
+            } else if (String(sourceName).indexOf("opencode-go json") !== -1) {
+                root.applyOpencodeGo(stdout, stderr)
             } else if (String(sourceName).indexOf("is-active dsmon.service") !== -1) {
                 root.daemonChecked = true
                 root.daemonRunning = stdout.trim() === "active"
@@ -667,8 +760,8 @@ PlasmoidItem {
                 spacing: Kirigami.Units.smallSpacing
 
                 Rectangle {
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 2.6
-                    Layout.preferredHeight: Kirigami.Units.gridUnit * 2.6
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 2.2
+                    Layout.preferredHeight: Kirigami.Units.gridUnit * 2.2
                     radius: width / 2
                     color: root.iconFill
                     border.color: root.iconTextColor
@@ -682,19 +775,18 @@ PlasmoidItem {
                         fillMode: Image.PreserveAspectFit
                     }
                 }
-
-                PlasmaExtras.ShadowedLabel {
+                PlasmaComponents.Label {
                     Layout.fillWidth: true
-                    text: root.rainmeterBalanceLine()
+                    text: "💰 " + (root.ok ? root.totalBalance + " " + root.totalCurrency : "--")
                     color: root.glassTextColor
                     font.bold: true
-                    font.pointSize: root.balanceTextPointSize
+                    font.pointSize: 16
                     elide: Text.ElideRight
                 }
                 PlasmaComponents.Button {
                     id: refreshButton
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3.8
-                    Layout.preferredHeight: Kirigami.Units.gridUnit * 1.9
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3.0
+                    Layout.preferredHeight: Kirigami.Units.gridUnit * 1.4
                     text: tr("check")
                     icon.name: "view-refresh"
                     enabled: !root.checking
@@ -705,74 +797,195 @@ PlasmoidItem {
                         border.color: Qt.rgba(1, 1, 1, 0.46)
                         border.width: 1
                     }
-                    contentItem: PlasmaExtras.ShadowedLabel {
+                    contentItem: PlasmaComponents.Label {
                         text: refreshButton.text
                         color: root.glassTextColor
                         font.bold: true
-                        font.pointSize: 10
+                        font.pointSize: 9
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                 }
             }
 
-            PlasmaExtras.ShadowedLabel {
+            RowLayout {
                 Layout.fillWidth: true
-                visible: false
-                text: ""
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: "🕐 " + tr("lastCheck") + root.labelSeparator()
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                PlasmaComponents.Label {
+                    text: root.relativeLastCheck()
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                    elide: Text.ElideRight
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: "📡 " + tr("serviceStatus") + root.labelSeparator()
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                PlasmaComponents.Label {
+                    text: root.rainmeterServiceValue()
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                    elide: Text.ElideRight
+                }
+            }
+
+            PlasmaComponents.Label {
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                text: "📊 " + root.estimatedAvailabilityText()
                 color: root.glassTextColor
-                font.pointSize: 11
-                Layout.preferredHeight: 0
-                wrapMode: Text.WordWrap
-                maximumLineCount: 2
+                font.bold: true
+                font.pointSize: 12
                 elide: Text.ElideRight
             }
 
-            GridLayout {
+            Rectangle {
                 Layout.fillWidth: true
-                columns: 2
-                rowSpacing: Kirigami.Units.smallSpacing
-                columnSpacing: Kirigami.Units.largeSpacing
-
-                PlasmaExtras.ShadowedLabel {
-                    text: "🕐 " + tr("lastCheck") + root.labelSeparator()
-                    color: root.glassTextColor
-                    font.pointSize: 10
-                }
-                PlasmaExtras.ShadowedLabel {
-                    Layout.fillWidth: true
-                    text: root.rainmeterLastValue()
-                    color: root.glassTextColor
-                    font.pointSize: 10
-                    elide: Text.ElideRight
-                }
-                PlasmaExtras.ShadowedLabel {
-                    text: "📡 " + tr("rainmeterServiceLabel") + root.labelSeparator()
-                    color: root.glassTextColor
-                    font.pointSize: 10
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
-
-                    PlasmaExtras.ShadowedLabel {
-                        Layout.fillWidth: true
-                        text: root.rainmeterServiceValue()
-                        color: root.glassTextColor
-                        font.pointSize: 10
-                        elide: Text.ElideRight
-                    }
-                }
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                height: 1
+                radius: 1
+                color: Qt.rgba(1, 1, 1, 0.6)
             }
 
             PlasmaExtras.ShadowedLabel {
                 Layout.fillWidth: true
-                text: root.rainmeterEstimatedLine()
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                text: "OpenCode"
                 color: root.glassTextColor
                 font.bold: true
-                font.pointSize: root.balanceTextPointSize
+                font.pointSize: 13
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: tr("og5h")
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 16
+                    radius: 8
+                    color: Qt.rgba(0, 0, 0, 0.35)
+                    border.color: Qt.rgba(1, 1, 1, 0.3)
+                    border.width: 1
+                    Rectangle {
+                        width: parent.width * Math.min(1, root.ogRollingPercent / 100)
+                        height: parent.height
+                        radius: 8
+                        color: root.barColor(root.ogRollingPercent)
+                    }
+                }
+                PlasmaComponents.Label {
+                    text: root.ogRollingText
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: tr("ogWeekly")
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 16
+                    radius: 8
+                    color: Qt.rgba(0, 0, 0, 0.35)
+                    border.color: Qt.rgba(1, 1, 1, 0.3)
+                    border.width: 1
+                    Rectangle {
+                        width: parent.width * Math.min(1, root.ogWeeklyPercent / 100)
+                        height: parent.height
+                        radius: 8
+                        color: root.barColor(root.ogWeeklyPercent)
+                    }
+                }
+                PlasmaComponents.Label {
+                    text: root.ogWeeklyText
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: tr("ogMonthly")
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 16
+                    radius: 8
+                    color: Qt.rgba(0, 0, 0, 0.35)
+                    border.color: Qt.rgba(1, 1, 1, 0.3)
+                    border.width: 1
+                    Rectangle {
+                        width: parent.width * Math.min(1, root.ogMonthlyPercent / 100)
+                        height: parent.height
+                        radius: 8
+                        color: root.barColor(root.ogMonthlyPercent)
+                    }
+                }
+                PlasmaComponents.Label {
+                    text: root.ogMonthlyText
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                }
+            }
+
+            PlasmaComponents.Label {
+                Layout.fillWidth: true
+                visible: root.ogStatusText.length > 0
+                text: root.ogStatusText
+                color: root.glassTextColor
+                font.pointSize: 11
                 wrapMode: Text.WordWrap
-                maximumLineCount: 2
                 elide: Text.ElideRight
             }
         }

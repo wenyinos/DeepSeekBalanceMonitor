@@ -10,15 +10,19 @@ KCM.SimpleKCM {
 
     property bool busy: false
     property string statusText: ""
-    property string opencodeGoText: ""
+    property bool hasStoredApiKey: false
+    property string loadedApiKey: ""
     property bool hasOgApiKey: false
     property string loadedOgApiKey: ""
+    property string opencodeGoText: ""
     property real rollingPercent: 0
     property real weeklyPercent: 0
     property real monthlyPercent: 0
     property string rollingText: "--"
     property string weeklyText: "--"
     property string monthlyText: "--"
+    property var saveCommands: []
+    property bool savingBatch: false
     property string pageLanguage: systemLanguage()
     property string cfg_language: pageLanguage
     property string cfg_languageDefault: systemLanguage()
@@ -36,49 +40,63 @@ KCM.SimpleKCM {
 
     function tr(key) {
         var zh = {
-            opencodeGoTitle: "OpenCode Go 额度",
-            ogNotConfigured: "未配置 OpenCode Go API Key。请在终端运行 dsmon opencode-go set-key <api_key> 进行配置。",
-            ogChecking: "查询 OpenCode Go 额度中...",
-            ogError: "OpenCode Go 额度查询失败：",
+            groupCredentials: "凭据",
+            groupQuota: "额度",
+            apiKey: "DeepSeek API Key：",
+            apiKeyStored: "********",
+            apiKeyUpdateHint: "API Key 已加密保存。修改真实 Key 时请在终端运行 dsmon set-key；如需演示模式，可直接输入 demo 后保存。",
+            showApiKey: "显示 API Key",
+            ogApiKeyLabel: "OpenCode Go API Key：",
+            ogApiKeyHint: "留空则保留现有 API Key。",
+            ogHint: "API Key 可在 https://opencode.ai/auth 获取并填入上方。密钥将加密存储在本机。",
+            save: "保存凭据",
+            saving: "正在保存...",
+            saved: "已保存。",
+            saveFailed: "保存失败：",
+            loading: "正在加载...",
+            loaded: "已加载。",
+            loadFailed: "加载失败：",
+            refresh: "刷新",
             og5h: "5h",
             ogWeekly: "每周",
             ogMonthly: "每月",
             ogUnavailable: "不可用",
-            apiKey: "OpenCode Go API Key：",
-            apiKeyStored: "********",
-            save: "保存",
-            saving: "正在保存...",
-            saved: "已保存。",
-            saveFailed: "保存失败：",
-            ogSetKeyPlaceholder: "dsmon opencode-go set-key",
-            loading: "正在加载...",
-            loaded: "已加载。",
-            loadFailed: "加载失败：",
-            refresh: "刷新"
+            ogChecking: "查询 OpenCode Go 额度中...",
+            ogError: "OpenCode Go 额度查询失败：",
+            ogNotConfigured: "尚未配置 OpenCode Go API Key。请在下方输入并保存。"
         }
         var en = {
-            opencodeGoTitle: "OpenCode Go Quota",
-            ogNotConfigured: "OpenCode Go API key is not configured. Run dsmon opencode-go set-key <api_key> in a terminal.",
-            ogChecking: "Checking OpenCode Go quota...",
-            ogError: "Failed to fetch OpenCode Go quota: ",
+            groupCredentials: "Credentials",
+            groupQuota: "Quota",
+            apiKey: "DeepSeek API key:",
+            apiKeyStored: "********",
+            apiKeyUpdateHint: "API key is stored encrypted. To update a real key, run dsmon set-key in a terminal. For demo mode, enter demo here and save.",
+            showApiKey: "Show API key",
+            ogApiKeyLabel: "OpenCode Go API key:",
+            ogApiKeyHint: "Leave blank to keep the existing API key.",
+            ogHint: "Get an API key from https://opencode.ai/auth and enter it above. The key is encrypted and stored locally.",
+            save: "Save credentials",
+            saving: "Saving...",
+            saved: "Saved.",
+            saveFailed: "Failed to save: ",
+            loading: "Loading...",
+            loaded: "Loaded.",
+            loadFailed: "Failed to load: ",
+            refresh: "Refresh",
             og5h: "5h",
             ogWeekly: "Weekly",
             ogMonthly: "Monthly",
             ogUnavailable: "unavailable",
-            apiKey: "OpenCode Go API key:",
-            apiKeyStored: "********",
-            save: "Save",
-            saving: "Saving...",
-            saved: "Saved.",
-            saveFailed: "Failed to save: ",
-            ogSetKeyPlaceholder: "dsmon opencode-go set-key",
-            loading: "Loading...",
-            loaded: "Loaded.",
-            loadFailed: "Failed to load: ",
-            refresh: "Refresh"
+            ogChecking: "Checking OpenCode Go quota...",
+            ogError: "Failed to fetch OpenCode Go quota: ",
+            ogNotConfigured: "OpenCode Go API key is not configured. Enter it below and save."
         }
         var table = uiLanguage === "zh" ? zh : en
         return table[key] || key
+    }
+
+    function shellQuote(value) {
+        return "'" + String(value).replace(/'/g, "'\\''") + "'"
     }
 
     function barColor(percent) {
@@ -144,18 +162,41 @@ KCM.SimpleKCM {
         loadOpencodeGo()
     }
 
-    function shellQuote(value) {
-        return "'" + String(value).replace(/'/g, "'\\''") + "'"
+    function runNextSaveCommand() {
+        if (saveCommands.length === 0) {
+            savingBatch = false
+            busy = false
+            statusText = tr("saved")
+            loadConfig()
+            return
+        }
+        loader.connectSource(saveCommands.shift())
     }
 
-    function saveApiKey() {
-        var value = ogApiKeyField.text.trim()
-        if (value.length === 0 || value === tr("apiKeyStored")) {
+    function saveKeys() {
+        var commands = []
+        var dsKey = apiKeyField.text.trim()
+        if (dsKey.length > 0 && dsKey !== tr("apiKeyStored")) {
+            if (dsKey.toLowerCase() === "demo") {
+                commands.push("/usr/local/bin/dsmon set-key " + shellQuote("demo"))
+            } else {
+                statusText = tr("apiKeyUpdateHint")
+                busy = false
+                return
+            }
+        }
+        var ogKey = ogApiKeyField.text.trim()
+        if (ogKey.length > 0 && ogKey !== tr("apiKeyStored")) {
+            commands.push("/usr/local/bin/dsmon opencode-go set-key " + shellQuote(ogKey))
+        }
+        if (commands.length === 0) {
             return
         }
         busy = true
         statusText = tr("saving")
-        loader.connectSource("/usr/local/bin/dsmon opencode-go set-key " + shellQuote(value))
+        saveCommands = commands
+        savingBatch = true
+        runNextSaveCommand()
     }
 
     Component.onCompleted: loadConfig()
@@ -173,6 +214,11 @@ KCM.SimpleKCM {
                     pageLanguage = config.ui_language === "zh" || config.ui_language === "en"
                         ? config.ui_language
                         : systemLanguage()
+                    hasStoredApiKey = !!config.has_key || (config.api_key || "").length > 0
+                        || config.api_key === "masked"
+                    loadedApiKey = hasStoredApiKey ? tr("apiKeyStored") : ""
+                    apiKeyField.text = loadedApiKey
+                    apiKeyField.placeholderText = hasStoredApiKey ? tr("apiKeyStored") : "dsmon set-key"
                 } catch (error) {
                     pageLanguage = systemLanguage()
                 }
@@ -180,13 +226,17 @@ KCM.SimpleKCM {
                 loadOpencodeGo()
                 return
             }
-            if (String(sourceName).indexOf("opencode-go set-key") !== -1) {
-                busy = false
-                if (stderr.trim().length > 0) {
-                    statusText = tr("saveFailed") + stderr.trim()
-                } else {
-                    statusText = tr("saved")
-                    loadOpencodeGo()
+            if (String(sourceName).indexOf("opencode-go set-key") !== -1
+                    || String(sourceName).indexOf("set-key") !== -1) {
+                if (savingBatch) {
+                    if (stderr.trim().length > 0) {
+                        saveCommands = []
+                        savingBatch = false
+                        busy = false
+                        statusText = tr("saveFailed") + stderr.trim()
+                    } else {
+                        runNextSaveCommand()
+                    }
                 }
                 disconnectSource(sourceName)
                 return
@@ -200,7 +250,7 @@ KCM.SimpleKCM {
                     if (!status.configured) {
                         hasOgApiKey = false
                         ogApiKeyField.text = ""
-                        ogApiKeyField.placeholderText = tr("ogSetKeyPlaceholder")
+                        ogApiKeyField.placeholderText = tr("ogApiKeyHint")
                         opencodeGoText = tr("ogNotConfigured")
                     } else {
                         hasOgApiKey = true
@@ -216,7 +266,7 @@ KCM.SimpleKCM {
                             rollingText = formatOgValue(status.rolling)
                             weeklyText = formatOgValue(status.weekly)
                             monthlyText = formatOgValue(status.monthly)
-                            opencodeGoText = tr("opencodeGoTitle")
+                            opencodeGoText = tr("groupQuota")
                         }
                     }
                     statusText = tr("loaded")
@@ -230,26 +280,76 @@ KCM.SimpleKCM {
     }
 
     Kirigami.FormLayout {
+                QtControls.Label {
+            text: tr("groupCredentials")
+            font.bold: true
+            Layout.fillWidth: true
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: Kirigami.Theme.disabledTextColor
+        }
+
         QtControls.TextField {
-            id: ogApiKeyField
+            id: apiKeyField
             Kirigami.FormData.label: tr("apiKey")
             Layout.fillWidth: true
             echoMode: TextInput.Password
         }
 
-        RowLayout {
-            Layout.fillWidth: true
+        QtControls.CheckBox {
+            id: showDsKeyCheck
+            text: tr("showApiKey")
+            onToggled: apiKeyField.echoMode = checked ? TextInput.Normal : TextInput.Password
+        }
 
-            QtControls.Button {
-                text: tr("save")
-                enabled: !busy
-                onClicked: saveApiKey()
-            }
-            QtControls.Button {
-                text: tr("refresh")
-                enabled: !busy
-                onClicked: refresh()
-            }
+        QtControls.Label {
+            Layout.fillWidth: true
+            text: tr("apiKeyUpdateHint")
+            wrapMode: Text.WordWrap
+        }
+
+        QtControls.TextField {
+            id: ogApiKeyField
+            Kirigami.FormData.label: tr("ogApiKeyLabel")
+            Layout.fillWidth: true
+            echoMode: TextInput.Password
+        }
+
+        QtControls.CheckBox {
+            id: showOgKeyCheck
+            text: tr("showApiKey")
+            onToggled: ogApiKeyField.echoMode = checked ? TextInput.Normal : TextInput.Password
+        }
+
+        QtControls.Label {
+            Layout.fillWidth: true
+            text: tr("ogHint")
+            wrapMode: Text.WordWrap
+        }
+
+        QtControls.Button {
+            text: tr("save")
+            enabled: !busy
+            onClicked: saveKeys()
+        }
+
+                QtControls.Label {
+            text: tr("groupQuota")
+            font.bold: true
+            Layout.fillWidth: true
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: Kirigami.Theme.disabledTextColor
+        }
+
+        QtControls.Button {
+            text: tr("refresh")
+            enabled: !busy
+            onClicked: refresh()
         }
 
         RowLayout {

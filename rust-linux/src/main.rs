@@ -2449,7 +2449,12 @@ mod tests {
         assert!(qml.contains("function relativeLastCheck()"));
         assert!(qml.contains("lines.push(\"💰 \""));
         assert!(qml.contains("lines.push(\"📡 \""));
-        assert!(qml.contains("text: root.rainmeterEstimatedLine()"));
+        assert!(qml.contains("/usr/local/bin/dsmon opencode-go json"));
+        assert!(qml.contains("function applyOpencodeGo"));
+        assert!(qml.contains("function barColor"));
+        assert!(qml.contains("function formatOgValue"));
+        assert!(qml.contains("ogRollingPercent"));
+        assert!(qml.contains("text: \"OpenCode\""));
         assert!(!qml.contains("text: tr(\"balances\")"));
         assert!(!qml.contains("model: Object.keys(root.balances)"));
 
@@ -2458,21 +2463,23 @@ mod tests {
         assert!(config_qml.contains("config.export_path"));
         assert!(config_qml.contains("/usr/local/bin/dsmon set "));
         assert!(!config_qml.contains("set-config"));
-        let opencode_go_qml = include_str!("../plasmoid/package/contents/ui/configOpencodeGo.qml");
-        assert!(opencode_go_qml.contains("/usr/local/bin/dsmon opencode-go json"));
-        assert!(opencode_go_qml.contains("/usr/local/bin/dsmon opencode-go set-key"));
-        assert!(opencode_go_qml.contains("saveApiKey"));
-        assert!(opencode_go_qml.contains("ogApiKeyField"));
-        assert!(opencode_go_qml.contains("opencodeGoTitle"));
-        assert!(opencode_go_qml.contains("QtControls.ProgressBar"));
-        assert!(opencode_go_qml.contains("visualPosition"));
-        assert!(opencode_go_qml.contains("barColor"));
-        assert!(opencode_go_qml.contains("rollingPercent"));
-        assert!(opencode_go_qml.contains("formatOgValue"));
-        assert!(opencode_go_qml.contains("ogNotConfigured"));
+        let account_qml = include_str!("../plasmoid/package/contents/ui/configAccount.qml");
+        assert!(account_qml.contains("/usr/local/bin/dsmon opencode-go json"));
+        assert!(account_qml.contains("/usr/local/bin/dsmon opencode-go set-key"));
+        assert!(account_qml.contains("/usr/local/bin/dsmon set-key"));
+        assert!(account_qml.contains("ogApiKeyField"));
+        assert!(account_qml.contains("groupCredentials"));
+        assert!(account_qml.contains("groupQuota"));
+        assert!(account_qml.contains("QtControls.ProgressBar"));
+        assert!(account_qml.contains("visualPosition"));
+        assert!(account_qml.contains("barColor"));
+        assert!(account_qml.contains("rollingPercent"));
+        assert!(account_qml.contains("formatOgValue"));
+        assert!(account_qml.contains("ogNotConfigured"));
         let config_model = include_str!("../plasmoid/package/contents/config/config.qml");
-        assert!(config_model.contains("configOpencodeGo.qml"));
-        assert!(config_model.contains("opencodeGo"));
+        assert!(config_model.contains("configAccount.qml"));
+        assert!(config_model.contains("account"));
+        assert!(!config_model.contains("configOpencodeGo.qml"));
     }
 
     #[test]
