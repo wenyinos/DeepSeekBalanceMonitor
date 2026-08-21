@@ -28,14 +28,14 @@ Rainmeter 小组件预览图
 - Demo 模式无需真实 Key 即可测试：Py-Win/Py-Mac 提供开发者面板，Rust 通过保存 `demo` 作为 API Key 触发。
 - API Key 加密存储：Py-Win 使用 Fernet + SQLite，Rust 使用 SQLite `secure_settings`，Py-Mac 使用 Keychain。
 - Rainmeter 桌面小工具：仅本地可访问的状态接口；`.rmskin` 发布打包。Rust/Python Windows 双版均已支持。
+- Rainmeter `/widget-status` 现包含 OpenCode Go 额度字段（`og_*`），后台每 10 分钟刷新；接口约定与 Python 版实施建议见 `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`。
 - OpenCode Go 额度显示（Rust 版）：爬取 opencode.ai 工作区仪表板，展示 5 小时滚动 / 每周 / 每月三档用量；凭据加密存于 SQLite，绝不写入 config.json。
 
 Rust Linux 版本限定：
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
-- `dsmon opencode-go` 输出 OpenCode Go 额度；`dsmon opencode-go set "workspace_id" "auth_cookie"` 加密保存凭据（两个参数均需用半角双引号包裹，auth cookie 含特殊字符）；`dsmon opencode-go json` 输出机器可读 JSON。
-- Plasma 6 小组件新增独立的「OpenCode Go」设置页面，直接从 `dsmon opencode-go json` 读取。
-- Plasma 6 小组件：透明液态玻璃桌面样式，余额、上次查询、服务状态、预计可用时间、刷新按钮和 emoji 状态。
-- Plasma 6 小组件显示刻意保持紧凑：桌面主视图显示余额行、相对上次查询时间、DeepSeek API 状态和预计剩余时间。
+- `dsmon opencode-go` 输出 OpenCode Go 额度；`dsmon opencode-go set-key <api_key>` 加密保存 API Key；`dsmon opencode-go json` 输出机器可读 JSON。
+- Plasma 6 小组件新增「账户」设置页，集中管理 DeepSeek 与 OpenCode Go 两个 API Key 及 OpenCode 额度进度条；「常规」页按「查询 / 通用 / 代理 / 图标外观」分组。
+- Plasma 6 小组件主视图：DeepSeek 余额以大数字展示，配合上次查询、API 服务状态与预计可用的四行布局；OpenCode 区展示三档用量进度条（5h/每周/每月），右上角按钮一键同时刷新。
 - 刷新 Linux Plasma 小组件显示模型：余额、相对上次查询、API 服务状态和预计可用时间现在与 Rainmeter 小工具布局一致。
 - Plasma 小组件语言修改现在会同步 `cfg_language` 到 `dsmon` 的 `ui_language`，重启 Plasma 后仍能保持中英文选择。
 - Linux 发布现在同时提供完整 `.tar.gz` 包和可直接下载的独立 `.plasmoid` 小组件包。
@@ -97,7 +97,7 @@ Plasma 小组件是可选功能，需要 KDE Plasma 6。它从本机 `dsmon` 读
 
 ### 可选 Rainmeter 小工具（Windows）
 
-Rainmeter 桌面小工具是可选功能。它通过本地地址 `127.0.0.1:17654` 从运行中的主进程获取状态，不保存也不接收 API Key。Rust 和 Python Windows 版均已支持。
+Rainmeter 桌面小工具是可选功能。它通过本地地址 `127.0.0.1:17654` 从运行中的主进程获取状态，不保存也不接收 API Key。Rust 和 Python Windows 版均已支持。`/widget-status` 响应包含 DeepSeek 余额、服务状态、消耗速率，以及（Rust Windows 版）OpenCode Go 额度字段（`og_configured`、`og_error`、`og_rolling|weekly|monthly_percent`/`_line`），后台每 10 分钟自动刷新。
 
 1. 从 [rainmeter.net](https://www.rainmeter.net/) 下载并安装 Rainmeter。
 2. 运行任意 Windows 版本（Python 或 Rust）——本地状态接口会自动启动。
@@ -181,7 +181,7 @@ CLI 目前仅 Rust Linux 版提供。Windows 和 MacOS 版使用图形界面 / �
 | `dsmon history [days]` | 输出余额历史统计摘要 |
 | `dsmon history export [days] [currency\|all] [path\|-]` | 导出历史 CSV；`-` 表示输出到 stdout |
 | `dsmon widget-status` | 输出 Plasma 小组件读取的 JSON 状态 |
-| `dsmon opencode-go` | 输出 OpenCode Go 额度（5h/每周/每月用量）；凭据用 `dsmon opencode-go set "workspace_id" "auth_cookie"` 设置，两个参数都要用半角双引号包裹（auth cookie 含特殊字符） |
+| `dsmon opencode-go` | 输出 OpenCode Go 额度（5h/每周/每月用量）；API Key 用 `dsmon opencode-go set-key <api_key>` 保存（或经 stdin 管道输入；Key 在 https://opencode.ai/auth 获取） |
 
 **MacOS（`src/mac/`）：**
 

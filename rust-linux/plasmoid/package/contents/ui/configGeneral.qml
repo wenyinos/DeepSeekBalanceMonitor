@@ -15,8 +15,6 @@ KCM.SimpleKCM {
     property string statusText: ""
     property bool busy: false
     property bool loadingConfig: true
-    property bool hasStoredApiKey: false
-    property string loadedApiKey: ""
     property bool savingBatch: false
     property var saveCommands: []
     readonly property string uiLanguage: normalizedLanguage(cfg_language)
@@ -109,7 +107,11 @@ KCM.SimpleKCM {
             colorDegraded: "服务异常色",
             colorNoData: "无数据色",
             days: "天",
-            save: "保存"
+            save: "保存",
+            groupQuery: "查询",
+            groupGeneral: "通用",
+            groupProxy: "代理",
+            groupAppearance: "图标外观"
         }
         var en = {
             loading: "Loading...",
@@ -153,7 +155,11 @@ KCM.SimpleKCM {
             colorDegraded: "Degraded color",
             colorNoData: "No data color",
             days: "days",
-            save: "Save"
+            save: "Save",
+            groupQuery: "Query",
+            groupGeneral: "General",
+            groupProxy: "Proxy",
+            groupAppearance: "Icon Appearance"
         }
         var table = uiLanguage === "zh" ? zh : en
         return table[key] || key
@@ -166,32 +172,15 @@ KCM.SimpleKCM {
     }
 
     function saveConfig() {
-        if (apiKeyField.text.trim().length === 0 && !hasStoredApiKey) {
-            statusText = tr("apiKeyRequired")
-            return
-        }
         var threshold = thresholdField.text.trim()
         if (threshold.length === 0) {
             statusText = tr("thresholdRequired")
             return
         }
-        var apiKeyArg = ""
-        if (apiKeyField.text.trim() !== loadedApiKey.trim()) {
-            if (apiKeyField.text.trim().toLowerCase() === "demo") {
-                apiKeyArg = "demo"
-            } else {
-                statusText = tr("apiKeyUpdateHint")
-                busy = false
-                return
-            }
-        }
         busy = true
         statusText = tr("saving")
         cfg_language = normalizedLanguage(languageCombo.currentValue)
         saveCommands = []
-        if (apiKeyArg === "demo") {
-            saveCommands.push("/usr/local/bin/dsmon set-key " + shellQuote("demo"))
-        }
         queueSetCommand("interval", [String(intervalSpin.value)])
         queueSetCommand("threshold", [threshold])
         queueSetCommand("ui-language", [cfg_language])
@@ -218,10 +207,6 @@ KCM.SimpleKCM {
 
     function applyConfig(stdout) {
         var config = JSON.parse(stdout)
-        hasStoredApiKey = !!config.has_key || (config.api_key || "").length > 0 || config.api_key === "masked"
-        loadedApiKey = hasStoredApiKey ? tr("apiKeyStored") : ""
-        apiKeyField.text = loadedApiKey
-        apiKeyField.placeholderText = hasStoredApiKey ? tr("apiKeyStored") : "dsmon set-key"
         intervalSpin.value = config.interval_minutes || 10
         thresholdField.text = Number(config.threshold_yuan === undefined ? 1.0 : config.threshold_yuan).toFixed(2)
         autoStartCheck.checked = !!config.auto_start
@@ -288,23 +273,15 @@ KCM.SimpleKCM {
     }
 
     Kirigami.FormLayout {
-        QtControls.TextField {
-            id: apiKeyField
-            Kirigami.FormData.label: tr("apiKey")
+                QtControls.Label {
+            text: tr("groupQuery")
+            font.bold: true
             Layout.fillWidth: true
-            echoMode: TextInput.Password
         }
-
-        QtControls.CheckBox {
-            id: showKeyCheck
-            text: tr("showApiKey")
-            visible: false
-        }
-
-        QtControls.Label {
+        Rectangle {
             Layout.fillWidth: true
-            text: tr("apiKeyUpdateHint")
-            wrapMode: Text.WordWrap
+            Layout.preferredHeight: 1
+            color: Kirigami.Theme.disabledTextColor
         }
 
         QtControls.SpinBox {
@@ -321,6 +298,17 @@ KCM.SimpleKCM {
             id: thresholdField
             Kirigami.FormData.label: tr("threshold")
             inputMethodHints: Qt.ImhFormattedNumbersOnly
+        }
+
+                QtControls.Label {
+            text: tr("groupGeneral")
+            font.bold: true
+            Layout.fillWidth: true
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: Kirigami.Theme.disabledTextColor
         }
 
         QtControls.ComboBox {
@@ -384,6 +372,17 @@ KCM.SimpleKCM {
             placeholderText: "$HOME"
         }
 
+                QtControls.Label {
+            text: tr("groupProxy")
+            font.bold: true
+            Layout.fillWidth: true
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: Kirigami.Theme.disabledTextColor
+        }
+
         QtControls.TextField {
             id: proxyField
             Kirigami.FormData.label: tr("proxy")
@@ -395,6 +394,17 @@ KCM.SimpleKCM {
         QtControls.CheckBox {
             id: proxyEnableCheck
             text: tr("proxyEnable")
+        }
+
+                QtControls.Label {
+            text: tr("groupAppearance")
+            font.bold: true
+            Layout.fillWidth: true
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: Kirigami.Theme.disabledTextColor
         }
 
         QtControls.ComboBox {

@@ -2,15 +2,40 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v1.3.2 (2026-08-14)
+
+### Changed
+
+- Plasma 6 widget settings redesigned to match rust-windows: a new "Account" page holds both API keys (DeepSeek and OpenCode Go) plus the OpenCode quota bars; the General page is organised into Query / General / Proxy / Icon Appearance groups; the separate "OpenCode Go" settings page is merged into Account
+- Plasma widget main view redesigned: the DeepSeek section follows a four-line layout (balance, last check, API status, estimated availability) with the refresh button moved to the top-right corner refreshing DeepSeek and OpenCode together; the OpenCode section shows three usage progress bars with larger type and bars
+- Font hierarchy and spacing adjusted across both sections for a clearer visual order
+- Rust Windows: the local Rainmeter `/widget-status` interface now includes OpenCode Go quota fields (`og_configured`, `og_error`, `og_rolling/weekly/monthly_percent` and `_line`), refreshed every 10 minutes by a background thread with last-good retention on failure; the interface contract and Python-port guidance are documented in `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`
+
+## Rust v1.3.1 (2026-08-14)
+
+### Changed
+
+- Windows settings window redesigned: a new "Account" tab groups the DeepSeek and OpenCode Go API keys; the Settings tab is organised into Query / General / Proxy / Icon Appearance groups with bold titles and separator lines; all controls are aligned to a consistent grid with unified label and input columns
+
+## Rust v1.3.0 (2026-08-14)
+
+### Changed
+
+- OpenCode Go quota now uses the official API (`opencode.ai/zen/go/v1/usage`) with a Bearer API key, replacing the workspace-dashboard scraper (workspace ID + auth cookie)
+- Credentials simplified to a single API key, stored encrypted in the `secure_settings` table under `opencode_go_api_key`, never written to config.json
+- Windows: the "OpenCode Go" settings tab now takes an API key instead of workspace ID / auth cookie
+- Linux: `dsmon opencode-go set-key <api_key>` stores the API key; without an argument it reads from stdin, matching `dsmon set-key`
+- Plasma: the "OpenCode Go" settings page gains API key input with save (same pattern as the DeepSeek key), and the quota progress bars use `QtControls.ProgressBar` for reliable rendering
+
 ## Rust v1.2.10 (2026-08-02)
 
 ### Added
 
-- OpenCode Go quota display (Rust Windows and Rust Linux): scrapes the opencode.ai workspace dashboard and reports rolling (~5h), weekly, and monthly usage as used/remaining percentages with reset time
-- Windows: the settings dialog gains an "OpenCode Go" tab with workspace ID / auth cookie inputs and a manual refresh button
-- Linux: new `dsmon opencode-go` (query quota), `dsmon opencode-go set <workspace_id> <auth_cookie>` (store credentials), and `dsmon opencode-go json` (JSON output) CLI commands
+- OpenCode Go quota display (Rust Windows and Rust Linux): queries the official `opencode.ai/zen/go/v1/usage` API with a Bearer API key and reports rolling (~5h), weekly, and monthly usage as used/remaining percentages with reset time
+- Windows: the settings dialog gains an "OpenCode Go" tab with an API key input and a manual refresh button
+- Linux: new `dsmon opencode-go` (query quota), `dsmon opencode-go set-key <api_key>` (store the API key), and `dsmon opencode-go json` (JSON output) CLI commands
 - Linux: the Plasma 6 widget adds a dedicated "OpenCode Go" settings page showing quota, read directly from `dsmon opencode-go json`
-- OpenCode Go credentials are stored encrypted in the `secure_settings` table under dedicated keys (`opencode_go_workspace_id`, `opencode_go_auth_cookie`), never written to config.json
+- OpenCode Go API key is stored encrypted in the `secure_settings` table under the `opencode_go_api_key` key, never written to config.json
 
 ## Rust v1.2.6 (2026-06-08)
 

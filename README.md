@@ -28,14 +28,14 @@ Rainmeter widget preview
 - Demo mode for testing without a real API key: developer tools panel on Py-Win/Py-Mac, `demo` API key trigger on Rust.
 - Encrypted API key storage: Fernet + SQLite on Py-Win, SQLite `secure_settings` on Rust, Keychain on Py-Mac.
 - Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
+- Rainmeter `/widget-status` now includes OpenCode Go quota fields (`og_*`), refreshed every 10 minutes in the background; interface contract documented with Python-port guidance.
 - OpenCode Go quota display (Rust builds): scrapes the opencode.ai workspace dashboard for rolling (5h), weekly, and monthly usage; credentials stored encrypted in SQLite, never in config.json.
 
 Rust Linux-specific:
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
-- `dsmon opencode-go` prints OpenCode Go quota; `dsmon opencode-go set "workspace_id" "auth_cookie"` stores the credentials encrypted — wrap both arguments in double quotes (auth cookies contain special characters); `dsmon opencode-go json` emits machine-readable output.
-- The Plasma 6 widget adds a dedicated "OpenCode Go" settings page, read directly from `dsmon opencode-go json`.
-- Plasma 6 widget: transparent liquid-glass desktop view with balance, last check, API service status, estimated availability, refresh control, and emoji status text.
-- Plasma 6 widget display is intentionally compact: the main desktop view shows a balance line, relative last-check time, DeepSeek API status, and estimated remaining time.
+- `dsmon opencode-go` prints OpenCode Go quota; `dsmon opencode-go set-key <api_key>` stores the API key encrypted; `dsmon opencode-go json` emits machine-readable output.
+- The Plasma 6 widget adds an "Account" settings page holding both API keys (DeepSeek and OpenCode Go) plus the OpenCode quota bars; the General page is organised into Query / General / Proxy / Icon Appearance groups.
+- Plasma 6 widget main view: the DeepSeek balance is shown as a large number with last check, API status, and estimated availability in a four-line layout; the OpenCode section shows three usage progress bars (5h/Weekly/Monthly), all refreshed together from the top-right button.
 - Refreshing the Linux Plasma widget model: balance, relative last check, API service status, and estimated availability now match the Rainmeter widget layout.
 - Plasma widget language changes now sync `cfg_language` to `dsmon`'s `ui_language`, persisting the Chinese/English selection across Plasma restarts.
 - Linux releases now provide both a complete `.tar.gz` package and a standalone `.plasmoid` widget package for direct download.
@@ -96,7 +96,7 @@ If you only need the widget, download `deepseek-balance-monitor-*-plasmoid.plasm
 
 ### Optional Rainmeter Widget (Windows)
 
-The Rainmeter desktop widget is optional. It reads local status from a running DeepSeek Balance Monitor process (`127.0.0.1:17654`); it does not store or receive your API key. Supported on both Rust and Python Windows builds.
+The Rainmeter desktop widget is optional. It reads local status from a running DeepSeek Balance Monitor process (`127.0.0.1:17654`); it does not store or receive your API key. Supported on both Rust and Python Windows builds. The `/widget-status` response includes DeepSeek balance, service status, consumption rate and — on the Rust Windows build — OpenCode Go quota fields (`og_configured`, `og_error`, and `og_rolling|weekly|monthly_percent`/`_line`), refreshed every 10 minutes in the background.
 
 1. Install Rainmeter from [rainmeter.net](https://www.rainmeter.net/).
 2. Run any Windows build (Python or Rust) — the local status interface starts automatically.
@@ -180,7 +180,7 @@ Useful Linux CLI commands:
 | `dsmon history [days]` | Print a balance history summary |
 | `dsmon history export [days] [currency\|all] [path\|-]` | Export history as CSV; `-` writes CSV to stdout |
 | `dsmon widget-status` | Print JSON status consumed by the Plasma widget |
-| `dsmon opencode-go` | Print OpenCode Go quota (5h/weekly/monthly usage); set credentials with `dsmon opencode-go set "workspace_id" "auth_cookie"` — wrap both arguments in double quotes (auth cookies contain special characters) |
+| `dsmon opencode-go` | Print OpenCode Go quota (5h/weekly/monthly usage); store the API key with `dsmon opencode-go set-key <api_key>` (or pipe it via stdin; get a key at https://opencode.ai/auth) |
 
 **MacOS (`src/mac/`):**
 

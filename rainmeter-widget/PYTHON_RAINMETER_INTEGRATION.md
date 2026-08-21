@@ -61,6 +61,40 @@ HTTP 状态码成功时返回 `200 OK`，`Content-Type` 使用
 - `service_status_line`：DeepSeek API 服务状态，沿用通知中的 emoji 文案。
 - `estimated_line`：预计可用天数，缺少消耗率时返回本地化占位文案。
 
+## OpenCode Go 额度字段（Rust Windows 版新增）
+
+`/widget-status` 响应额外包含 OpenCode Go 额度字段（Rust Windows 版后台每 10 分钟
+自动刷新一次缓存，未配置 API Key 时不请求）：
+
+```json
+{
+  "og_configured": true,
+  "og_error": "",
+  "og_rolling_percent": 8,
+  "og_rolling_line": "8% · 3h 8m",
+  "og_weekly_percent": 9,
+  "og_weekly_line": "9% · 2d 15h",
+  "og_monthly_percent": 32,
+  "og_monthly_line": "32% · 17d"
+}
+```
+
+字段说明：
+
+- `og_configured`：布尔值，是否已配置 OpenCode Go API Key。
+- `og_error`：最近一次查询的错误消息，正常为空字符串。
+- `og_rolling_percent` / `og_weekly_percent` / `og_monthly_percent`：数值（0–100），
+  供进度条仪表使用；无数据时为 `0`。
+- `og_rolling_line` / `og_weekly_line` / `og_monthly_line`：预格式化显示文本
+  （`已用% · 重置剩余时间`），无数据时为 `--`，窗口缺失时为本地化占位文案。
+
+数据语义：
+
+- 后台每 10 分钟查询一次 OpenCode Go 官方接口，查询失败时保留上次成功数据，
+  仅在 `og_error` 中体现。
+- 未配置 API Key 时 `og_configured` 为 `false`，额度字段为占位值。
+- 现有皮肤的正则只提取已知字段，新增字段不影响旧皮肤兼容。
+
 Rainmeter 当前使用正则按字段名解析，字段名必须保持一致；为降低兼容风险，
 建议按上方顺序输出字段。
 
@@ -179,3 +213,90 @@ estimated_line
 ⚠ 请打开原进程
 未识别到本地数据
 ```
+
+## Python 版实施建议（OpenCode Go 额度字段）
+
+为使 Python 版与 Rust Windows 版提供一致的 `og_*` 字段、共用同一套 Rainmeter
+皮肤，建议按以下步骤实施：
+
+### 1. 凭据存储（`src/secure_settings.py`）
+
+现有 `store_api_key` / `read_api_key` 只支持 `api_key` 一个键。建议增加通用
+读写函数（保持 Fernet 加密与 `secrets` 表不变）：
+
+```python
+def store_secure_value(key: str, value: str):
+    f = _get_fernet()
+    encrypted = f.encrypt(value.encode("utf-8"))
+    with sqlite3.connect(_db_path()) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO secrets (key, value) VALUES (?, ?)",
+            (key, encrypted),
+        )
+
+def read_secure_value(key: str) -> str | None:
+    f = _get_fernet()
+    with sqlite3.connect(_db_path()) as conn:
+        row = conn.execute(
+            "SELECT value FROM secrets WHERE key = ?", (key,)
+        ).fetchone()
+    if not row:
+        return None
+    return f.decrypt(row[0]).decode("utf-8")
+```
+
+OpenCode Go API Key 使用独立键 `opencode_go_api_key`，**不写入 config.json**。
+
+### 2. 额度查询（建议新增 `src/opencode_go.py` 或并入 `api_client.py`）
+
+调用官方接口，凭据走 Bearer 认证：
+
+```python
+OPENCODE_GO_URL = "https://opencode.ai/zen/go/v1/usage"
+
+def fetch_opencode_go_quota(api_key: str) -> dict:
+    # GET OPENCODE_GO_URL, Header: Authorization: Bearer <api_key>
+    # 解析响应 usage.rolling/weekly/monthly 的 percent 与 resetsAt(ISO 8601)
+    # 返回 {"configured": True, "rolling": {"usage_percent": .., "reset_in_sec": ..}, ...}
+```
+
+`resetsAt`（ISO 8601 UTC）需转换为相对当前时间的剩余秒数
+（`reset_in_sec = max(0, int(dt.timestamp() - time.time()))`）。
+
+### 3. 后台缓存（与 Rust 版一致）
+
+- 应用启动时立即查询一次，之后**每 10 分钟**刷新一次（独立线程，
+  用 `threading.Timer` 或循环 + `time.sleep(600)`）。
+- 每次查询前重新读取 `opencode_go_api_key`（用户中途修改 Key 即时生效）。
+- 查询失败**保留上次成功数据**，仅记录错误。
+- 未配置 Key 时不发起请求，`configured = False`。
+- 缓存存入托盘应用状态（如 `app.opencode_quota` / `app.opencode_error`），
+  `/widget-status` 处理时在 `app._lock` 下读取。
+
+### 4. JSON 输出（`src/rainmeter_server.py`）
+
+在 `/widget-status` 响应中追加与 Rust 版完全一致的字段：
+
+```python
+# 示例（百分比数值 + 预格式化文本）
+body["og_configured"] = configured
+body["og_error"] = error or ""
+body["og_rolling_percent"] = rolling_percent   # int, 0-100
+body["og_rolling_line"] = f"{percent:.0f}% · {reset_text}"
+body["og_weekly_percent"] = weekly_percent
+body["og_weekly_line"] = ...
+body["og_monthly_percent"] = monthly_percent
+body["og_monthly_line"] = ...
+```
+
+- `percent`：无数据时 `0`；`line`：无数据时 `--`，窗口缺失时用本地化占位文案
+  （如 `不可用` / `unavailable`）。
+- `line` 文本格式 `已用% · 重置剩余时间`（如 `8% · 3h 8m`），与 Rust 版一致。
+- 字段名、顺序、语义与 Rust Windows 版保持完全一致，Rainmeter 皮肤无需区分
+  后端实现。
+
+### 5. 兼容性
+
+- 未实现上述字段前，Python 版响应中缺失 `og_*` 键不会影响现有皮肤
+  （正则只提取已知字段）。
+- 建议实现后保持字段齐全，便于两端无缝切换同一皮肤。

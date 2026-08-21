@@ -2,15 +2,40 @@
 
 所有值得记录的变更均记录于此。
 
+## Rust v1.3.2 (2026-08-14)
+
+### 变更
+
+- Plasma 6 小组件设置页仿照 rust-windows 重新设计：新增「账户」页集中管理 DeepSeek 与 OpenCode Go 两个 API Key 及 OpenCode 额度进度条；「常规」页按「查询 / 通用 / 代理 / 图标外观」分组；独立的「OpenCode Go」设置页并入「账户」页
+- Plasma 小组件主视图重新设计：DeepSeek 区采用四行布局（余额、上次查询、API 服务状态、预计可用），刷新按钮移至右上角并同时刷新 DeepSeek 与 OpenCode；OpenCode 区展示三档用量进度条，字号与进度条高度增大
+- 两个区块统一字号层级与间距，视觉层次更清晰
+- Rust Windows：本地 Rainmeter `/widget-status` 接口新增 OpenCode Go 额度字段（`og_configured`、`og_error`、`og_rolling|weekly|monthly_percent` 与 `_line`），后台线程每 10 分钟刷新缓存、查询失败保留上次成功数据；接口约定与 Python 版实施建议见 `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`
+
+## Rust v1.3.1 (2026-08-14)
+
+### 变更
+
+- Windows 设置窗口重新设计：新增「账户」标签页集中管理 DeepSeek 与 OpenCode Go 两个 API Key；「设置」标签页按「查询 / 通用 / 代理 / 图标外观」分组，组标题加粗并带分隔线；所有控件对齐统一网格，标签与输入框列宽一致
+
+## Rust v1.3.0 (2026-08-14)
+
+### 变更
+
+- OpenCode Go 额度改用官方 API（`opencode.ai/zen/go/v1/usage`，Bearer API Key 认证），取代原工作区仪表板爬虫方式（workspace ID + auth cookie）
+- 凭据简化为单个 API Key，加密存储于 `secure_settings` 表（`opencode_go_api_key`），绝不写入 config.json
+- Windows：设置窗口「OpenCode Go」标签页改为填写 API Key（替代原工作区 ID / Auth Cookie）
+- Linux：`dsmon opencode-go set-key <api_key>` 保存 API Key；无参数时从 stdin 读取，与 `dsmon set-key` 行为一致
+- Plasma：小组件「OpenCode Go」设置页新增 API Key 输入与保存（与 DeepSeek Key 相同模式）；额度进度条改用 `QtControls.ProgressBar` 保证可靠渲染
+
 ## Rust v1.2.10 (2026-08-02)
 
 ### 新增
 
-- OpenCode Go 额度显示（Rust Windows 与 Rust Linux）：爬取 opencode.ai 工作区仪表板，报告 5 小时滚动 / 每周 / 每月三档用量的已用与剩余百分比及重置时间
-- Windows：设置窗口新增「OpenCode Go」标签页，可填写工作区 ID / Auth Cookie 并手动刷新
-- Linux：新增 `dsmon opencode-go`（查询额度）、`dsmon opencode-go set <workspace_id> <auth_cookie>`（保存凭据）与 `dsmon opencode-go json`（JSON 输出）CLI 命令
+- OpenCode Go 额度显示（Rust Windows 与 Rust Linux）：调用官方 `opencode.ai/zen/go/v1/usage` API（Bearer API Key 认证），报告 5 小时滚动 / 每周 / 每月三档用量的已用与剩余百分比及重置时间
+- Windows：设置窗口新增「OpenCode Go」标签页，可填写 API Key 并手动刷新
+- Linux：新增 `dsmon opencode-go`（查询额度）、`dsmon opencode-go set-key <api_key>`（保存 API Key）与 `dsmon opencode-go json`（JSON 输出）CLI 命令
 - Linux：Plasma 6 小组件新增独立的「OpenCode Go」设置页面展示额度，直接从 `dsmon opencode-go json` 读取
-- OpenCode Go 凭据加密存储于 `secure_settings` 表（独立 key：`opencode_go_workspace_id`、`opencode_go_auth_cookie`），绝不写入 config.json
+- OpenCode Go API Key 加密存储于 `secure_settings` 表（独立 key：`opencode_go_api_key`），绝不写入 config.json
 
 ## Rust v1.2.6 (2026-06-08)
 

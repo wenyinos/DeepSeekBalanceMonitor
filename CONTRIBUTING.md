@@ -118,7 +118,7 @@ DeepSeek Balance:                              ← Fixed title
 
 ### Windows / Port-Specific
 
-- **Rainmeter 小工具**：`rainmeter-widget/`，本地 HTTP 接口 `127.0.0.1:17654`，skin 四版本涵盖中英文、是否高分屏，`.rmskin` CI 打包；添加 Rainmeter 接口开关设置项
+- **Rainmeter 小工具**：`rainmeter-widget/`，本地 HTTP 接口 `127.0.0.1:17654`，skin 四版本涵盖中英文、是否高分屏，`.rmskin` CI 打包；添加 Rainmeter 接口开关设置项；`/widget-status` 响应自 v1.3.2 起包含 OpenCode Go 额度字段（`og_configured`/`og_error`/`og_rolling|weekly|monthly_percent`/`og_rolling|weekly|monthly_line`），由应用后台每 10 分钟刷新缓存、失败保留上次成功数据，接口约定与 Python 版实施建议见 `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`
 - **Windows 凭据管理器（已过时）**：自 1.2.1 起，Windows 版本（Rust / Python）统一使用 SQLite 加密存储，凭据管理器仅作为兼容性回退
 - **Windows 发布签名（可选）**：SignPath.io（免费版，开源项目），fork 开发者自行配置，详见 [CODE_SIGNING.md](CODE_SIGNING.md)
 
