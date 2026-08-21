@@ -79,8 +79,18 @@ def _start_server(app):
                 key = f"status_{indicator}" if indicator else "status_unknown"
                 service_status_line = T(key, lang)
 
-                # estimated_line
-                cr = get_consumption_rate()
+                # estimated_line — for preferred API (DeepSeek only, package not yet)
+                pref_id = app.config.get("preferred_api_id")
+                # if preferred is opencode_go, don't show rate
+                try:
+                    from src.config import get_api_by_id
+                    pref_api = get_api_by_id(pref_id) if pref_id else None
+                    if pref_api and pref_api.get("mode") == "package":
+                        cr = None
+                    else:
+                        cr = get_consumption_rate(api_id=pref_id) if pref_id else get_consumption_rate()
+                except Exception:
+                    cr = get_consumption_rate(api_id=pref_id) if pref_id else get_consumption_rate()
                 if cr and b:
                     hourly_rate, busy_hours, _curr = cr
                     days = int(busy_hours // 24)

@@ -91,10 +91,32 @@ def _create_icon_image_impl(app):
         err = app.error
         b = app.get_preferred_balance()
         st = app.service_status
+        pd = app.package_data
 
     colors = _get_colors(app.config)
 
-    if err:
+    if pd:
+        # Package mode: show remaining % for preferred billing_period
+        billing_period = "monthly"
+        try:
+            pref_api_id = app.config.get("preferred_api_id")
+            if pref_api_id:
+                from src.config import get_api_by_id
+                pref_api = get_api_by_id(pref_api_id)
+                if pref_api:
+                    billing_period = pref_api.get("billing_period") or "monthly"
+        except Exception:
+            pass
+        col_map = {"5h": pd.get("5h") or pd.get("rolling"), "weekly": pd.get("weekly"), "monthly": pd.get("monthly")}
+        mp = col_map.get(billing_period)
+        if mp:
+            remaining = max(0, int(mp.get("percent_remaining", 100 - mp.get("usage_percent", 0))))
+            label = str(remaining)
+            if app.is_low_balance():
+                fill = colors["low"]
+            else:
+                fill = colors["ok"]
+    elif err:
         fill = colors["low"]
         label = "!"
     elif b is None:

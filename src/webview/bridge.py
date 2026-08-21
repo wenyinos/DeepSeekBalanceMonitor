@@ -2,17 +2,8 @@
 
 import os
 import sys
-import time
 
 from src.config import load_config, save_config, T, log, CONFIG_DIR
-
-# macOS keystore for API key encryption/decryption
-try:
-    from src.mac.keystore import decrypt_api_key, encrypt_api_key
-    _HAS_KEYSTORE = True
-except ImportError:
-    _HAS_KEYSTORE = False
-
 
 SENTINEL_FILE = CONFIG_DIR / ".settings_changed"
 PID_FILE = CONFIG_DIR / "settings.pid"
@@ -22,7 +13,7 @@ PID_FILE = CONFIG_DIR / "settings.pid"
 I18N_KEYS = [
     "settings_title",
     "api_key_label", "show_key",
-    "currency", "interval_label", "interval_hint",
+    "interval_label", "interval_hint",
     "threshold_label", "threshold_hint",
     "alert_mode_label", "alert_mode_never", "alert_mode_always", "alert_mode_once",
     "api_alert_label",
@@ -57,26 +48,9 @@ class JsApi:
 
     # ---- Settings ----
 
-    def _resolve_api_key(self, cfg: dict) -> str:
-        """Resolve API key: try decrypted api_key_enc first, fall back to plaintext.
-        Mirrors the logic in src/mac/main.py _do_check()."""
-        key = ""
-        enc = cfg.get("api_key_enc", "")
-        if enc and _HAS_KEYSTORE:
-            try:
-                key = decrypt_api_key(enc, CONFIG_DIR).strip()
-            except Exception:
-                key = ""
-        if not key:
-            key = cfg.get("api_key", "").strip()
-        return key
-
     def get_settings(self):
         try:
             cfg = load_config()
-            # Resolve real API key (decrypt encrypted key first)
-            real_key = self._resolve_api_key(cfg)
-            cfg["api_key"] = real_key
             return {"success": True, "data": cfg, "platform": sys.platform}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -91,29 +65,19 @@ class JsApi:
             if not (1 <= interval <= 1440):
                 return {"success": False, "error": "Interval must be 1-1440"}
 
-            # Encrypt API key for macOS keystore storage
-            if _HAS_KEYSTORE:
-                try:
-                    settings["api_key_enc"] = encrypt_api_key(api_key, CONFIG_DIR)
-                    settings.pop("api_key", None)
-                except Exception:
-                    settings["api_key"] = api_key
-            else:
-                # Try Windows credential store
-                try:
-                    from src.credential_store import store_credential
-                    store_credential(api_key)
-                    settings.pop("api_key", None)
-                except ImportError:
-                    settings["api_key"] = api_key
-
-            # Save to config dict
+            # Unified encrypted storage — same as Windows tray
+            try:
+                from src.secure_settings import store_api_key
+                store_api_key(api_key)
+            except Exception:
+                pass
+            # Never persist plaintext in config.json
+            settings["api_key"] = api_key
             save_config(settings)
 
             from src.app_state import set_auto_start
             set_auto_start(bool(settings.get("auto_start", False)))
 
-            # Write sentinel so tray knows to reload
             try:
                 SENTINEL_FILE.parent.mkdir(parents=True, exist_ok=True)
                 SENTINEL_FILE.touch()
@@ -129,7 +93,7 @@ class JsApi:
     def get_i18n(self, lang):
         try:
             return {key: T(key, lang) for key in I18N_KEYS}
-        except Exception as e:
+        except Exception:
             return {}
 
     def select_directory(self):
@@ -199,7 +163,6 @@ class JsApi:
         try:
             status = fetch_service_status()
             if status:
-                # Add translation key for the status indicator text
                 indicator = str(status.get("indicator", "none")).lower()
                 trans_key = f"status_{indicator}"
                 return {"success": True, "data": status, "trans_key": trans_key}

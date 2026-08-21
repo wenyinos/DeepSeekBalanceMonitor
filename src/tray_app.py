@@ -7,6 +7,8 @@ import webbrowser
 from datetime import datetime, timedelta
 
 import pystray
+import tkinter as tk
+from tkinter import ttk
 
 from src.config import T, log, CONFIG_DIR, APP_NAME, APP_ID
 from src.api_client import fetch_balance, fetch_service_status, install_proxy
@@ -95,8 +97,20 @@ def do_balance_check(app: AppState):
 
     if not app.running:
         return
+    my_gen = app._check_generation  # capture current generation
+    # fetch service status based on preferred API's platform
+    status = None
     try:
-        status = fetch_service_status()
+        from src.config import get_preferred_api
+        pref = get_preferred_api()
+        if pref:
+            plat = pref.get("platform", "")
+            if plat == "deepseek":
+                status = fetch_service_status()
+            elif plat.startswith("minimax_"):
+                from src.api_client import fetch_minimax_service_status
+                status = fetch_minimax_service_status()
+            # opencode_go has no status page — status stays None
     except Exception:
         status = None
     with app._lock:
@@ -104,44 +118,176 @@ def do_balance_check(app: AppState):
 
     if not app.running:
         return
-    api_key = app.config.get("api_key", "").strip()
-    if not api_key:
+    # --- Multi-API fetch (v2: payg + package, all in parallel) ---
+    from src.config import load_config, get_apis, get_preferred_api
+    from src.secure_settings import read_api_key_for_id
+    cfg = load_config()
+    apis = get_apis(cfg)
+    if not apis:
         with app._lock:
             app.error = T("error_no_key", app.lang)
             app.balances = {}
+            app.package_data = None
     else:
+        preferred = get_preferred_api(cfg)
+        pref_id = preferred.get("id") if preferred else None
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        proxy_url = cfg.get("http_proxy", "") if cfg.get("proxy_enabled") else ""
+
+        def _fetch_payg(api):
+            api_id = api.get("id")
+            key = read_api_key_for_id(api_id)
+            if not key:
+                return api_id, None, f"no key"
+            try:
+                data = fetch_balance(key)
+                return api_id, data, None
+            except Exception as e:
+                return api_id, None, str(e).split("\n")[0]
+
+        def _fetch_package(api):
+            api_id = api.get("id")
+            key = read_api_key_for_id(api_id)
+            if not key:
+                return api_id, None, "no key"
+            plat = api.get("platform", "")
+            try:
+                if plat.startswith("minimax_"):
+                    from src.minimax_client import fetch_minimax_quota
+                    quota = fetch_minimax_quota(platform_key=plat, api_key=key, http_proxy=proxy_url)
+                else:
+                    from src.opencode_client import fetch_opencode_quota
+                    quota = fetch_opencode_quota(api_key=key, http_proxy=proxy_url)
+                return api_id, quota, None
+            except Exception as e:
+                return api_id, None, str(e).split("\n")[0]
+
+        # classify APIs by mode
+        payg_apis = [a for a in apis if a.get("mode") == "payg"]
+        pkg_apis = [a for a in apis if a.get("mode") == "package"]
+
+        # launch all fetches in parallel
+        futures = {}
         try:
-            data = fetch_balance(api_key)
-            with app._lock:
-                app.balances = data["all_balances"]
-                app.error = None
-                app.last_check = datetime.now()
-            b = app.get_preferred_balance()
-            if b:
-                log(f"Balance OK: {b['total_balance']:.2f} {b['currency']}")
-            ss = app.service_status
-            s_indicator = ss.get("indicator") if ss else None
-            for code, bal in data["all_balances"].items():
-                save_balance_record(code, bal["total_balance"],
-                                    bal["topped_up_balance"],
-                                    bal["granted_balance"],
-                                    service_status=s_indicator)
+          with ThreadPoolExecutor(max_workers=min(len(apis) + 1, 8)) as pool:
+            for api in payg_apis:
+                f = pool.submit(_fetch_payg, api)
+                futures[f] = ("payg", api)
+            for api in pkg_apis:
+                f = pool.submit(_fetch_package, api)
+                futures[f] = ("package", api)
+
+            # collect results
+            s_indicator = status.get("indicator") if status else None
+            for f in as_completed(futures):
+                mode, api = futures[f]
+                try:
+                    api_id, result, err = f.result()
+                except Exception as e:
+                    err = str(e).split("\n")[0]
+                    api_id = api.get("id")
+                    result = None
+
+                if result is None:
+                    log(f"Check failed for {api.get('name')} ({mode}): {err}")
+                    continue
+
+                if mode == "payg":
+                    data = result
+                    for code, bal in data["all_balances"].items():
+                        save_balance_record(code, bal["total_balance"], bal["topped_up_balance"], bal["granted_balance"], service_status=s_indicator, api_id=api_id)
+                    log(f"Balance OK for {api.get('name')}: {list(data['all_balances'].values())[0]['total_balance']:.2f}")
+                elif mode == "package":
+                    quota = result
+                    from src.storage import save_package_record
+                    # MiniMax uses "5h"/"weekly" keys, OCGo uses "rolling"/"weekly"/"monthly"
+                    r5 = quota.get("5h") or quota.get("rolling")
+                    rw = quota.get("weekly")
+                    rm = quota.get("monthly")
+                    try:
+                        save_package_record(
+                            api_id,
+                            h5_percent=r5.get("usage_percent") if r5 else None,
+                            h5_reset=r5.get("reset_in_sec") if r5 else None,
+                            weekly_percent=rw.get("usage_percent") if rw else None,
+                            weekly_reset=rw.get("reset_in_sec") if rw else None,
+                            monthly_percent=rm.get("usage_percent") if rm else None,
+                            monthly_reset=rm.get("reset_in_sec") if rm else None,
+                            service_status=status.get("indicator") if status else None,
+                        )
+                        log(f"Package OK for {api.get('name')}: h5={r5.get('usage_percent') if r5 else 'N/A'}, weekly={rw.get('usage_percent') if rw else 'N/A'}")
+                    except Exception as e:
+                        log(f"Package save failed for {api.get('name')}: {e}")
         except Exception as e:
-            raw = str(e).split("\n")[0]
-            # If the API is known to be degraded, a failed balance
-            # check is expected — keep the previous data in place.
-            api_degraded = status and not status.get("api_operational", True)
-            if api_degraded:
-                log(f"Balance check failed (API degraded, keeping previous data): {e}")
-            else:
+            log(f"Parallel fetch ERROR: {e}")
+
+        log("Parallel fetch completed, entering result collection")
+        # skip if another check started (stale generation)
+        if app._check_generation != my_gen:
+            log("Skipping stale result (generation mismatch)")
+            return
+        # cache results per API
+        for f in futures:
+            mode, api = futures[f]
+            aid = api.get("id")
+            try:
+                _, result, _err = f.result()
+                if result is None:
+                    continue
                 with app._lock:
-                    app.error = _sanitise_error(raw)
+                    if mode == "payg":
+                        app._api_cache[aid] = {"balances": result["all_balances"], "error": None, "last_check": datetime.now()}
+                    elif mode == "package":
+                        app._api_cache[aid] = {"package_data": result, "error": None, "last_check": datetime.now()}
+            except Exception:
+                pass
+        # store service status per API
+        if status:
+            pref = get_preferred_api(cfg)
+            if pref:
+                with app._lock:
+                    if "service_status" not in app._api_cache.get(pref.get("id"), {}):
+                        app._api_cache.setdefault(pref.get("id"), {})["service_status"] = status
+        # update app state with preferred API's cached data
+        pref = get_preferred_api(cfg)
+        if pref:
+            pref_id = pref.get("id")
+            cached = app._api_cache.get(pref_id, {})
+            with app._lock:
+                if "balances" in cached:
+                    app.balances = cached["balances"]
+                    app.package_data = cached.get("package_data")
+                    app.error = cached.get("error")
+                    app.last_check = cached.get("last_check")
+                    app.service_status = cached.get("service_status", status)
+                elif "package_data" in cached:
+                    app.package_data = cached["package_data"]
                     app.balances = {}
-                log(f"Check failed: {e}")
+                    app.error = cached.get("error")
+                    app.last_check = cached.get("last_check")
+                    app.service_status = cached.get("service_status", status)
+                else:
+                    app.error = T("error_no_key", app.lang)
+                    app.balances = {}
+                    app.package_data = None
 
     if app.icon:
         app.icon.title = app.balance_tooltip()
         app.icon.icon = create_icon_image(app)
+        # keep tray menu lang in sync
+        try:
+            app.icon.menu = app._rebuild_menu()
+        except Exception:
+            pass
+
+    # refresh main window overview/history if open
+    try:
+        mw = getattr(app, "_main_window", None)
+        if mw and hasattr(mw, "refresh_all"):
+            app._tk_root.after(0, mw.refresh_all)
+    except Exception:
+        pass
 
     if app.should_alert():
         notify_user(app)
@@ -197,6 +343,39 @@ def notify_api_status(app: AppState, transition: str):
         log(f"API status notify failed: {e}")
 
 
+def _calc_package_rate_for_tray(api_id, lang, billing_period="monthly"):
+    """Calculate package rate for tray notification using the specified billing period."""
+    try:
+        from src.storage import get_package_history_page
+        rows = get_package_history_page(limit=100, api_id=api_id or None)
+        if len(rows) < 2:
+            return None
+        newest, oldest = rows[0], rows[-1]
+        # map billing_period to data column
+        period_map = {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}
+        period_labels = {"5h": ("5h额度", "5h quota"), "weekly": ("周额度", "weekly"), "monthly": ("月额度", "monthly")}
+        col = period_map.get(billing_period, "monthly_percent")
+        newest_pct = newest.get(col) or 0
+        oldest_pct = oldest.get(col) or 0
+        from datetime import datetime as _dt
+        t_new = _dt.strptime(newest["timestamp"], "%Y-%m-%d %H:%M:%S")
+        t_old = _dt.strptime(oldest["timestamp"], "%Y-%m-%d %H:%M:%S")
+        hours = (t_new - t_old).total_seconds() / 3600
+        if hours <= 0:
+            return None
+        hourly_rate = (newest_pct - oldest_pct) / hours
+        if hourly_rate <= 0:
+            return None
+        remaining_pct = 100 - newest_pct
+        remaining_hours = round(remaining_pct / hourly_rate, 1)
+        unit = period_labels.get(billing_period, ("月额度", "monthly"))[0 if lang == "zh" else 1]
+        if lang == "zh":
+            return f"忙时消耗 {hourly_rate:.2f}%{unit}/小时  |  {T('est_prefix', lang)} 忙时 {remaining_hours} 小时"
+        else:
+            return f"Busy: {hourly_rate:.2f}%/hr ({unit})  |  {T('est_prefix', lang)} busy {remaining_hours}h"
+    except Exception:
+        return None
+
 # --- Tray Menu Actions ----------------------------------------------
 
 def on_show_balance(icon, item):
@@ -213,14 +392,86 @@ def on_show_balance(icon, item):
         err = app.error
         last = app.last_check
         raw_status = app.service_status
-        status_indicator = raw_status.get("indicator") if raw_status else None
+        pd = app.package_data
 
-    status_key = f"status_{status_indicator}" if status_indicator else "status_unknown"
-    status_line = T("service_status", lang) + " " + _STATUS_ICON.get(status_indicator, "⚪") + " " + T(status_key, lang)
+    # Get preferred API name for title
+    api_name = ""
+    try:
+        from src.config import get_api_by_id
+        pref_api = get_api_by_id(app.config.get("preferred_api_id"))
+        if pref_api:
+            api_name = pref_api.get("name", "")
+    except Exception:
+        pass
 
-    title = T("bal_title", lang)
+    # Package mode notification
+    if pd:
+        try:
+            from src.opencode_client import format_reset_short
+            from src.platforms import get_platform
+            # determine which windows this platform supports and preferred billing period
+            pref_platform = ""
+            billing_period = "monthly"
+            try:
+                pref_api = get_api_by_id(app.config.get("preferred_api_id")) if app.config.get("preferred_api_id") else None
+                if pref_api:
+                    pref_platform = pref_api.get("platform", "")
+                    billing_period = pref_api.get("billing_period") or "monthly"
+            except Exception:
+                pass
+            pmeta = get_platform(pref_platform) if pref_platform else None
+            windows = pmeta.package_windows if pmeta else ["5h", "weekly", "monthly"]
+            # map display labels
+            window_labels = {
+                "5h": ("5h滚动", "5h rolling"),
+                "weekly": ("每周", "Weekly"),
+                "monthly": ("每月", "Monthly"),
+            }
+            # map quota keys (MiniMax uses "5h", OCGo uses "rolling")
+            window_keys = {
+                "5h": ("5h", "rolling"),
+                "weekly": ("weekly",),
+                "monthly": ("monthly",),
+            }
+            lines = []
+            for wkey in windows:
+                label = window_labels.get(wkey, (wkey, wkey))[0 if lang == "zh" else 1]
+                # find the data (try multiple key names)
+                wdata = None
+                for k in window_keys.get(wkey, (wkey,)):
+                    wdata = pd.get(k)
+                    if wdata:
+                        break
+                if wdata:
+                    remaining = wdata.get("percent_remaining", 100 - wdata.get("usage_percent", 0))
+                    reset_s = wdata.get("reset_in_sec", 0)
+                    reset_str = format_reset_short(reset_s, lang) if reset_s > 0 else "—"
+                    lines.append(f"{label}：剩余 {remaining:.0f}%（{reset_str}）")
+            # status line (same as payg)
+            _STATUS_ICON = {"none": "🟢", "minor": "🟡", "major": "🟠", "critical": "🔴", "maintenance": "🔵"}
+            status_key = f"status_{raw_status.get('indicator')}" if raw_status and raw_status.get("indicator") else "status_unknown"
+            lines.append(f"📡 {T('service_status', lang)} {_STATUS_ICON.get(raw_status.get('indicator') if raw_status else None, '⚪')} {T(status_key, lang)}")
+            # rate line using preferred billing period
+            pref_id = app.config.get("preferred_api_id")
+            rate_str = _calc_package_rate_for_tray(pref_id, lang, billing_period)
+            if rate_str:
+                lines.append(f"📊 {rate_str}")
+            if last:
+                diff = datetime.now() - last
+                mins = int(diff.total_seconds() / 60)
+                ago = T("ago_just", lang) if mins < 1 else (T("ago_min", lang, n=mins) if mins < 60 else T("ago_hr", lang, n=mins // 60))
+                sp = " " if lang == "en" else ""
+                lines.append(f"🕐 {T('last_check', lang)}{sp}{ago}")
+            icon.notify("\n".join(lines), title=T("bal_title", lang, name=api_name))
+        except Exception as e:
+            log(f"Package notify failed: {e}")
+        return
+
+    # PayG mode notification
+    title = T("bal_title", lang, name=api_name)
+    status_key = f"status_{raw_status.get('indicator')}" if raw_status and raw_status.get("indicator") else "status_unknown"
+    status_line = T("service_status", lang) + " " + _STATUS_ICON.get(raw_status.get("indicator") if raw_status else None, "⚪") + " " + T(status_key, lang)
     lines = []
-
     if err:
         lines.append(f"⚠ {T('bal_error_msg', lang, error=err)}")
     elif not balances:
@@ -228,60 +479,35 @@ def on_show_balance(icon, item):
     else:
         pb = app.get_preferred_balance()
         if pb:
-            bal = T('bal_line', lang,
-                    balance=f"{pb['total_balance']:,.2f}",
-                    code=pb['currency'],
-                    topped=f"{pb['topped_up_balance']:,.2f}",
-                    granted=f"{pb['granted_balance']:,.2f}")
+            bal = T('bal_line', lang, balance=f"{pb['total_balance']:,.2f}", code=pb['currency'], topped=f"{pb['topped_up_balance']:,.2f}", granted=f"{pb['granted_balance']:,.2f}")
         else:
-            first_code = next(iter(balances))
-            b = balances[first_code]
-            bal = T('bal_line', lang,
-                    balance=f"{b['total_balance']:,.2f}",
-                    code=first_code,
-                    topped=f"{b['topped_up_balance']:,.2f}",
-                    granted=f"{b['granted_balance']:,.2f}")
+            first_code = next(iter(balances)); b = balances[first_code]
+            bal = T('bal_line', lang, balance=f"{b['total_balance']:,.2f}", code=first_code, topped=f"{b['topped_up_balance']:,.2f}", granted=f"{b['granted_balance']:,.2f}")
         lines.append(f"💰 {bal}")
-
         if app.demo_mode and hasattr(app, '_demo_rate'):
-            hourly_rate = app._demo_rate
-            busy_hours = app._demo_hours
+            hourly_rate = app._demo_rate; busy_hours = getattr(app, '_demo_hours', getattr(app, '_demo_hrs', 0))
         else:
-            cr = get_consumption_rate()
             hourly_rate = busy_hours = None
-            if cr:
-                hourly_rate, busy_hours = cr[:2]
+            try:
+                from src.config import get_api_by_id
+                pref_id = app.config.get("preferred_api_id")
+                pref_api = get_api_by_id(pref_id) if pref_id else None
+                if not (pref_api and pref_api.get("mode") == "package"):
+                    cr = get_consumption_rate(api_id=pref_id) if pref_id else get_consumption_rate()
+                    if cr: hourly_rate, busy_hours = cr[:2]
+            except Exception:
+                cr = get_consumption_rate()
+                if cr: hourly_rate, busy_hours = cr[:2]
         if hourly_rate is not None:
-            days = int(busy_hours // 24)
-            hrs = int(busy_hours % 24)
-            if days > 0:
-                remaining = T("remaining_dh", lang, d=days, h=hrs)
-            elif hrs >= 1:
-                remaining = T("remaining_h", lang, h=hrs)
-            else:
-                remaining = T("remaining_lt1h", lang)
-            prefix = T("est_prefix", lang)
-            lines.append(f"📊 {T('rate_line', lang, rate=hourly_rate, prefix=prefix, remaining=remaining)}")
-
+            total_hrs = round(busy_hours, 1)
+            lines.append(f"📊 {T('rate_line', lang, rate=hourly_rate, prefix=T('est_prefix', lang), remaining=f'{total_hrs}')}")
     lines.append(f"📡 {status_line}")
     if last:
-        diff = datetime.now() - last
-        mins = int(diff.total_seconds() / 60)
-        if mins < 1:
-            ago = T("ago_just", lang)
-        elif mins < 60:
-            ago = T("ago_min", lang, n=mins)
-        else:
-            hrs = mins // 60
-            ago = T("ago_hr", lang, n=hrs)
+        diff = datetime.now() - last; mins = int(diff.total_seconds() / 60)
+        ago = T("ago_just", lang) if mins < 1 else (T("ago_min", lang, n=mins) if mins < 60 else T("ago_hr", lang, n=mins // 60))
         sp = " " if lang == "en" else ""
         lines.append(f"🕐 {T('last_check', lang)}{sp}{ago}")
-    msg = "\n".join(lines)
-
-    try:
-        icon.notify(msg, title=title)
-    except Exception as e:
-        log(f"Show-balance notify failed: {e}")
+    icon.notify("\n".join(lines), title=title)
 
 
 def on_check_now(icon, item):
@@ -297,26 +523,59 @@ def _on_history(icon, item):
     app = getattr(icon, "_app", None)
     if app is None:
         return
-
-    from src.history_dialog import open_history
-    app._tk_root.after(0, lambda: open_history(app))
+    def _show():
+        try:
+            from src.main_window import MainWindow
+            mw = getattr(app, "_main_window", None)
+            if not isinstance(mw, MainWindow):
+                mw = MainWindow(app)
+                app._main_window = mw
+            mw.show("history")
+        except Exception:
+            from src.history_dialog import open_history
+            open_history(app)
+    app._tk_root.after(0, _show)
 
 def on_settings(icon, item):
     app = getattr(icon, "_app", None)
     if app is None:
         return
-    # Schedule on the tkinter main thread via root.after() to avoid
-    # cross-thread tkinter calls which deadlock on Windows.
-    try:
-        from src.settings_dialog import open_settings
-        app._tk_root.after(0, lambda: open_settings(app))
-    except Exception as e:
-        log(f"Settings error: {e}")
+    def _show():
+        try:
+            from src.main_window import MainWindow
+            mw = getattr(app, "_main_window", None)
+            if not isinstance(mw, MainWindow):
+                mw = MainWindow(app)
+                app._main_window = mw
+            mw.show("settings")
+        except Exception as e:
+            log(f"MainWindow settings error: {e}")
+            from src.settings_dialog import open_settings
+            open_settings(app)
+    app._tk_root.after(0, _show)
 
 
 def on_top_up(icon, item):
-    webbrowser.open("https://platform.deepseek.com/top_up")
-    log("Top-up page opened")
+    app = getattr(icon, "_app", None)
+    if app is None:
+        return
+    # Open preferred API's console URL
+    try:
+        from src.config import get_api_by_id
+        from src.platforms import get_platform
+        pref_id = app.config.get("preferred_api_id")
+        pref_api = get_api_by_id(pref_id) if pref_id else None
+        url = ""
+        if pref_api:
+            pmeta = get_platform(pref_api.get("platform", ""))
+            if pmeta:
+                url = pmeta.console_url
+        if not url:
+            url = "https://platform.deepseek.com"
+        webbrowser.open(url)
+        log("Console opened")
+    except Exception:
+        webbrowser.open("https://platform.deepseek.com")
 
 
 def on_quit(icon, item):
@@ -343,9 +602,18 @@ def _on_dev_tools(icon, item):
     app = getattr(icon, "_app", None)
     if app is None:
         return
-
-    # Schedule on the tkinter main thread to avoid cross-thread deadlocks
-    app._tk_root.after(0, lambda: _create_dev_window(app))
+    def _show():
+        try:
+            from src.main_window import MainWindow
+            mw = getattr(app, "_main_window", None)
+            if not isinstance(mw, MainWindow):
+                mw = MainWindow(app)
+                app._main_window = mw
+            mw.show("dev")
+        except Exception:
+            app._tk_root.after(0, lambda: _create_dev_window(app))
+            return
+    app._tk_root.after(0, _show)
 
 def _create_dev_window(app):
     """Create the Dev Tools window. Must be called on the tkinter main thread."""
@@ -384,10 +652,10 @@ def _create_dev_window(app):
     ttk.Label(f, text="Consumption rate / Est. hours (display only)").pack(anchor="w")
     rf = ttk.Frame(f)
     rf.pack(fill="x", pady=(0, 8))
-    rate_var = tk.DoubleVar(value=1.5)
+    rate_var = tk.DoubleVar(value=0.06)
     hours_var = tk.DoubleVar(value=28 * 24)
-    ttk.Spinbox(rf, from_=0, to=9999, increment=0.1, textvariable=rate_var, width=6).pack(side="left")
-    ttk.Label(rf, text=" /day").pack(side="left")
+    ttk.Spinbox(rf, from_=0, to=9999, increment=0.01, textvariable=rate_var, width=6).pack(side="left")
+    ttk.Label(rf, text=" /hr").pack(side="left")
     ttk.Spinbox(rf, from_=0, to=99999, textvariable=hours_var, width=6).pack(side="left", padx=4)
     ttk.Label(rf, text=" h").pack(side="left")
 
@@ -419,10 +687,158 @@ def _create_dev_window(app):
     win.focus_force()
 
 
+class DevFrame(ttk.Frame):
+    """Embeddable dev tools for MainWindow."""
+    def __init__(self, parent, app):
+        super().__init__(parent, padding=10)
+        self.app = app
+        self._build()
+    def _build(self):
+        import tkinter as tk
+        from tkinter import ttk
+        from datetime import datetime
+        from src.icon_renderer import create_icon_image
+        ttk.Label(self, text="Balance (total / topped / granted)").pack(anchor="w")
+        bf = ttk.Frame(self); bf.pack(fill="x", pady=(0, 8))
+        self.total_var = tk.DoubleVar(value=42.50)
+        self.topped_var = tk.DoubleVar(value=40.00)
+        self.granted_var = tk.DoubleVar(value=2.50)
+        ttk.Spinbox(bf, from_=0, to=9999, textvariable=self.total_var, width=6).pack(side="left")
+        ttk.Spinbox(bf, from_=0, to=9999, textvariable=self.topped_var, width=6).pack(side="left", padx=4)
+        ttk.Spinbox(bf, from_=0, to=9999, textvariable=self.granted_var, width=6).pack(side="left")
+        ttk.Label(self, text="Error (empty = none)").pack(anchor="w")
+        self.err_var = tk.StringVar()
+        ttk.Entry(self, textvariable=self.err_var).pack(fill="x", pady=(0, 8))
+        ttk.Label(self, text="API Status").pack(anchor="w")
+        status_opts = ["none", "minor", "major", "critical", "maintenance"]
+        self.status_var = tk.StringVar(value="none")
+        ttk.Combobox(self, textvariable=self.status_var, values=status_opts, state="readonly", width=14).pack(anchor="w", pady=(0, 8))
+        ttk.Label(self, text="Consumption rate / Est. hours (display only)").pack(anchor="w")
+        rf = ttk.Frame(self); rf.pack(fill="x", pady=(0, 8))
+        self.rate_var = tk.DoubleVar(value=0.06)
+        self.hours_var = tk.DoubleVar(value=28 * 24)
+        ttk.Spinbox(rf, from_=0, to=9999, increment=0.01, textvariable=self.rate_var, width=6).pack(side="left")
+        ttk.Label(rf, text=" /hr").pack(side="left")
+        ttk.Spinbox(rf, from_=0, to=99999, textvariable=self.hours_var, width=6).pack(side="left", padx=4)
+        ttk.Label(rf, text=" h").pack(side="left")
+        def _apply():
+            with self.app._lock:
+                self.app.balances = {"CNY": {"total_balance": self.total_var.get(), "topped_up_balance": self.topped_var.get(), "granted_balance": self.granted_var.get()}}
+                self.app.service_status = {"indicator": self.status_var.get(), "api_operational": self.status_var.get() == "none"}
+                err = self.err_var.get().strip()
+                self.app.error = err if err else None
+                self.app.last_check = datetime.now()
+                self.app._demo_rate = self.rate_var.get()
+                self.app._demo_hours = self.hours_var.get()
+            if self.app.icon:
+                self.app.icon.title = self.app.balance_tooltip()
+                self.app.icon.icon = create_icon_image(self.app)
+            # refresh overview if present
+            try:
+                if hasattr(self.app, "_main_window") and self.app._main_window:
+                    # find overview refresh
+                    pass
+            except: pass
+        ttk.Button(self, text="Apply", command=_apply).pack(pady=(4, 0))
+    def on_show(self): pass
+    def refresh(self): pass
+
+
+def _show_main(icon, item, tab="history"):
+    app = getattr(icon, "_app", None)
+    if app is None:
+        return
+    def _show():
+        try:
+            from src.main_window import MainWindow
+            mw = getattr(app, "_main_window", None)
+            if not isinstance(mw, MainWindow):
+                mw = MainWindow(app)
+                app._main_window = mw
+            mw.show(tab)
+        except Exception as e:
+            log(f"MainWindow show failed: {e}")
+    try:
+        app._tk_root.after(0, _show)
+    except Exception:
+        pass
+
+def _build_api_selection_submenu(app):
+    # build submenu for preferred API selection
+    try:
+        from src.config import load_config, get_apis
+        from src.platforms import get_all_platforms as _get_plats
+        _PLAT_META = _get_plats()
+        cfg = load_config()
+        apis = get_apis(cfg)
+        pref = cfg.get("preferred_api_id", "")
+    except Exception:
+        apis = []
+        pref = ""
+    items = []
+    for api in apis:
+        plat = api.get("platform", "")
+        plat_disp = next((p.display_name for p in _PLAT_META if p.key == plat), plat)
+        disp = f"{api.get('name')} ({plat_disp})"
+        # capture api id in closure
+        def _make_cb(aid=api.get("id")):
+            def _cb(icon, item):
+                log(f"API select callback fired: aid={aid}")
+                try:
+                    from src.config import set_preferred_api, load_config as _lc
+                    from src.icon_renderer import create_icon_image
+                    result = set_preferred_api(aid)
+                    log(f"set_preferred_api({aid}) returned {result}")
+                    if result:
+                        # reload config in app state
+                        app.config = _lc()
+                        # show cached data immediately for the new API
+                        cached = app._api_cache.get(aid, {})
+                        with app._lock:
+                            if "balances" in cached:
+                                app.balances = cached["balances"]
+                                app.package_data = cached.get("package_data")
+                                app.error = cached.get("error")
+                                app.last_check = cached.get("last_check")
+                            elif "package_data" in cached:
+                                app.package_data = cached["package_data"]
+                                app.balances = {}
+                                app.error = cached.get("error")
+                                app.last_check = cached.get("last_check")
+                            else:
+                                app.balances = {}
+                                app.package_data = None
+                                app.error = None
+                        if app.icon:
+                            app.icon.title = app.balance_tooltip()
+                            app.icon.icon = create_icon_image(app)
+                            app.icon.menu = app._rebuild_menu()
+                        log(f"Preferred API switched to {aid} (showing cached data)")
+                        # refresh main window
+                        try:
+                            mw = getattr(app, "_main_window", None)
+                            if mw and hasattr(mw, "refresh_all"):
+                                app._tk_root.after(0, mw.refresh_all)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    log(f"Select API failed: {e}")
+            return _cb
+        def _make_checked(aid=api.get("id")):
+            return lambda item: (load_config().get("preferred_api_id") == aid) if apis else False
+        items.append(pystray.MenuItem(disp, _make_cb(), checked=_make_checked(), radio=True))
+    if items:
+        items.append(pystray.Menu.SEPARATOR)
+    def _open_mgmt(icon, item):
+        _show_main(icon, item, "api_management")
+    items.append(pystray.MenuItem("➕ 添加/编辑…", _open_mgmt))
+    return pystray.Menu(*items)
+
 def make_menu(app: AppState):
     lang = app.lang
     items = [
         pystray.MenuItem(T("view_balance", lang), on_show_balance, default=True),
+        pystray.MenuItem("🔀 API选择", _build_api_selection_submenu(app)),
         pystray.MenuItem(T("check_now", lang), on_check_now),
         pystray.MenuItem(T("top_up", lang), on_top_up),
         pystray.MenuItem(T("history", lang), _on_history),
@@ -442,18 +858,12 @@ def main():
     log("=" * 50)
     log(f"{APP_NAME} starting")
 
-    # Create the hidden tk.Tk() root on the main thread.  tkinter
-    # requires that the root window and mainloop() run on the same
-    # thread that created tk.Tk().  All UI operations (Toplevel
-    # creation, widget updates, etc.) must also happen on this thread.
-    # We therefore keep tkinter on the main thread and move pystray
-    # to a daemon thread instead — the opposite of the original design
-    # which caused deadlocks on Windows.
     _tk_root = tk.Tk()
     _tk_root.withdraw()
 
     app = AppState()
     app._tk_root = _tk_root
+    app._main_window = None
     app._trigger_check = lambda a=app: threading.Thread(target=do_balance_check, args=(a,), daemon=True).start()
     app._rebuild_menu = lambda a=app: make_menu(a)
 
@@ -484,26 +894,27 @@ def main():
     if app.config.get("rainmeter_enabled", True):
         start_rainmeter_server(app)
 
-    # First-time setup: no API key → open settings dialog.
-    # Use wait_window() to block until the settings Toplevel is
-    # destroyed, then reload config and continue normal startup.
-    if not app.demo_mode and not app.config.get("api_key", "").strip():
-        log("No API key -- opening settings")
+    # First-time setup: no APIs → open API management (v2) — don't block, tray stays with gray icon
+    apis = app.config.get("apis") or []
+    if not app.demo_mode and not apis:
+        log("No APIs -- opening API management")
         try:
-            from src.settings_dialog import open_settings
-            open_settings(app)
-            if app._settings_window is not None:
-                _tk_root.wait_window(app._settings_window)
-            # Reload config in case the user saved a new key
-            from src.config import load_config
-            app.config = load_config()
+            from src.main_window import MainWindow
+            mw = MainWindow(app)
+            app._main_window = mw
+            _tk_root.after(300, lambda: mw.show("api_management"))
         except Exception as e:
-            log(f"Settings failed: {e}")
-
-        if not app.demo_mode and not app.config.get("api_key", "").strip():
-            log("No API key provided -- exiting")
-            print(T("exit_no_key", app.config.get("language", "zh")))
-            sys.exit(0)
+            log(f"API management open failed: {e}")
+            # fallback to old settings
+            try:
+                from src.settings_dialog import open_settings
+                open_settings(app)
+                if app._settings_window is not None:
+                    _tk_root.wait_window(app._settings_window)
+                    from src.config import load_config
+                    app.config = load_config()
+            except Exception as e2:
+                log(f"Fallback settings failed: {e2}")
 
     icon_img = create_icon_image(app)
     app.icon = pystray.Icon(

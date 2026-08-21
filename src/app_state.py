@@ -23,10 +23,15 @@ class AppState:
         self._settings_window = None
         self._history_open = False
         self._history_window = None
+        self._main_window = None
         self._tk_root = None
         self._alert_suppressed = False
         self._api_was_operational = True
         self.demo_mode = False
+        self.package_data = None  # latest package quota for preferred API
+        self._alert_suppressed_pkg = False
+        self._check_generation = 0  # incremented on API switch to discard stale results
+        self._api_cache = {}  # {api_id: {"balances": {...}, "package_data": {...}, "service_status": {...}, "error": str}}
 
     @property
     def lang(self):
@@ -37,8 +42,23 @@ class AppState:
             return {**b, "currency": c}
         return None
 
+    def _get_package_data_for_billing(self, billing_period="monthly"):
+        """Get package data using billing_period as monthly proxy."""
+        pd = self.package_data
+        if not pd:
+            return None
+        col_map = {"5h": pd.get("5h") or pd.get("rolling"), "weekly": pd.get("weekly"), "monthly": pd.get("monthly")}
+        return col_map.get(billing_period) or pd.get("monthly") or pd.get("weekly") or pd.get("5h")
+
     def balance_tooltip(self):
         with self._lock:
+            pd = self.package_data
+            if pd:
+                # package mode: show best available remaining %
+                mp = pd.get("monthly") or pd.get("weekly") or pd.get("5h") or pd.get("rolling")
+                if mp:
+                    rm = mp.get("percent_remaining", 100 - mp.get("usage_percent", 0))
+                    return f"📊 {T('total_balance', self.lang)} {rm:.0f}%"
             if self.error:
                 return T("tooltip_error", self.lang, error=self.error)
             b = self.get_preferred_balance()
@@ -50,6 +70,15 @@ class AppState:
 
     def is_low_balance(self):
         with self._lock:
+            # package mode: check remaining % using billing_period
+            pd = self.package_data
+            if pd:
+                mp = pd.get("monthly") or pd.get("weekly") or pd.get("5h") or pd.get("rolling")
+                if mp:
+                    remaining_pct = mp.get("percent_remaining", 100 - mp.get("usage_percent", 0))
+                    threshold = float(self.config.get("threshold_package_percent", 10))
+                    return remaining_pct < threshold
+            # payg mode: check total balance
             b = self.get_preferred_balance()
             if b is None:
                 return False

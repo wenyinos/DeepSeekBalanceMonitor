@@ -122,3 +122,42 @@ def fetch_service_status():
         return {"indicator": "none", "api_operational": True}
     except Exception:
         return None
+
+
+def fetch_minimax_service_status():
+    """Fetch MiniMax service status from status.minimax.io.
+    Returns dict {"indicator": str, "api_operational": bool},
+    or None on failure."""
+    try:
+        import re
+        url = "https://status.minimax.io/"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            html = resp.read().decode("utf-8")
+        full = " ".join(html.split("\n"))
+
+        # Look for LLM component status
+        # Try multiple patterns
+        llm_match = re.search(r'Large Language Models.*?(Operational|Degraded|Partial Outage|Major Outage|Under Maintenance)', full, re.IGNORECASE)
+        if llm_match:
+            status_text = llm_match.group(1).strip().lower()
+            if "operational" in status_text:
+                return {"indicator": "none", "api_operational": True}
+            elif "degraded" in status_text:
+                return {"indicator": "minor", "api_operational": False}
+            elif "partial" in status_text or "major" in status_text:
+                return {"indicator": "major", "api_operational": False}
+            elif "maintenance" in status_text:
+                return {"indicator": "maintenance", "api_operational": False}
+            elif "outage" in status_text:
+                return {"indicator": "critical", "api_operational": False}
+
+        # Fallback: check for "All Systems Operational"
+        if "All Systems Operational" in full:
+            return {"indicator": "none", "api_operational": True}
+
+        return {"indicator": "none", "api_operational": True}
+    except Exception as e:
+        log(f"MiniMax status fetch failed: {e}")
+        return None

@@ -3,6 +3,8 @@ Settings dialog — tkinter window for configuring API key, interval, threshold,
 language, auto-start, and alert toggle.
 """
 import threading
+import tkinter as tk
+from tkinter import ttk
 
 
 def open_settings(app):
@@ -507,3 +509,350 @@ def open_settings(app):
         api_entry.focus_set()
 
     _dialog()
+
+
+class SettingsFrame(ttk.Frame):
+    """Embeddable settings for MainWindow. on_save callback is called after successful save."""
+    def __init__(self, parent, app, on_save=None):
+        super().__init__(parent)
+        self.app = app
+        self.on_save = on_save
+        self._dirty = False
+        self._build()
+
+    def _build(self):
+        import os, sys, tkinter as tk
+        from tkinter import ttk, messagebox, filedialog
+        from src.config import T, save_config, log
+        from src.icon_renderer import THEMES, _hex_to_rgba, _text_color, create_icon_image
+        from src.app_state import get_auto_start_state, set_auto_start
+
+        lang = self.app.lang
+        # scrollable canvas
+        outer = ttk.Frame(self)
+        outer.pack(fill="both", expand=True)
+        canvas = tk.Canvas(outer, borderwidth=0, highlightthickness=0)
+        scrollbar = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+        def _upd(*_a):
+            canvas.configure(scrollregion=(0, 0, scroll_frame.winfo_reqwidth(), scroll_frame.winfo_reqheight()))
+        scroll_frame.bind("<Configure>", _upd)
+        win = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(win, width=e.width))
+        def _wheel(e): canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=(10, 0))
+
+        # Preferred API (for tray and notifications)
+        ttk.Label(scroll_frame, text=T("preferred_api_label", lang)).pack(anchor="w")
+        from src.config import get_apis
+        from src.platforms import get_all_platforms as _get_plats
+        _PLAT_META = _get_plats()
+        apis = get_apis(self.app.config)
+        # map display -> id
+        self._pref_map = {}
+        pref_displays = []
+        for api in apis:
+            plat = api.get("platform", "")
+            plat_disp = next((p.display_name for p in _PLAT_META if p.key == plat), plat)
+            disp = f"{api.get('name')} ({plat_disp})"
+            pref_displays.append(disp)
+            self._pref_map[disp] = api.get("id", "")
+        cur_pref = self.app.config.get("preferred_api_id", "")
+        cur_disp = next((d for d, aid in self._pref_map.items() if aid == cur_pref), pref_displays[0] if pref_displays else "")
+        self.preferred_var = tk.StringVar(value=cur_disp)
+        self.preferred_combo = ttk.Combobox(scroll_frame, textvariable=self.preferred_var, values=pref_displays, state="readonly" if pref_displays else "disabled", width=28)
+        self.preferred_combo.pack(anchor="w", pady=(0, 8))
+        if not pref_displays:
+            self.preferred_combo.configure(state="disabled")
+            ttk.Label(scroll_frame, text=T("no_apis", lang), font=("Segoe UI", 8), foreground="#888").pack(anchor="w", pady=(0, 4))
+        ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=5)
+
+        ttk.Label(scroll_frame, text=T("interval_label", lang)).pack(anchor="w")
+        interval_var = tk.IntVar(value=self.app.config.get("interval_minutes", 10))
+        ifr = ttk.Frame(scroll_frame); ifr.pack(fill="x", pady=(0, 8))
+        interval_sb = ttk.Spinbox(ifr, from_=1, to=1440, textvariable=interval_var, width=8)
+        interval_sb.pack(side="left"); ttk.Label(ifr, text=T("interval_hint", lang)).pack(side="left")
+        ttk.Label(scroll_frame, text=T("threshold_label", lang)).pack(anchor="w")
+        threshold_var = tk.DoubleVar(value=self.app.config.get("threshold_yuan", 1.0))
+        tfr = ttk.Frame(scroll_frame); tfr.pack(fill="x", pady=(0, 8))
+        threshold_sb = ttk.Spinbox(tfr, from_=0.0, to=10000.0, increment=0.5, textvariable=threshold_var, width=8)
+        threshold_sb.pack(side="left"); ttk.Label(tfr, text=T("threshold_hint", lang)).pack(side="left")
+
+        # Package mode threshold
+        ttk.Label(scroll_frame, text=T("threshold_package_label", lang) if "threshold_package_label" in T("threshold_package_label", lang) else ("套餐剩余预警线（%）：" if lang == "zh" else "Package remaining threshold (%):")).pack(anchor="w")
+        threshold_pkg_var = tk.IntVar(value=self.app.config.get("threshold_package_percent", 10))
+        tpfr = ttk.Frame(scroll_frame); tpfr.pack(fill="x", pady=(0, 8))
+        ttk.Spinbox(tpfr, from_=0, to=100, textvariable=threshold_pkg_var, width=8).pack(side="left")
+        ttk.Label(tpfr, text=T("threshold_hint", lang)).pack(side="left")
+
+        alert_map = {T("alert_never", lang): "never", T("alert_always", lang): "always", T("alert_once", lang): "once"}
+        alert_disp = list(alert_map.keys())
+        cur_disp = {v:k for k,v in alert_map.items()}.get(self.app.config.get("alert_mode","always"), T("alert_always", lang))
+        ttk.Label(scroll_frame, text=T("alert_mode_label", lang)).pack(anchor="w")
+        alert_var = tk.StringVar(value=cur_disp)
+        alert_combo = ttk.Combobox(scroll_frame, textvariable=alert_var, values=alert_disp, state="readonly", width=14)
+        alert_combo.pack(anchor="w", pady=(0, 8))
+        api_alert_var = tk.BooleanVar(value=self.app.config.get("api_alert_enabled", True))
+        ttk.Checkbutton(scroll_frame, text=T("api_alert_label", lang), variable=api_alert_var).pack(anchor="w", pady=(0, 8))
+        rain_var = tk.BooleanVar(value=self.app.config.get("rainmeter_enabled", True))
+        ttk.Checkbutton(scroll_frame, text=T("rainmeter_label", lang), variable=rain_var).pack(anchor="w", pady=(0, 8))
+        ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=5)
+
+        ttk.Label(scroll_frame, text=T("theme_label", lang)).pack(anchor="w")
+        THEME_KEYS = ["default","contrast","bright","dark_mode","mono","custom"]
+        THEME_OPTS = ["theme_default","theme_contrast","theme_bright","theme_dark_mode","theme_mono","theme_custom"]
+        theme_disp = [T(k, lang) for k in THEME_OPTS]
+        if lang=="zh":
+            PREVIEW_LABELS={"ok":"正常","low":"低额","degraded":"异常","nodata":"等待"}
+            CUSTOM_LABELS={"ok":"正常","low":"低额","degraded":"异常","nodata":"等待"}
+        else:
+            PREVIEW_LABELS={"ok":"OK","low":"Low","degraded":"Deg","nodata":"..."}
+            CUSTOM_LABELS={"ok":"OK","low":"Low","degraded":"Degraded","nodata":"No Data"}
+        cur_theme=self.app.config.get("theme","default")
+        cur_idx=THEME_KEYS.index(cur_theme) if cur_theme in THEME_KEYS else 0
+        preview_frame=ttk.Frame(scroll_frame); preview_frame.pack(fill="x", pady=(4,6))
+        color_labels={}
+        def _tk_color(rgba): return f"#{rgba[0]:02x}{rgba[1]:02x}{rgba[2]:02x}"
+        for i,k in enumerate(("ok","low","degraded","nodata")):
+            c=THEMES["default"][k]; hx=f"#{c[0]:02x}{c[1]:02x}{c[2]:02x}"; tc=_text_color(c)
+            lbl=tk.Label(preview_frame, text=PREVIEW_LABELS[k], bg=hx, fg=_tk_color(tc), font=("Segoe UI",8,"bold"), width=6, height=1, relief="ridge")
+            lbl.pack(side="left", padx=(0 if i==0 else 3,0)); color_labels[k]=lbl
+        theme_var=tk.StringVar(value=theme_disp[cur_idx])
+        def _refresh_preview(*_a):
+            idx=theme_disp.index(theme_var.get()) if theme_var.get() in theme_disp else 0
+            tk_theme=THEME_KEYS[idx]; colors=THEMES.get(tk_theme, THEMES["default"])
+            for k,lbl in color_labels.items():
+                c=colors[k]; hx=f"#{c[0]:02x}{c[1]:02x}{c[2]:02x}"; tc=_text_color(c)
+                lbl.configure(background=hx, foreground=_tk_color(tc))
+        theme_var.trace_add("write", _refresh_preview); _refresh_preview()
+        theme_combo=ttk.Combobox(scroll_frame, textvariable=theme_var, values=theme_disp, state="readonly", width=14)
+        theme_combo.pack(anchor="w", pady=(0,4))
+        stroke_var=tk.BooleanVar(value=self.app.config.get("icon_stroke",True))
+        ttk.Checkbutton(scroll_frame, text=T("icon_stroke_label", lang), variable=stroke_var).pack(anchor="w", pady=(0,6))
+        custom_frame=ttk.Frame(scroll_frame); custom_vars={}
+        for k in ("ok","low","degraded","nodata"):
+            row=ttk.Frame(custom_frame); row.pack(fill="x", pady=(0,3))
+            ttk.Label(row, text=CUSTOM_LABELS[k], width=7).pack(side="left")
+            v=tk.StringVar(); custom_vars[k]=v
+            ttk.Label(row, text="#", foreground="gray").pack(side="left")
+            ttk.Entry(row, textvariable=v, width=8).pack(side="left")
+        def _on_theme(*_a):
+            idx=theme_disp.index(theme_var.get()) if theme_var.get() in theme_disp else 0
+            tk_theme=THEME_KEYS[idx]
+            if tk_theme=="custom":
+                cols=THEMES["default"]
+                for k,v in custom_vars.items(): v.set(f"{cols[k][0]:02x}{cols[k][1]:02x}{cols[k][2]:02x}")
+                custom_frame.pack(fill="x", pady=(0,6), after=theme_combo)
+            else: custom_frame.pack_forget()
+        def _on_custom(*_a):
+            for k,v in custom_vars.items():
+                val=v.get().strip()
+                if len(val)==6:
+                    try:
+                        c=_hex_to_rgba(val); lbl=color_labels.get(k)
+                        if lbl: lbl.configure(background=f"#{val}", foreground=_tk_color(_text_color(c)))
+                    except: pass
+        for v in custom_vars.values(): v.trace_add("write", _on_custom)
+        theme_var.trace_add("write", _on_theme)
+        if cur_theme=="custom":
+            saved=self.app.config.get("icon_colors",{})
+            cols=THEMES["default"]
+            for k,v in custom_vars.items(): v.set(saved.get(k, f"{cols[k][0]:02x}{cols[k][1]:02x}{cols[k][2]:02x}"))
+            custom_frame.pack(fill="x", pady=(0,6), after=theme_combo)
+        ttk.Label(scroll_frame, text=T("language_label", lang)).pack(anchor="w", pady=(2,0))
+        LANG_OPTIONS={"中文":"zh","English":"en"}; LANG_DISPLAY=list(LANG_OPTIONS.keys())
+        cur_lang_disp={v:k for k,v in LANG_OPTIONS.items()}.get(self.app.config.get("language","zh"),"中文")
+        lang_var=tk.StringVar(value=cur_lang_disp)
+        lang_combo=ttk.Combobox(scroll_frame, textvariable=lang_var, values=LANG_DISPLAY, state="readonly", width=14)
+        lang_combo.pack(anchor="w", pady=(0,12))
+        from src.app_state import get_auto_start_state, set_auto_start
+        auto_var=tk.BooleanVar(value=self.app.config.get("auto_start",False) or get_auto_start_state())
+        ttk.Checkbutton(scroll_frame, text=T("auto_start_label", lang), variable=auto_var).pack(anchor="w", pady=(0,2))
+        ttk.Label(scroll_frame, text=T("retention_label", lang)).pack(anchor="w")
+        retention_var=tk.IntVar(value=self.app.config.get("retention_days",30))
+        rfr=ttk.Frame(scroll_frame); rfr.pack(fill="x", pady=(0,8))
+        retention_sb=ttk.Spinbox(rfr, from_=1, to=3650, textvariable=retention_var, width=8); retention_sb.pack(side="left")
+        ttk.Label(scroll_frame, text=T("export_label", lang)).pack(anchor="w")
+        export_frame=ttk.Frame(scroll_frame); export_frame.pack(fill="x", pady=(0,8))
+        export_var=tk.StringVar(value=self.app.config.get("export_path",""))
+        export_entry=ttk.Entry(export_frame, textvariable=export_var); export_entry.pack(side="left", fill="x", expand=True)
+        ttk.Button(export_frame, text=T("export_browse", lang), command=lambda: export_var.set(filedialog.askdirectory() or export_var.get())).pack(side="left", padx=(4,0))
+        proxy_enabled_var=tk.BooleanVar(value=self.app.config.get("proxy_enabled",False))
+        ttk.Checkbutton(scroll_frame, text=T("proxy_enable", lang), variable=proxy_enabled_var).pack(anchor="w")
+        proxy_var=tk.StringVar(value=self.app.config.get("http_proxy",""))
+        proxy_entry=ttk.Entry(scroll_frame, textvariable=proxy_var); proxy_entry.pack(fill="x", pady=(0,8))
+        placeholder=T("proxy_placeholder", lang)
+        def _on_focus_in(e):
+            if proxy_var.get()=="": proxy_entry.configure(foreground="black")
+        def _on_focus_out(e):
+            if proxy_var.get()=="": proxy_var.set(placeholder); proxy_entry.configure(foreground="gray")
+            else: proxy_entry.configure(foreground="black")
+        def _toggle_proxy(*_a):
+            if proxy_enabled_var.get():
+                proxy_entry.configure(state="normal")
+                if proxy_var.get() in ("", placeholder): proxy_var.set("")
+            else:
+                proxy_entry.configure(state="disabled")
+                if proxy_var.get()=="": proxy_var.set(placeholder); proxy_entry.configure(foreground="gray")
+        proxy_enabled_var.trace_add("write", _toggle_proxy)
+        if proxy_var.get()=="": proxy_var.set(placeholder); proxy_entry.configure(foreground="gray")
+        if not proxy_enabled_var.get(): proxy_entry.configure(state="disabled")
+        proxy_entry.bind("<FocusIn>", _on_focus_in); proxy_entry.bind("<FocusOut>", _on_focus_out)
+        _no_scroll=lambda e:"break"
+        for w in (interval_sb, threshold_sb, alert_combo, theme_combo, lang_combo, retention_sb): w.bind("<MouseWheel>", _no_scroll)
+        ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=(12,8))
+        ttk.Label(scroll_frame, text="v1.2.7_260528", foreground="gray").pack(anchor="w")
+
+        # --- Dirty tracking ---
+        def _mark_dirty(*_a):
+            self._dirty = True
+        for v in [interval_var, threshold_var, alert_var, threshold_pkg_var,
+                  api_alert_var, rain_var, theme_var,
+                  lang_var, auto_var, retention_var, proxy_enabled_var, proxy_var,
+                  self.preferred_var]:
+            try:
+                v.trace_add("write", _mark_dirty)
+            except Exception:
+                pass
+        # also trace custom color vars
+        for v in custom_vars.values():
+            try:
+                v.trace_add("write", _mark_dirty)
+            except Exception:
+                pass
+        # also trace checkbox and entry changes via key/button binds
+        def _on_input_change(_e=None):
+            self._dirty = True
+        for w in scroll_frame.winfo_children():
+            try:
+                if isinstance(w, tk.Entry):
+                    w.bind("<KeyRelease>", _on_input_change)
+            except Exception:
+                pass
+
+        # buttons
+        btn_frame=ttk.Frame(self); btn_frame.pack(fill="x", padx=10, pady=10)
+        def on_save():
+            from src.config import log
+            # validate
+            pref_disp = self.preferred_var.get().strip()
+            pref_id = self._pref_map.get(pref_disp, "")
+            if self._pref_map and not pref_id:
+                log("on_save: abort - no pref_id"); return
+            try:
+                interval=int(interval_var.get())
+                threshold=float(threshold_var.get())
+                retention=int(retention_var.get())
+            except Exception as e:
+                log(f"on_save: validation error {e}"); return
+            if not (1<=interval<=1440):
+                messagebox.showwarning(T("warn_title", lang), T("validate_interval", lang), parent=self.winfo_toplevel()); return
+            if not (0<=threshold<=10000):
+                messagebox.showwarning(T("warn_title", lang), T("validate_threshold", lang), parent=self.winfo_toplevel()); return
+            if not (1<=retention<=3650):
+                messagebox.showwarning(T("warn_title", lang), T("validate_retention", lang), parent=self.winfo_toplevel()); return
+            # save
+            self.app.config["preferred_api_id"] = pref_id
+            if pref_id:
+                try:
+                    from src.secure_settings import read_api_key_for_id, store_api_key
+                    k = read_api_key_for_id(pref_id)
+                    if k:
+                        store_api_key(k)
+                        self.app.config["api_key"] = k
+                    else:
+                        self.app.config["api_key"] = ""
+                except Exception:
+                    pass
+            else:
+                self.app.config["api_key"] = ""
+            self.app.config["interval_minutes"]=interval
+            self.app.config["threshold_yuan"]=threshold
+            self.app.config["threshold_package_percent"]=threshold_pkg_var.get()
+            self.app.config["language"]=LANG_OPTIONS.get(lang_var.get(),"zh")
+            self.app.config["auto_start"]=auto_var.get()
+            self.app.config["alert_mode"]=alert_map.get(alert_var.get(),"always")
+            self.app.config["api_alert_enabled"]=api_alert_var.get()
+            self.app.config["rainmeter_enabled"]=rain_var.get()
+            self.app.config["retention_days"]=retention
+            self.app.config["export_path"]=export_var.get()
+            self.app.config["proxy_enabled"]=proxy_enabled_var.get()
+            proxy_val=proxy_var.get().strip()
+            new_lang=LANG_OPTIONS.get(lang_var.get(),"zh")
+            if proxy_val==T("proxy_placeholder", new_lang): proxy_val=""
+            self.app.config["http_proxy"]=proxy_val
+            from src.api_client import install_proxy
+            if self.app.config["proxy_enabled"] and self.app.config["http_proxy"]: install_proxy(self.app.config["http_proxy"])
+            else: install_proxy("")
+            t_idx=theme_disp.index(theme_var.get()) if theme_var.get() in theme_disp else 0
+            if THEME_KEYS[t_idx]=="custom":
+                for k,v in custom_vars.items():
+                    val=v.get().strip()
+                    if len(val)!=6:
+                        messagebox.showwarning(T("warn_title", lang), T("hex_invalid", lang), parent=self.winfo_toplevel()); return
+                    try: int(val,16)
+                    except: messagebox.showwarning(T("warn_title", lang), T("hex_invalid", lang), parent=self.winfo_toplevel()); return
+            t_key=THEME_KEYS[t_idx]
+            self.app.config["theme"]=t_key
+            if t_key=="custom": self.app.config["icon_colors"]={k:v.get().strip() for k,v in custom_vars.items()}
+            else: self.app.config["icon_colors"]={}
+            self.app.config["icon_stroke"]=stroke_var.get()
+            set_auto_start(self.app.config["auto_start"])
+            save_config(self.app.config)
+            self.app.cancel_timer()
+            if self.app.icon:
+                from src.icon_renderer import create_icon_image
+                self.app.icon.icon=create_icon_image(self.app)
+                self.app.icon.menu=self.app._rebuild_menu()
+            log("Settings saved (embedded)")
+            self._dirty = False
+            if self.on_save: self.on_save()
+            # close the main window after save
+            try:
+                mw = getattr(self.app, "_main_window", None)
+                if mw and hasattr(mw, "hide"):
+                    mw.hide()
+            except Exception:
+                pass
+        ttk.Button(btn_frame, text=T("save", lang), command=on_save).pack(side="right", padx=(5,0))
+        # keep refs
+        self._lang_var=lang_var
+
+    def refresh_preferred_selector(self):
+        try:
+            from src.config import get_apis, load_config as _lc
+            # force reload from disk to ensure latest preferred_api_id
+            self.app.config = _lc()
+            apis = get_apis(self.app.config)
+            self._pref_map.clear()
+            displays = []
+            for api in apis:
+                plat = api.get("platform", "")
+                plat_disp = next((p.display_name for p in _PLAT_META if p.key == plat), plat)
+                disp = f"{api.get('name')} ({plat_disp})"
+                displays.append(disp)
+                self._pref_map[disp] = api.get("id", "")
+            self.preferred_combo["values"] = displays
+            cur_pref = self.app.config.get("preferred_api_id", "")
+            cur_disp = next((d for d, aid in self._pref_map.items() if aid == cur_pref), displays[0] if displays else "")
+            self.preferred_var.set(cur_disp)
+            self.preferred_combo.configure(state="readonly" if displays else "disabled")
+            self.preferred_combo.update_idletasks()
+        except Exception:
+            pass
+
+    def refresh(self):
+        self.refresh_preferred_selector()
+    def on_show(self):
+        self.refresh_preferred_selector()
+    def check_unsaved(self):
+        """Check for unsaved changes. Returns True if user wants to discard."""
+        if not self._dirty:
+            return True
+        lang = self.app.lang
+        from tkinter import messagebox
+        return messagebox.askyesno(T("warn_title", lang), T("unsaved_changes", lang), parent=self.winfo_toplevel())

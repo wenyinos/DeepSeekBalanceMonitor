@@ -38,12 +38,9 @@ from src.config import load_config, save_config, T as _T, log, CONFIG_DIR
 _SETTINGS_SENTINEL = CONFIG_DIR / ".settings_changed"
 _SETTINGS_PID = CONFIG_DIR / "settings.pid"
 
-# --- macOS Local Translations ---
+# --- macOS Local Translations — unified with Windows keys ---
 _MAC_T = {
     "zh": {
-        "topped_up": "充值余额",
-        "granted": "赠送余额",
-        "currency": "货币",
         "checking": "查询中…",
         "error_fetch": "查询出错",
         "check_now": "立即查询",
@@ -52,9 +49,6 @@ _MAC_T = {
         "quit": "退出",
     },
     "en": {
-        "topped_up": "Topped Up",
-        "granted": "Granted",
-        "currency": "Currency",
         "checking": "Checking…",
         "error_fetch": "Fetch Error",
         "check_now": "Check Now",
@@ -72,7 +66,6 @@ def T(key, lang="zh", **kwargs):
     return _T(key, lang, **kwargs)
 from src.api_client import fetch_balance, fetch_service_status
 from src.icon_renderer import _get_colors, _text_color
-from src.mac.keystore import decrypt_api_key
 from src.storage import save_balance_record
 
 # macOS system font attempts
@@ -305,9 +298,6 @@ class DeepSeekBalanceMacApp(rumps.App):
         self.update_ui()
 
     def get_preferred_balance(self):
-        pref_currency = self.config.get("currency", "CNY")
-        if pref_currency in self.balances:
-            return {**self.balances[pref_currency], "currency": pref_currency}
         for c, b in self.balances.items():
             return {**b, "currency": c}
         return None
@@ -391,8 +381,8 @@ class DeepSeekBalanceMacApp(rumps.App):
 
                 last_str = self.last_check.strftime("%Y-%m-%d %H:%M:%S") if self.last_check else "-"
                 self.info_item.title = f"{T('total_balance', self.lang)}: {b['total_balance']:.2f} {b['currency']}"
-                self.detail_topped.title = f"  {T('topped_up', self.lang)}: {b['topped_up_balance']:.2f}"
-                self.detail_granted.title = f"  {T('granted', self.lang)}: {b['granted_balance']:.2f}"
+                self.detail_topped.title = f"  {T('th_topped', self.lang)}: {b['topped_up_balance']:.2f}"
+                self.detail_granted.title = f"  {T('th_granted', self.lang)}: {b['granted_balance']:.2f}"
                 
                 # Update consumption rate
                 from src.storage import get_consumption_rate
@@ -466,10 +456,7 @@ class DeepSeekBalanceMacApp(rumps.App):
         subprocess.run(["open", "https://platform.deepseek.com/top_up"])
 
     def _do_check(self):
-        # Try encrypted key first, then fall back to legacy plain-text
-        api_key = decrypt_api_key(self.config.get("api_key_enc", ""), CONFIG_DIR).strip()
-        if not api_key:
-            api_key = self.config.get("api_key", "").strip()
+        api_key = self.config.get("api_key", "").strip()
         if not api_key:
             self.error = T("error_no_key", self.lang)
             self.balances = {}
@@ -495,7 +482,7 @@ class DeepSeekBalanceMacApp(rumps.App):
                 log(f"Mac balance saved to DB ({len(data['all_balances'])} records)")
                 
                 b = self.get_preferred_balance()
-                if b and self.config.get("enable_alerts", True):
+                if b and self.config.get("alert_mode", "once") != "never":
                     t = float(self.config.get("threshold_yuan", 1.0))
                     if b["total_balance"] < t:
                         notify_mac(
