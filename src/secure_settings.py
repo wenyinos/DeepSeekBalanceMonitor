@@ -5,7 +5,7 @@ import sqlite3
 
 from cryptography.fernet import Fernet
 
-from src.config import CONFIG_DIR, log
+from src.paths import CONFIG_DIR, log
 
 DB_PATH = CONFIG_DIR / "secure_settings.db"
 KEY_PATH = CONFIG_DIR / ".keyfile"
@@ -97,8 +97,3 @@ def delete_api_credentials(api_id: str):
     _delete_secret(f"api:{api_id}:key")
     _delete_secret(f"opencode_go:{api_id}:workspace_id")
     _delete_secret(f"opencode_go:{api_id}:auth_cookie")
-
-
-def delete_api_key():
-    """Deprecated — kept for import compatibility, no longer used."""
-    return

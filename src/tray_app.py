@@ -5,17 +5,21 @@ import sys
 import threading
 import webbrowser
 from datetime import datetime, timedelta
+from functools import partial
 
 import pystray
 import tkinter as tk
 from tkinter import ttk
 
 from src.config import T, log, CONFIG_DIR, APP_NAME, APP_ID
-from src.api_client import fetch_balance, fetch_service_status, install_proxy
+from src.config import load_config, get_apis, get_preferred_api, get_api_by_id, set_preferred_api
+from src.platforms import get_platform, get_all_platforms as _get_plats
+from src.secure_settings import read_api_key_for_id
+from src.api_client import fetch_balance, fetch_service_status, install_proxy, fetch_minimax_service_status
 from src.icon_renderer import create_icon_image
 from src.app_state import AppState
 from src.rainmeter_server import start_rainmeter_server
-from src.storage import save_balance_record, prune_old_data, get_consumption_rate
+from src.storage import save_balance_record, prune_old_data, get_consumption_rate, save_package_record, get_package_history_page
 
 _DEMO = {
     "balances": {"CNY": {"total_balance": 42.50, "topped_up_balance": 40.00, "granted_balance": 2.50}},
@@ -81,6 +85,36 @@ def _demo_rate_from(records):
 
 # --- Balance Check --------------------------------------------------
 
+def _fetch_payg(api):
+    api_id = api.get("id")
+    key = read_api_key_for_id(api_id)
+    if not key:
+        return api_id, None, "no key"
+    try:
+        data = fetch_balance(key)
+        return api_id, data, None
+    except Exception as e:
+        return api_id, None, str(e).split("\n")[0]
+
+
+def _fetch_package(api, proxy_url=""):
+    api_id = api.get("id")
+    key = read_api_key_for_id(api_id)
+    if not key:
+        return api_id, None, "no key"
+    plat = api.get("platform", "")
+    try:
+        if plat.startswith("minimax_"):
+            from src.minimax_client import fetch_minimax_quota
+            quota = fetch_minimax_quota(platform_key=plat, api_key=key)
+        else:
+            from src.opencode_client import fetch_opencode_quota
+            quota = fetch_opencode_quota(api_key=key, http_proxy=proxy_url)
+        return api_id, quota, None
+    except Exception as e:
+        return api_id, None, str(e).split("\n")[0]
+
+
 def do_balance_check(app: AppState):
     if app.demo_mode:
         with app._lock:
@@ -97,18 +131,17 @@ def do_balance_check(app: AppState):
 
     if not app.running:
         return
-    my_gen = app._check_generation  # capture current generation
+    if not app.running:
+        return
     # fetch service status based on preferred API's platform
     status = None
     try:
-        from src.config import get_preferred_api
         pref = get_preferred_api()
         if pref:
             plat = pref.get("platform", "")
             if plat == "deepseek":
                 status = fetch_service_status()
             elif plat.startswith("minimax_"):
-                from src.api_client import fetch_minimax_service_status
                 status = fetch_minimax_service_status()
             # opencode_go has no status page — status stays None
     except Exception:
@@ -118,9 +151,7 @@ def do_balance_check(app: AppState):
 
     if not app.running:
         return
-    # --- Multi-API fetch (v2: payg + package, all in parallel) ---
-    from src.config import load_config, get_apis, get_preferred_api
-    from src.secure_settings import read_api_key_for_id
+    # --- Multi-API fetch: payg + package, all in parallel ---
     cfg = load_config()
     apis = get_apis(cfg)
     if not apis:
@@ -129,111 +160,58 @@ def do_balance_check(app: AppState):
             app.balances = {}
             app.package_data = None
     else:
-        preferred = get_preferred_api(cfg)
-        pref_id = preferred.get("id") if preferred else None
-
         from concurrent.futures import ThreadPoolExecutor, as_completed
         proxy_url = cfg.get("http_proxy", "") if cfg.get("proxy_enabled") else ""
-
-        def _fetch_payg(api):
-            api_id = api.get("id")
-            key = read_api_key_for_id(api_id)
-            if not key:
-                return api_id, None, f"no key"
-            try:
-                data = fetch_balance(key)
-                return api_id, data, None
-            except Exception as e:
-                return api_id, None, str(e).split("\n")[0]
-
-        def _fetch_package(api):
-            api_id = api.get("id")
-            key = read_api_key_for_id(api_id)
-            if not key:
-                return api_id, None, "no key"
-            plat = api.get("platform", "")
-            try:
-                if plat.startswith("minimax_"):
-                    from src.minimax_client import fetch_minimax_quota
-                    quota = fetch_minimax_quota(platform_key=plat, api_key=key, http_proxy=proxy_url)
-                else:
-                    from src.opencode_client import fetch_opencode_quota
-                    quota = fetch_opencode_quota(api_key=key, http_proxy=proxy_url)
-                return api_id, quota, None
-            except Exception as e:
-                return api_id, None, str(e).split("\n")[0]
-
-        # classify APIs by mode
         payg_apis = [a for a in apis if a.get("mode") == "payg"]
         pkg_apis = [a for a in apis if a.get("mode") == "package"]
 
-        # launch all fetches in parallel
         futures = {}
-        try:
-          with ThreadPoolExecutor(max_workers=min(len(apis) + 1, 8)) as pool:
+        with ThreadPoolExecutor(max_workers=min(len(apis) + 1, 8)) as pool:
             for api in payg_apis:
-                f = pool.submit(_fetch_payg, api)
-                futures[f] = ("payg", api)
+                futures[pool.submit(_fetch_payg, api)] = ("payg", api)
             for api in pkg_apis:
-                f = pool.submit(_fetch_package, api)
-                futures[f] = ("package", api)
+                futures[pool.submit(_fetch_package, api, proxy_url)] = ("package", api)
 
-            # collect results
-            s_indicator = status.get("indicator") if status else None
-            for f in as_completed(futures):
-                mode, api = futures[f]
-                try:
-                    api_id, result, err = f.result()
-                except Exception as e:
-                    err = str(e).split("\n")[0]
-                    api_id = api.get("id")
-                    result = None
+        s_indicator = status.get("indicator") if status else None
+        for f in as_completed(futures):
+            mode, api = futures[f]
+            api_id, result, err = f.result()
+            if result is None:
+                log(f"Check failed for {api.get('name')} ({mode}): {err}")
+                continue
+            if mode == "payg":
+                data = result
+                for code, bal in data["all_balances"].items():
+                    save_balance_record(code, bal["total_balance"], bal["topped_up_balance"], bal["granted_balance"], service_status=s_indicator, api_id=api_id)
+                log(f"Balance OK for {api.get('name')}: {list(data['all_balances'].values())[0]['total_balance']:.2f}")
+            else:
+                quota = result
+                r5 = quota.get("5h") or quota.get("rolling")
+                rw = quota.get("weekly")
+                rm = quota.get("monthly")
+                save_package_record(
+                    api_id,
+                    h5_percent=r5.get("usage_percent") if r5 else None,
+                    h5_reset=r5.get("reset_in_sec") if r5 else None,
+                    weekly_percent=rw.get("usage_percent") if rw else None,
+                    weekly_reset=rw.get("reset_in_sec") if rw else None,
+                    monthly_percent=rm.get("usage_percent") if rm else None,
+                    monthly_reset=rm.get("reset_in_sec") if rm else None,
+                    service_status=s_indicator,
+                )
+                log(f"Package OK for {api.get('name')}: h5={r5.get('usage_percent') if r5 else 'N/A'}, weekly={rw.get('usage_percent') if rw else 'N/A'}")
 
-                if result is None:
-                    log(f"Check failed for {api.get('name')} ({mode}): {err}")
-                    continue
-
-                if mode == "payg":
-                    data = result
-                    for code, bal in data["all_balances"].items():
-                        save_balance_record(code, bal["total_balance"], bal["topped_up_balance"], bal["granted_balance"], service_status=s_indicator, api_id=api_id)
-                    log(f"Balance OK for {api.get('name')}: {list(data['all_balances'].values())[0]['total_balance']:.2f}")
-                elif mode == "package":
-                    quota = result
-                    from src.storage import save_package_record
-                    # MiniMax uses "5h"/"weekly" keys, OCGo uses "rolling"/"weekly"/"monthly"
-                    r5 = quota.get("5h") or quota.get("rolling")
-                    rw = quota.get("weekly")
-                    rm = quota.get("monthly")
-                    try:
-                        save_package_record(
-                            api_id,
-                            h5_percent=r5.get("usage_percent") if r5 else None,
-                            h5_reset=r5.get("reset_in_sec") if r5 else None,
-                            weekly_percent=rw.get("usage_percent") if rw else None,
-                            weekly_reset=rw.get("reset_in_sec") if rw else None,
-                            monthly_percent=rm.get("usage_percent") if rm else None,
-                            monthly_reset=rm.get("reset_in_sec") if rm else None,
-                            service_status=status.get("indicator") if status else None,
-                        )
-                        log(f"Package OK for {api.get('name')}: h5={r5.get('usage_percent') if r5 else 'N/A'}, weekly={rw.get('usage_percent') if rw else 'N/A'}")
-                    except Exception as e:
-                        log(f"Package save failed for {api.get('name')}: {e}")
-        except Exception as e:
-            log(f"Parallel fetch ERROR: {e}")
-
-        log("Parallel fetch completed, entering result collection")
-        # skip if another check started (stale generation)
-        if app._check_generation != my_gen:
-            log("Skipping stale result (generation mismatch)")
-            return
-        # cache results per API
+        # cache results per API — preserve old cache on fetch failure
         for f in futures:
             mode, api = futures[f]
             aid = api.get("id")
             try:
                 _, result, _err = f.result()
                 if result is None:
+                    # fetch failed — keep old cache, just update error
+                    with app._lock:
+                        if aid in app._api_cache:
+                            app._api_cache[aid]["error"] = _err
                     continue
                 with app._lock:
                     if mode == "payg":
@@ -268,9 +246,15 @@ def do_balance_check(app: AppState):
                     app.last_check = cached.get("last_check")
                     app.service_status = cached.get("service_status", status)
                 else:
-                    app.error = T("error_no_key", app.lang)
+                    # no cached data — could be first startup with timeout, NOT missing key
                     app.balances = {}
                     app.package_data = None
+                    # only show "no key" if the API truly has no key configured
+                    key = read_api_key_for_id(pref_id)
+                    if not key:
+                        app.error = T("error_no_key", app.lang)
+                    else:
+                        app.error = None  # fetch failed but key exists — show "..." not error
 
     if app.icon:
         app.icon.title = app.balance_tooltip()
@@ -346,14 +330,13 @@ def notify_api_status(app: AppState, transition: str):
 def _calc_package_rate_for_tray(api_id, lang, billing_period="monthly"):
     """Calculate package rate for tray notification using the specified billing period."""
     try:
-        from src.storage import get_package_history_page
         rows = get_package_history_page(limit=100, api_id=api_id or None)
         if len(rows) < 2:
             return None
         newest, oldest = rows[0], rows[-1]
         # map billing_period to data column
         period_map = {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}
-        period_labels = {"5h": ("5h额度", "5h quota"), "weekly": ("周额度", "weekly"), "monthly": ("月额度", "monthly")}
+        period_labels = {"5h": T("unit_5h", lang), "weekly": T("unit_weekly", lang), "monthly": T("unit_monthly", lang)}
         col = period_map.get(billing_period, "monthly_percent")
         newest_pct = newest.get(col) or 0
         oldest_pct = oldest.get(col) or 0
@@ -368,11 +351,8 @@ def _calc_package_rate_for_tray(api_id, lang, billing_period="monthly"):
             return None
         remaining_pct = 100 - newest_pct
         remaining_hours = round(remaining_pct / hourly_rate, 1)
-        unit = period_labels.get(billing_period, ("月额度", "monthly"))[0 if lang == "zh" else 1]
-        if lang == "zh":
-            return f"忙时消耗 {hourly_rate:.2f}%{unit}/小时  |  {T('est_prefix', lang)} 忙时 {remaining_hours} 小时"
-        else:
-            return f"Busy: {hourly_rate:.2f}%/hr ({unit})  |  {T('est_prefix', lang)} busy {remaining_hours}h"
+        unit = period_labels.get(billing_period, T("unit_monthly", lang))
+        return T("pkg_rate_line", lang, rate=hourly_rate, unit=unit, remaining=remaining_hours)
     except Exception:
         return None
 
@@ -396,19 +376,16 @@ def on_show_balance(icon, item):
 
     # Get preferred API name for title
     api_name = ""
-    try:
-        from src.config import get_api_by_id
-        pref_api = get_api_by_id(app.config.get("preferred_api_id"))
-        if pref_api:
-            api_name = pref_api.get("name", "")
-    except Exception:
-        pass
+    pref_id = app.config.get("preferred_api_id", "")
+    for api in app.config.get("apis") or []:
+        if api.get("id") == pref_id:
+            api_name = api.get("name", "")
+            break
 
     # Package mode notification
     if pd:
         try:
             from src.opencode_client import format_reset_short
-            from src.platforms import get_platform
             # determine which windows this platform supports and preferred billing period
             pref_platform = ""
             billing_period = "monthly"
@@ -423,9 +400,9 @@ def on_show_balance(icon, item):
             windows = pmeta.package_windows if pmeta else ["5h", "weekly", "monthly"]
             # map display labels
             window_labels = {
-                "5h": ("5h滚动", "5h rolling"),
-                "weekly": ("每周", "Weekly"),
-                "monthly": ("每月", "Monthly"),
+                "5h": (T("win_5h", lang), "5h rolling"),
+                "weekly": (T("win_weekly", lang), "Weekly"),
+                "monthly": (T("win_monthly", lang), "Monthly"),
             }
             # map quota keys (MiniMax uses "5h", OCGo uses "rolling")
             window_keys = {
@@ -436,7 +413,6 @@ def on_show_balance(icon, item):
             lines = []
             for wkey in windows:
                 label = window_labels.get(wkey, (wkey, wkey))[0 if lang == "zh" else 1]
-                # find the data (try multiple key names)
                 wdata = None
                 for k in window_keys.get(wkey, (wkey,)):
                     wdata = pd.get(k)
@@ -445,12 +421,14 @@ def on_show_balance(icon, item):
                 if wdata:
                     remaining = wdata.get("percent_remaining", 100 - wdata.get("usage_percent", 0))
                     reset_s = wdata.get("reset_in_sec", 0)
-                    reset_str = format_reset_short(reset_s, lang) if reset_s > 0 else "—"
+                    reset_str = format_reset_short(reset_s, lang) if reset_s > 0 else "-"
                     lines.append(f"{label}：剩余 {remaining:.0f}%（{reset_str}）")
-            # status line (same as payg)
-            _STATUS_ICON = {"none": "🟢", "minor": "🟡", "major": "🟠", "critical": "🔴", "maintenance": "🔵"}
-            status_key = f"status_{raw_status.get('indicator')}" if raw_status and raw_status.get("indicator") else "status_unknown"
-            lines.append(f"📡 {T('service_status', lang)} {_STATUS_ICON.get(raw_status.get('indicator') if raw_status else None, '⚪')} {T(status_key, lang)}")
+            # status line only if platform has a status page
+            if pmeta and pmeta.has_status_page:
+                _STATUS_ICON = {"none": "🟢", "minor": "🟡", "major": "🟠", "critical": "🔴", "maintenance": "🔵"}
+                ind = raw_status.get("indicator") if raw_status else None
+                status_key = f"status_{ind}" if ind else "status_unknown"
+                lines.append(f"📡 {T('service_status', lang)} {_STATUS_ICON.get(ind, '⚪')} {T(status_key, lang)}")
             # rate line using preferred billing period
             pref_id = app.config.get("preferred_api_id")
             rate_str = _calc_package_rate_for_tray(pref_id, lang, billing_period)
@@ -488,15 +466,10 @@ def on_show_balance(icon, item):
             hourly_rate = app._demo_rate; busy_hours = getattr(app, '_demo_hours', getattr(app, '_demo_hrs', 0))
         else:
             hourly_rate = busy_hours = None
-            try:
-                from src.config import get_api_by_id
-                pref_id = app.config.get("preferred_api_id")
-                pref_api = get_api_by_id(pref_id) if pref_id else None
-                if not (pref_api and pref_api.get("mode") == "package"):
-                    cr = get_consumption_rate(api_id=pref_id) if pref_id else get_consumption_rate()
-                    if cr: hourly_rate, busy_hours = cr[:2]
-            except Exception:
-                cr = get_consumption_rate()
+            pref_id = app.config.get("preferred_api_id")
+            pref_api = get_api_by_id(pref_id) if pref_id else None
+            if not (pref_api and pref_api.get("mode") == "package"):
+                cr = get_consumption_rate(api_id=pref_id) if pref_id else get_consumption_rate()
                 if cr: hourly_rate, busy_hours = cr[:2]
         if hourly_rate is not None:
             total_hrs = round(busy_hours, 1)
@@ -559,10 +532,7 @@ def on_top_up(icon, item):
     app = getattr(icon, "_app", None)
     if app is None:
         return
-    # Open preferred API's console URL
     try:
-        from src.config import get_api_by_id
-        from src.platforms import get_platform
         pref_id = app.config.get("preferred_api_id")
         pref_api = get_api_by_id(pref_id) if pref_id else None
         url = ""
@@ -750,7 +720,6 @@ def _show_main(icon, item, tab="history"):
         return
     def _show():
         try:
-            from src.main_window import MainWindow
             mw = getattr(app, "_main_window", None)
             if not isinstance(mw, MainWindow):
                 mw = MainWindow(app)
@@ -763,82 +732,70 @@ def _show_main(icon, item, tab="history"):
     except Exception:
         pass
 
+def _apply_preferred_switch(app: AppState, aid: str):
+    """Switch preferred API and refresh all UI."""
+    if not set_preferred_api(aid):
+        return
+    app.config = load_config()
+    cached = app._api_cache.get(aid, {})
+    with app._lock:
+        if "balances" in cached:
+            app.balances = cached["balances"]
+            app.package_data = cached.get("package_data")
+            app.error = cached.get("error")
+            app.last_check = cached.get("last_check")
+        elif "package_data" in cached:
+            app.package_data = cached["package_data"]
+            app.balances = {}
+            app.error = cached.get("error")
+            app.last_check = cached.get("last_check")
+        else:
+            app.balances = {}
+            app.package_data = None
+            app.error = None
+    if app.icon:
+        app.icon.title = app.balance_tooltip()
+        app.icon.icon = create_icon_image(app)
+        app.icon.menu = app._rebuild_menu()
+    mw = getattr(app, "_main_window", None)
+    if mw and hasattr(mw, "refresh_all"):
+        app._tk_root.after(0, mw.refresh_all)
+
+
 def _build_api_selection_submenu(app):
-    # build submenu for preferred API selection
-    try:
-        from src.config import load_config, get_apis
-        from src.platforms import get_all_platforms as _get_plats
-        _PLAT_META = _get_plats()
-        cfg = load_config()
-        apis = get_apis(cfg)
-        pref = cfg.get("preferred_api_id", "")
-    except Exception:
-        apis = []
-        pref = ""
+    lang = app.lang
+    cfg = load_config()
+    apis = get_apis(cfg)
+    pref_id = cfg.get("preferred_api_id", "")
+
     items = []
     for api in apis:
+        aid = api["id"]
         plat = api.get("platform", "")
-        plat_disp = next((p.display_name for p in _PLAT_META if p.key == plat), plat)
-        disp = f"{api.get('name')} ({plat_disp})"
-        # capture api id in closure
-        def _make_cb(aid=api.get("id")):
-            def _cb(icon, item):
-                log(f"API select callback fired: aid={aid}")
-                try:
-                    from src.config import set_preferred_api, load_config as _lc
-                    from src.icon_renderer import create_icon_image
-                    result = set_preferred_api(aid)
-                    log(f"set_preferred_api({aid}) returned {result}")
-                    if result:
-                        # reload config in app state
-                        app.config = _lc()
-                        # show cached data immediately for the new API
-                        cached = app._api_cache.get(aid, {})
-                        with app._lock:
-                            if "balances" in cached:
-                                app.balances = cached["balances"]
-                                app.package_data = cached.get("package_data")
-                                app.error = cached.get("error")
-                                app.last_check = cached.get("last_check")
-                            elif "package_data" in cached:
-                                app.package_data = cached["package_data"]
-                                app.balances = {}
-                                app.error = cached.get("error")
-                                app.last_check = cached.get("last_check")
-                            else:
-                                app.balances = {}
-                                app.package_data = None
-                                app.error = None
-                        if app.icon:
-                            app.icon.title = app.balance_tooltip()
-                            app.icon.icon = create_icon_image(app)
-                            app.icon.menu = app._rebuild_menu()
-                        log(f"Preferred API switched to {aid} (showing cached data)")
-                        # refresh main window
-                        try:
-                            mw = getattr(app, "_main_window", None)
-                            if mw and hasattr(mw, "refresh_all"):
-                                app._tk_root.after(0, mw.refresh_all)
-                        except Exception:
-                            pass
-                except Exception as e:
-                    log(f"Select API failed: {e}")
-            return _cb
-        def _make_checked(aid=api.get("id")):
-            return lambda item: (load_config().get("preferred_api_id") == aid) if apis else False
-        items.append(pystray.MenuItem(disp, _make_cb(), checked=_make_checked(), radio=True))
+        pmeta = get_platform(plat)
+        plat_disp = pmeta.display_name if pmeta else plat
+        disp = f"{api['name']} ({plat_disp})"
+
+        items.append(pystray.MenuItem(
+            disp,
+            partial(_apply_preferred_switch, app, aid),
+            checked=lambda item, _aid=aid: load_config().get("preferred_api_id", "") == _aid,
+            radio=True,
+        ))
+
     if items:
         items.append(pystray.Menu.SEPARATOR)
-    def _open_mgmt(icon, item):
-        _show_main(icon, item, "api_management")
-    items.append(pystray.MenuItem("➕ 添加/编辑…", _open_mgmt))
+    items.append(pystray.MenuItem(
+        T("add_edit_api", lang),
+        lambda icon, item: _show_main(icon, item, "api_management"),
+    ))
     return pystray.Menu(*items)
 
 def make_menu(app: AppState):
     lang = app.lang
     items = [
         pystray.MenuItem(T("view_balance", lang), on_show_balance, default=True),
-        pystray.MenuItem("🔀 API选择", _build_api_selection_submenu(app)),
+        pystray.MenuItem(T("api_select", lang), _build_api_selection_submenu(app)),
         pystray.MenuItem(T("check_now", lang), on_check_now),
         pystray.MenuItem(T("top_up", lang), on_top_up),
         pystray.MenuItem(T("history", lang), _on_history),

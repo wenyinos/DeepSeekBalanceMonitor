@@ -8,7 +8,7 @@ from urllib.parse import urlparse, parse_qs
 
 from datetime import datetime
 
-from src.config import T, log
+from src.config import T, log, get_api_by_id
 from src.icon_renderer import _get_colors
 from src.storage import get_consumption_rate
 
@@ -83,7 +83,6 @@ def _start_server(app):
                 pref_id = app.config.get("preferred_api_id")
                 # if preferred is opencode_go, don't show rate
                 try:
-                    from src.config import get_api_by_id
                     pref_api = get_api_by_id(pref_id) if pref_id else None
                     if pref_api and pref_api.get("mode") == "package":
                         cr = None

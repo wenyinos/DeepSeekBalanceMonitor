@@ -93,12 +93,3 @@ def get_platform(key: str) -> PlatformMeta | None:
 
 def get_all_platforms() -> list[PlatformMeta]:
     return list(PLATFORMS.values())
-
-def get_platform_display_names() -> list[str]:
-    return [p.display_name for p in PLATFORMS.values()]
-
-def key_for_display(name: str) -> str:
-    for p in PLATFORMS.values():
-        if p.display_name == name:
-            return p.key
-    return name.lower()

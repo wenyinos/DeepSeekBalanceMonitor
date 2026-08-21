@@ -9,6 +9,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from src.paths import APP_NAME, APP_ID, CONFIG_DIR, CONFIG_FILE, LOG_FILE, DB_FILE, log
+from src.platforms import get_platform
+from src.secure_settings import (
+    read_api_key, store_api_key, delete_api_credentials,
+    read_api_key_for_id, store_api_key_for_id,
+    store_opencode_go_for_id, read_opencode_go_for_id,
+)
+
 # ─── High-DPI Awareness (before any GUI) ──────────────────────────
 def _set_dpi_awareness():
     if sys.platform != "win32":
@@ -22,19 +30,6 @@ def _set_dpi_awareness():
             pass
 
 _set_dpi_awareness()
-
-# ─── Constants ────────────────────────────────────────────────────
-APP_NAME = "DeepSeek Balance Monitor"
-APP_ID   = "deepseek-balance-monitor"
-
-if sys.platform == "darwin":
-    CONFIG_DIR = Path.home() / "Library" / "Application Support" / APP_NAME
-else:
-    CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / APP_NAME
-
-CONFIG_FILE = CONFIG_DIR / "config.json"
-LOG_FILE    = CONFIG_DIR / "app.log"
-DB_FILE     = CONFIG_DIR / "balance_history.db"
 
 DEFAULT_CONFIG = {
     "api_key": "",  # legacy single-key, migrated to apis[0] on first load
@@ -138,6 +133,7 @@ _T = {
         "rainmeter_label":   "启用 Rainmeter 接口",
         "retention_hint":    "（1 ~ 3650 天）",
         "unsaved_changes":   "有未保存的更改。确定要放弃吗？",
+        "unsaved_confirm":   "是否保存当前设置？",
         "other_settings":    "其他设置",
         "not_enough_data":   "数据不足，无法计算",
         "load_more":         "加载更多 ▼",
@@ -182,10 +178,25 @@ _T = {
         "delete_success":    "已删除 {name}",
         "select_api":        "选择 API：",
         "threshold_package_label": "套餐剩余预警线（%）：",
-        "package_display_period_label": "套餐显示周期：",
         "key_stored_hint": "已加密存储，若需修改请填写新值",
         "billing_period_label": "展示周期：",
         "billing_period_hint": "用于托盘图标与速率统计的窗口维度",
+        "api_select":        "🔀 API选择",
+        "add_edit_api":      "➕ 添加/编辑…",
+        "win_5h":            "5h滚动",
+        "win_weekly":        "每周",
+        "win_monthly":       "每月",
+        "pkg_rate_line":     "忙时 {rate:.2f}%{unit}/h | 剩余 {remaining}h",
+        "col_5h":            "5h 余额%",
+        "col_weekly":        "周余额%",
+        "col_monthly":       "月余额%",
+        "unit_monthly":      "月额度",
+        "unit_weekly":       "周额度",
+        "unit_5h":           "5h额度",
+        "preview_ok":        "正常",
+        "preview_low":       "低额",
+        "preview_degraded":  "异常",
+        "preview_nodata":    "等待",
     },
     "en": {
         "total_balance":    "Total balance",
@@ -266,6 +277,7 @@ _T = {
         "rainmeter_label":   "Enable Rainmeter interface",
         "retention_hint":    "(1 ~ 3650 days)",
         "unsaved_changes":   "Unsaved changes will be lost. Continue?",
+        "unsaved_confirm":   "Save current settings?",
         "other_settings":    "Other settings",
         "not_enough_data":   "Not enough data",
         "load_more":         "Load more ▼",
@@ -313,6 +325,22 @@ _T = {
         "key_stored_hint": "Encrypted, fill new value to change",
         "billing_period_label": "Display Period:",
         "billing_period_hint": "Window dimension for tray icon and rate statistics",
+        "api_select":        "🔀 API Select",
+        "add_edit_api":      "➕ Add/Edit…",
+        "win_5h":            "5h rolling",
+        "win_weekly":        "Weekly",
+        "win_monthly":       "Monthly",
+        "pkg_rate_line":     "Busy {rate:.2f}%{unit}/h | {remaining}h left",
+        "col_5h":            "5h Remaining%",
+        "col_weekly":        "Weekly Remaining%",
+        "col_monthly":       "Monthly Remaining%",
+        "unit_monthly":      "monthly",
+        "unit_weekly":       "weekly",
+        "unit_5h":           "5h quota",
+        "preview_ok":        "OK",
+        "preview_low":       "Low",
+        "preview_degraded":  "Deg",
+        "preview_nodata":    "...",
     },
 }
 
@@ -323,26 +351,12 @@ def T(key: str, lang: str = "zh", **kwargs) -> str:
         text = _T["zh"].get(key, key)
     return text.format(**kwargs) if kwargs else text
 
-# ─── Logging ─────────────────────────────────────────────────────
-def log(msg: str):
-    try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"[{ts}] {msg}\n")
-    except Exception:
-        pass
-
 # ─── Config I/O ──────────────────────────────────────────────────
 def _resolve_api_key(cfg: dict):
-    """Resolve API key from encrypted storage only (no legacy fallbacks)."""
-    try:
-        from src.secure_settings import read_api_key
-        key = read_api_key()
-        if key:
-            cfg["api_key"] = key
-    except ImportError:
-        pass
+    """Resolve API key from encrypted storage only."""
+    key = read_api_key()
+    if key:
+        cfg["api_key"] = key
 
 
 def load_config() -> dict:
@@ -371,15 +385,11 @@ def load_config() -> dict:
             _resolve_api_key(cfg)
             # also resolve preferred api's key into cfg["api_key"] for backward compat
             if apis and cfg.get("preferred_api_id"):
-                try:
-                    from src.secure_settings import read_api_key_for_id, read_opencode_go_for_id
-                    pref_api = next((a for a in apis if a["id"] == cfg["preferred_api_id"]), None)
-                    if pref_api and pref_api.get("platform") == "deepseek":
-                        k = read_api_key_for_id(pref_api["id"])
-                        if k:
-                            cfg["api_key"] = k
-                except Exception:
-                    pass
+                pref_api = next((a for a in apis if a["id"] == cfg["preferred_api_id"]), None)
+                if pref_api and pref_api.get("platform") == "deepseek":
+                    k = read_api_key_for_id(pref_api["id"])
+                    if k:
+                        cfg["api_key"] = k
             if migrated or mode_changed:
                 # persist migrated apis (will clear api_key plaintext)
                 try:
@@ -427,7 +437,6 @@ def _generate_api_id() -> str:
     return uuid.uuid4().hex[:8]
 
 def _get_next_api_name(platform: str, apis: list) -> str:
-    from src.platforms import get_platform
     pmeta = get_platform(platform)
     prefix = pmeta.display_name if pmeta else platform
     # count existing with same platform
@@ -446,12 +455,7 @@ def _migrate_legacy_api(cfg: dict) -> bool:
         return False
     legacy_key = cfg.get("api_key", "").strip()
     if not legacy_key:
-        # try secure_settings global key (old single)
-        try:
-            from src.secure_settings import read_api_key
-            legacy_key = (read_api_key() or "").strip()
-        except Exception:
-            legacy_key = ""
+        legacy_key = (read_api_key() or "").strip()
     if not legacy_key:
         return False
     # also check for legacy opencode_go global (if any) — not migrated as api, keep separate
@@ -460,13 +464,8 @@ def _migrate_legacy_api(cfg: dict) -> bool:
     cfg["apis"] = [{"id": api_id, "platform": "deepseek", "name": name, "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}]
     cfg["preferred_api_id"] = api_id
     # store the legacy key under new per-id key as well
-    try:
-        from src.secure_settings import store_api_key_for_id, store_api_key
-        store_api_key_for_id(api_id, legacy_key)
-        # keep global for fallback until next save
-        store_api_key(legacy_key)
-    except Exception as e:
-        log(f"Migration store failed: {e}")
+    store_api_key_for_id(api_id, legacy_key)
+    store_api_key(legacy_key)
     # clear legacy plaintext
     cfg["api_key"] = legacy_key  # will be cleared on save, but keep for current load's api_key
     log(f"Migrated legacy api_key to {name} ({api_id})")
@@ -533,17 +532,11 @@ def create_api(platform: str, name: str | None = None, api_key: str | None = Non
     if not cfg.get("preferred_api_id"):
         cfg["preferred_api_id"] = api_id
     # store credentials — unified: all platforms use api_key under api:{id}:key
-    try:
-        if api_key:
-            from src.secure_settings import store_api_key_for_id
-            store_api_key_for_id(api_id, api_key.strip())
-            # also keep global for backward compat if this is preferred
-            if cfg.get("preferred_api_id") == api_id:
-                from src.secure_settings import store_api_key
-                store_api_key(api_key.strip())
-                cfg["api_key"] = api_key.strip()
-    except Exception as e:
-        log(f"create_api store failed: {e}")
+    if api_key:
+        store_api_key_for_id(api_id, api_key.strip())
+        if cfg.get("preferred_api_id") == api_id:
+            store_api_key(api_key.strip())
+            cfg["api_key"] = api_key.strip()
     save_config(cfg)
     log(f"Created API {name} ({platform}:{api_id})")
     return api_id
@@ -570,27 +563,11 @@ def update_api(api_id: str, name: str | None = None, api_key: str | None = None,
         entry["mode"] = _pmeta.default_mode if _pmeta else "payg"
     apis[idx] = entry
     cfg["apis"] = apis
-    try:
-        if entry.get("platform") == "deepseek" and api_key is not None:
-            from src.secure_settings import store_api_key_for_id, store_api_key
-            store_api_key_for_id(api_id, api_key.strip())
-            if cfg.get("preferred_api_id") == api_id:
-                store_api_key(api_key.strip())
-                cfg["api_key"] = api_key.strip()
-        elif entry.get("platform") == "opencode_go" and (workspace_id is not None or auth_cookie is not None):
-            from src.secure_settings import store_opencode_go_for_id
-            wid, ck = workspace_id, auth_cookie
-            # if not provided, keep existing
-            if wid is None or ck is None:
-                from src.secure_settings import read_opencode_go_for_id
-                owid, ock = read_opencode_go_for_id(api_id)
-                if wid is None:
-                    wid = owid or ""
-                if ck is None:
-                    ck = ock or ""
-            store_opencode_go_for_id(api_id, wid.strip(), ck.strip())
-    except Exception as e:
-        log(f"update_api store failed: {e}")
+    if entry.get("platform") == "deepseek" and api_key is not None:
+        store_api_key_for_id(api_id, api_key.strip())
+        if cfg.get("preferred_api_id") == api_id:
+            store_api_key(api_key.strip())
+            cfg["api_key"] = api_key.strip()
     save_config(cfg)
     log(f"Updated API {api_id}")
     return True
@@ -604,29 +581,20 @@ def delete_api(api_id: str) -> bool:
     # adjust preferred
     if cfg.get("preferred_api_id") == api_id:
         cfg["preferred_api_id"] = apis[0]["id"] if apis else ""
-        # update global api_key to new preferred if deepseek
         if cfg["preferred_api_id"]:
-            try:
-                pref = next((a for a in apis if a["id"] == cfg["preferred_api_id"]), None)
-                if pref and pref.get("platform") == "deepseek":
-                    from src.secure_settings import read_api_key_for_id, store_api_key
-                    k = read_api_key_for_id(pref["id"])
-                    if k:
-                        store_api_key(k)
-                        cfg["api_key"] = k
-                    else:
-                        cfg["api_key"] = ""
+            pref = next((a for a in apis if a["id"] == cfg["preferred_api_id"]), None)
+            if pref and pref.get("platform") == "deepseek":
+                k = read_api_key_for_id(pref["id"])
+                if k:
+                    store_api_key(k)
+                    cfg["api_key"] = k
                 else:
                     cfg["api_key"] = ""
-            except Exception:
-                pass
+            else:
+                cfg["api_key"] = ""
         else:
             cfg["api_key"] = ""
-    try:
-        from src.secure_settings import delete_api_credentials
-        delete_api_credentials(api_id)
-    except Exception:
-        pass
+    delete_api_credentials(api_id)
     save_config(cfg)
     # also delete history for this api_id
     try:
@@ -649,20 +617,16 @@ def set_preferred_api(api_id: str) -> bool:
         return False
     cfg["preferred_api_id"] = api_id
     # sync global api_key for backward compat
-    try:
-        api = next(a for a in cfg["apis"] if a["id"] == api_id)
-        if api.get("platform") == "deepseek":
-            from src.secure_settings import read_api_key_for_id, store_api_key
-            k = read_api_key_for_id(api_id)
-            if k:
-                store_api_key(k)
-                cfg["api_key"] = k
-            else:
-                cfg["api_key"] = ""
+    api = next(a for a in cfg["apis"] if a["id"] == api_id)
+    if api.get("platform") == "deepseek":
+        k = read_api_key_for_id(api_id)
+        if k:
+            store_api_key(k)
+            cfg["api_key"] = k
         else:
             cfg["api_key"] = ""
-    except Exception:
-        pass
+    else:
+        cfg["api_key"] = ""
     save_config(cfg)
     log(f"Preferred API set to {api_id}")
     return True

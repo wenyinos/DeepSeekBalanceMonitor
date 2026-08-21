@@ -8,8 +8,11 @@ import tkinter as tk
 from datetime import datetime, timedelta
 from tkinter import filedialog, messagebox, ttk
 
-from src.config import T
-from src.storage import export_all_csv, get_consumption_rate, get_history_by_date, get_history_page
+from src.config import T, load_config, get_apis, get_api_by_id
+from src.platforms import get_all_platforms as _get_plats, get_platform
+from src.storage import export_all_csv, get_consumption_rate, get_history_by_date, get_history_page, get_package_history_page
+
+_PLAT_META = _get_plats()
 
 STATUS_SHORT = {
     "none": "OK", "minor": "Min", "major": "Maj",
@@ -375,8 +378,7 @@ class HistoryFrame(ttk.Frame):
         self.reset_btn.configure(state="disabled")
 
         self.chart.bind("<Configure>", lambda e: self._redraw_chart())
-        self._on_api_selected()  # sets correct tree columns based on selected API
-        self._load_page()
+        self._on_api_selected()  # sets correct tree columns and loads data
 
     def _on_date_focus(self, e):
         if self.date_var.get() == self.PLACEHOLDER:
@@ -401,7 +403,7 @@ class HistoryFrame(ttk.Frame):
                 w.destroy()
         if mode == "package":
             windows = pkg_windows or ["5h", "weekly", "monthly"]
-            window_labels = {"5h": "5h 余额%", "weekly": "周余额%", "monthly": "月余额%"}
+            window_labels = {"5h": T("col_5h", lang), "weekly": T("col_weekly", lang), "monthly": T("col_monthly", lang)}
             cols = ["time"] + windows
             if has_status:
                 cols.append("status")
@@ -445,9 +447,6 @@ class HistoryFrame(ttk.Frame):
     def _refresh_api_selector(self):
         # repopulate api combobox from config
         try:
-            from src.config import load_config, get_apis
-            from src.platforms import get_all_platforms as _get_plats
-            _PLAT_META = _get_plats()
             cfg = load_config()
             apis = get_apis(cfg)
             # build display -> id map
@@ -460,17 +459,11 @@ class HistoryFrame(ttk.Frame):
                 displays.append(disp)
                 self._api_id_map[disp] = api.get("id", "")
             self.api_combo["values"] = displays
-            # select preferred or first
+            # always follow config preferred_api_id
             if displays:
-                # try to keep current selection if still valid
-                cur = self.api_var.get()
-                if cur in displays:
-                    pass
-                else:
-                    # select preferred
-                    pref = cfg.get("preferred_api_id", "")
-                    pref_disp = next((d for d, aid in self._api_id_map.items() if aid == pref), displays[0])
-                    self.api_var.set(pref_disp)
+                pref = cfg.get("preferred_api_id", "")
+                pref_disp = next((d for d, aid in self._api_id_map.items() if aid == pref), displays[0])
+                self.api_var.set(pref_disp)
             else:
                 self.api_var.set("")
                 self._api_id_map.clear()
@@ -485,8 +478,6 @@ class HistoryFrame(ttk.Frame):
         has_status = False
         if api_id:
             try:
-                from src.config import get_api_by_id
-                from src.platforms import get_platform
                 api = get_api_by_id(api_id)
                 if api:
                     mode = api.get("mode", "payg")
@@ -498,10 +489,6 @@ class HistoryFrame(ttk.Frame):
                 pass
         self._rebuild_tree(mode, pkg_windows, has_status)
         # reload data for new API
-        self._offset[0] = 0
-        self._rows.clear()
-        self._load_page()
-        # clear and reload
         self._offset[0] = 0
         self._rows.clear()
         self.reset_btn.configure(state="disabled")
@@ -539,28 +526,24 @@ class HistoryFrame(ttk.Frame):
         """Calculate hourly rate of quota consumption from package_history.
         Uses the API's billing_period setting."""
         try:
-            from src.storage import get_package_history_page
             rows = get_package_history_page(limit=100, api_id=api_id or None)
             if len(rows) < 2:
                 return T("not_enough_data", lang)
             # get billing period from API config
             billing_period = "monthly"
             try:
-                from src.config import get_api_by_id
                 api = get_api_by_id(api_id) if api_id else None
                 if api:
                     billing_period = api.get("billing_period") or "monthly"
             except Exception:
                 pass
             period_map = {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}
-            period_labels = {"5h": ("5h额度", "5h quota"), "weekly": ("周额度", "weekly"), "monthly": ("月额度", "monthly")}
+            period_labels = {"5h": T("unit_5h", lang), "weekly": T("unit_weekly", lang), "monthly": T("unit_monthly", lang)}
             col = period_map.get(billing_period, "monthly_percent")
             newest = rows[0]
             oldest = rows[-1]
             newest_pct = newest.get(col) or 0
             oldest_pct = oldest.get(col) or 0
-            # parse timestamps
-            from datetime import datetime
             t_new = datetime.strptime(newest["timestamp"], "%Y-%m-%d %H:%M:%S")
             t_old = datetime.strptime(oldest["timestamp"], "%Y-%m-%d %H:%M:%S")
             hours = (t_new - t_old).total_seconds() / 3600
@@ -573,11 +556,8 @@ class HistoryFrame(ttk.Frame):
             remaining_pct = 100 - newest_pct
             remaining_hours = remaining_pct / hourly_rate
             total_hrs = round(remaining_hours, 1)
-            unit = period_labels.get(billing_period, ("月额度", "monthly"))[0 if lang == "zh" else 1]
-            if lang == "zh":
-                return f"忙时消耗 {hourly_rate:.2f}%{unit}/小时  |  {T('est_prefix', lang)} 忙时 {total_hrs} 小时"
-            else:
-                return f"Busy: {hourly_rate:.2f}%/hr ({unit})  |  {T('est_prefix', lang)} busy {total_hrs}h"
+            unit = period_labels.get(billing_period, T("unit_monthly", lang))
+            return T("pkg_rate_line", lang, rate=hourly_rate, unit=unit, remaining=total_hrs)
         except Exception as e:
             return T("not_enough_data", lang)
 
@@ -590,7 +570,6 @@ class HistoryFrame(ttk.Frame):
             billing_period = "monthly"
             try:
                 api_id = self._get_selected_api_id()
-                from src.config import get_api_by_id
                 api = get_api_by_id(api_id) if api_id else None
                 if api:
                     billing_period = api.get("billing_period") or "monthly"
@@ -641,7 +620,6 @@ class HistoryFrame(ttk.Frame):
         if self.app.demo_mode:
             rows = self.app._demo_history[self._offset[0]:self._offset[0] + 100]
         elif self._current_mode == "package":
-            from src.storage import get_package_history_page
             rows = get_package_history_page(limit=100, offset=self._offset[0], api_id=api_id or None)
         else:
             rows = get_history_page(limit=100, offset=self._offset[0], api_id=api_id or None)
@@ -699,11 +677,10 @@ class HistoryFrame(ttk.Frame):
             else:
                 api_id = self._get_selected_api_id()
                 if self._current_mode == "package":
-                    from src.storage import get_package_history_page
                     rows = get_package_history_page(limit=9999, api_id=api_id or None)
                     with open(f, "w", newline="", encoding="utf-8-sig") as fh:
                         w = _csv.writer(fh)
-                        w.writerow(["timestamp", "5h余额%", "周余额%", "月余额%"])
+                        w.writerow(["timestamp", T("col_5h", lang), T("col_weekly", lang), T("col_monthly", lang)])
                         for r in rows:
                             h5 = 100 - (r.get("h5_percent") or 0)
                             wk = 100 - (r.get("weekly_percent") or 0)
@@ -753,9 +730,8 @@ class HistoryFrame(ttk.Frame):
         self._load_page()
 
     def on_show(self):
-        # always reload to show recent tray updates (was sticky when window was persistent)
-        self._reload()
-        self._redraw_chart(); self._update_rate()
+        self._refresh_api_selector()
+        self._on_api_selected()
     def refresh(self):
         self._update_rate()
         # if new records arrived while tab was hidden, reload
@@ -763,9 +739,8 @@ class HistoryFrame(ttk.Frame):
             if not self._rows:
                 self._reload()
             else:
-                from src.storage import get_history_page as _ghp
                 api_id = self._get_selected_api_id()
-                latest = _ghp(limit=1, offset=0, api_id=api_id or None)
+                latest = get_history_page(limit=1, offset=0, api_id=api_id or None)
                 if latest and latest[0]["timestamp"] != self._rows[0]["timestamp"]:
                     self._reload()
         except Exception:

@@ -6,6 +6,11 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
+from src.platforms import get_all_platforms
+from src.config import T, load_config, get_apis
+
+_PLAT_META = get_all_platforms()
+
 
 def open_settings(app):
     """Open the settings dialog.  If already open, bring it to the foreground."""
@@ -548,9 +553,6 @@ class SettingsFrame(ttk.Frame):
 
         # Preferred API (for tray and notifications)
         ttk.Label(scroll_frame, text=T("preferred_api_label", lang)).pack(anchor="w")
-        from src.config import get_apis
-        from src.platforms import get_all_platforms as _get_plats
-        _PLAT_META = _get_plats()
         apis = get_apis(self.app.config)
         # map display -> id
         self._pref_map = {}
@@ -583,7 +585,7 @@ class SettingsFrame(ttk.Frame):
         threshold_sb.pack(side="left"); ttk.Label(tfr, text=T("threshold_hint", lang)).pack(side="left")
 
         # Package mode threshold
-        ttk.Label(scroll_frame, text=T("threshold_package_label", lang) if "threshold_package_label" in T("threshold_package_label", lang) else ("套餐剩余预警线（%）：" if lang == "zh" else "Package remaining threshold (%):")).pack(anchor="w")
+        ttk.Label(scroll_frame, text=T("threshold_package_label", lang)).pack(anchor="w")
         threshold_pkg_var = tk.IntVar(value=self.app.config.get("threshold_package_percent", 10))
         tpfr = ttk.Frame(scroll_frame); tpfr.pack(fill="x", pady=(0, 8))
         ttk.Spinbox(tpfr, from_=0, to=100, textvariable=threshold_pkg_var, width=8).pack(side="left")
@@ -607,8 +609,8 @@ class SettingsFrame(ttk.Frame):
         THEME_OPTS = ["theme_default","theme_contrast","theme_bright","theme_dark_mode","theme_mono","theme_custom"]
         theme_disp = [T(k, lang) for k in THEME_OPTS]
         if lang=="zh":
-            PREVIEW_LABELS={"ok":"正常","low":"低额","degraded":"异常","nodata":"等待"}
-            CUSTOM_LABELS={"ok":"正常","low":"低额","degraded":"异常","nodata":"等待"}
+            PREVIEW_LABELS={"ok":T("preview_ok",lang),"low":T("preview_low",lang),"degraded":T("preview_degraded",lang),"nodata":T("preview_nodata",lang)}
+            CUSTOM_LABELS=PREVIEW_LABELS
         else:
             PREVIEW_LABELS={"ok":"OK","low":"Low","degraded":"Deg","nodata":"..."}
             CUSTOM_LABELS={"ok":"OK","low":"Low","degraded":"Degraded","nodata":"No Data"}
@@ -718,13 +720,11 @@ class SettingsFrame(ttk.Frame):
                 v.trace_add("write", _mark_dirty)
             except Exception:
                 pass
-        # also trace custom color vars
         for v in custom_vars.values():
             try:
                 v.trace_add("write", _mark_dirty)
             except Exception:
                 pass
-        # also trace checkbox and entry changes via key/button binds
         def _on_input_change(_e=None):
             self._dirty = True
         for w in scroll_frame.winfo_children():
@@ -733,29 +733,29 @@ class SettingsFrame(ttk.Frame):
                     w.bind("<KeyRelease>", _on_input_change)
             except Exception:
                 pass
+        # reset dirty after all initialization traces have fired
+        self._dirty = False
 
         # buttons
         btn_frame=ttk.Frame(self); btn_frame.pack(fill="x", padx=10, pady=10)
-        def on_save():
-            from src.config import log
-            # validate
+
+        def _do_save():
+            """Save settings without closing window. Returns True on success."""
             pref_disp = self.preferred_var.get().strip()
             pref_id = self._pref_map.get(pref_disp, "")
-            if self._pref_map and not pref_id:
-                log("on_save: abort - no pref_id"); return
+            if not pref_id and self.app.config.get("preferred_api_id"):
+                pref_id = self.app.config.get("preferred_api_id")
+            if not pref_id:
+                return False
             try:
                 interval=int(interval_var.get())
                 threshold=float(threshold_var.get())
                 retention=int(retention_var.get())
-            except Exception as e:
-                log(f"on_save: validation error {e}"); return
-            if not (1<=interval<=1440):
-                messagebox.showwarning(T("warn_title", lang), T("validate_interval", lang), parent=self.winfo_toplevel()); return
-            if not (0<=threshold<=10000):
-                messagebox.showwarning(T("warn_title", lang), T("validate_threshold", lang), parent=self.winfo_toplevel()); return
-            if not (1<=retention<=3650):
-                messagebox.showwarning(T("warn_title", lang), T("validate_retention", lang), parent=self.winfo_toplevel()); return
-            # save
+            except Exception:
+                return False
+            if not (1<=interval<=1440): return False
+            if not (0<=threshold<=10000): return False
+            if not (1<=retention<=3650): return False
             self.app.config["preferred_api_id"] = pref_id
             if pref_id:
                 try:
@@ -789,13 +789,6 @@ class SettingsFrame(ttk.Frame):
             if self.app.config["proxy_enabled"] and self.app.config["http_proxy"]: install_proxy(self.app.config["http_proxy"])
             else: install_proxy("")
             t_idx=theme_disp.index(theme_var.get()) if theme_var.get() in theme_disp else 0
-            if THEME_KEYS[t_idx]=="custom":
-                for k,v in custom_vars.items():
-                    val=v.get().strip()
-                    if len(val)!=6:
-                        messagebox.showwarning(T("warn_title", lang), T("hex_invalid", lang), parent=self.winfo_toplevel()); return
-                    try: int(val,16)
-                    except: messagebox.showwarning(T("warn_title", lang), T("hex_invalid", lang), parent=self.winfo_toplevel()); return
             t_key=THEME_KEYS[t_idx]
             self.app.config["theme"]=t_key
             if t_key=="custom": self.app.config["icon_colors"]={k:v.get().strip() for k,v in custom_vars.items()}
@@ -804,29 +797,50 @@ class SettingsFrame(ttk.Frame):
             set_auto_start(self.app.config["auto_start"])
             save_config(self.app.config)
             self.app.cancel_timer()
+            # load new preferred API's cached data into app state
+            pref_api_id = self.app.config.get("preferred_api_id", "")
+            cached = getattr(self.app, "_api_cache", {}).get(pref_api_id, {})
+            with self.app._lock:
+                if "balances" in cached:
+                    self.app.balances = cached["balances"]
+                    self.app.package_data = cached.get("package_data")
+                    self.app.error = cached.get("error")
+                    self.app.last_check = cached.get("last_check")
+                elif "package_data" in cached:
+                    self.app.package_data = cached["package_data"]
+                    self.app.balances = {}
+                    self.app.error = cached.get("error")
+                    self.app.last_check = cached.get("last_check")
+                else:
+                    self.app.balances = {}
+                    self.app.package_data = None
+                    self.app.error = None
             if self.app.icon:
                 from src.icon_renderer import create_icon_image
+                self.app.icon.title = self.app.balance_tooltip()
                 self.app.icon.icon=create_icon_image(self.app)
                 self.app.icon.menu=self.app._rebuild_menu()
             log("Settings saved (embedded)")
             self._dirty = False
             if self.on_save: self.on_save()
-            # close the main window after save
-            try:
-                mw = getattr(self.app, "_main_window", None)
-                if mw and hasattr(mw, "hide"):
-                    mw.hide()
-            except Exception:
-                pass
+            return True
+
+        def on_save():
+            if _do_save():
+                try:
+                    mw = getattr(self.app, "_main_window", None)
+                    if mw and hasattr(mw, "hide"):
+                        mw.hide()
+                except Exception:
+                    pass
+
         ttk.Button(btn_frame, text=T("save", lang), command=on_save).pack(side="right", padx=(5,0))
         # keep refs
         self._lang_var=lang_var
 
     def refresh_preferred_selector(self):
         try:
-            from src.config import get_apis, load_config as _lc
-            # force reload from disk to ensure latest preferred_api_id
-            self.app.config = _lc()
+            self.app.config = load_config()
             apis = get_apis(self.app.config)
             self._pref_map.clear()
             displays = []
@@ -839,9 +853,11 @@ class SettingsFrame(ttk.Frame):
             self.preferred_combo["values"] = displays
             cur_pref = self.app.config.get("preferred_api_id", "")
             cur_disp = next((d for d, aid in self._pref_map.items() if aid == cur_pref), displays[0] if displays else "")
+            # suppress dirty flag during programmatic update
+            saved_dirty = self._dirty
             self.preferred_var.set(cur_disp)
+            self._dirty = saved_dirty
             self.preferred_combo.configure(state="readonly" if displays else "disabled")
-            self.preferred_combo.update_idletasks()
         except Exception:
             pass
 
@@ -850,9 +866,14 @@ class SettingsFrame(ttk.Frame):
     def on_show(self):
         self.refresh_preferred_selector()
     def check_unsaved(self):
-        """Check for unsaved changes. Returns True if user wants to discard."""
+        """Check for unsaved changes. Returns True if safe to proceed (after save or discard)."""
         if not self._dirty:
             return True
         lang = self.app.lang
         from tkinter import messagebox
-        return messagebox.askyesno(T("warn_title", lang), T("unsaved_changes", lang), parent=self.winfo_toplevel())
+        save = messagebox.askyesno(T("warn_title", lang), T("unsaved_confirm", lang), parent=self.winfo_toplevel())
+        if save:
+            self._do_save()
+        else:
+            self._dirty = False
+        return True

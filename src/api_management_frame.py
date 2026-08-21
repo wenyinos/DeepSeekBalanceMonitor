@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from src.config import T, load_config, create_api, update_api, delete_api, get_apis
-from src.platforms import get_all_platforms, get_platform, key_for_display
+from src.platforms import get_all_platforms, get_platform
 
 
 class ApiManagementFrame(ttk.Frame):
@@ -177,7 +177,6 @@ class ApiManagementFrame(ttk.Frame):
         top.geometry(f"+{(sw-w)//2}+{(sh-h)//2}")
 
         # Platform — from registry
-        from src.platforms import get_all_platforms, key_for_display
         ttk.Label(top, text=T("platform_label", lang)).pack(anchor="w", padx=12, pady=(12, 0))
         all_plat = get_all_platforms()
         plat_var = tk.StringVar(value=api.get("platform", all_plat[0].key) if is_edit else all_plat[0].key)

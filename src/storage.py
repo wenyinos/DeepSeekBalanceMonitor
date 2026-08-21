@@ -5,7 +5,8 @@ import csv
 import sqlite3
 from datetime import datetime
 
-from src.config import DB_FILE, CONFIG_DIR, log
+from src.paths import DB_FILE, CONFIG_DIR, LOG_FILE, log
+from src.config import load_config
 
 
 def _connect():
@@ -29,12 +30,11 @@ def _connect():
             conn.execute(f"ALTER TABLE balance_history ADD COLUMN {col}")
         except sqlite3.OperationalError:
             pass
-    # Migrate legacy rows with NULL api_id to preferred_api_id if available
+    # migrate legacy rows with NULL api_id to preferred_api_id if available
     try:
         cur = conn.execute("SELECT COUNT(*) FROM balance_history WHERE api_id IS NULL OR api_id=''")
         cnt = cur.fetchone()[0]
         if cnt > 0:
-            from src.config import load_config
             cfg = load_config()
             pref = cfg.get("preferred_api_id") or (cfg.get("apis") or [{}])[0].get("id") if cfg.get("apis") else None
             if pref:
@@ -54,11 +54,8 @@ def save_balance_record(currency: str, total: float, topped: float, granted: flo
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # resolve api_id if not given
         if not api_id:
-            try:
-                from src.config import load_config
-                api_id = load_config().get("preferred_api_id", "")
-            except Exception:
-                api_id = ""
+            cfg = load_config()
+            api_id = cfg.get("preferred_api_id", "")
         conn.execute(
             "INSERT INTO balance_history (timestamp, currency, total, topped, granted, service_status, api_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -158,11 +155,7 @@ def get_consumption_rate(days=7, api_id: str | None = None):
     result = _get_consumption_rate_for_days(days, _interval_min=None, api_id=api_id)
     if result or days != 7:
         return result
-    try:
-        from src.config import load_config
-        retention_days = int(load_config().get("retention_days", 30))
-    except Exception:
-        retention_days = 30
+    retention_days = load_config().get("retention_days", 30)
     fallback_days = max(days, retention_days)
     if fallback_days <= days:
         return result
@@ -192,11 +185,7 @@ def _get_consumption_rate_for_days(days=7, _interval_min=None, api_id: str | Non
         parsed = [(datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S"), r[1], r[2]) for r in rows]
         currency = parsed[0][1]
         if _interval_min is None:
-            try:
-                from src.config import load_config
-                _interval_min = int(load_config().get("interval_minutes", 10))
-            except Exception:
-                _interval_min = 10
+            interval_min = int(load_config().get("interval_minutes", 10))
         m_sec = max(30, 2 * _interval_min) * 60
 
         intervals = _slice_busy_intervals(parsed, m_sec)
@@ -402,22 +391,18 @@ def prune_old_data(retention_days: int):
     except Exception as e:
         log(f"Failed to prune package history: {e}")
 
-    try:
-        from src.config import LOG_FILE
-        if not LOG_FILE.exists():
-            return
-        cutoff = datetime.now().timestamp() - retention_days * 86400
-        lines = LOG_FILE.read_text(encoding="utf-8").splitlines()
-        kept = []
-        for line in lines:
-            try:
-                ts_str = line[1:20]  # "[YYYY-MM-DD HH:MM:SS]"
-                ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S").timestamp()
-                if ts >= cutoff:
-                    kept.append(line)
-            except (ValueError, IndexError):
+    if not LOG_FILE.exists():
+        return
+    cutoff = datetime.now().timestamp() - retention_days * 86400
+    lines = LOG_FILE.read_text(encoding="utf-8").splitlines()
+    kept = []
+    for line in lines:
+        try:
+            ts_str = line[1:20]
+            ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S").timestamp()
+            if ts >= cutoff:
                 kept.append(line)
-        LOG_FILE.write_text("\n".join(kept) + "\n", encoding="utf-8")
-        log(f"Pruned log entries older than {retention_days} days")
-    except Exception as e:
-        log(f"Failed to prune log file: {e}")
+        except (ValueError, IndexError):
+            kept.append(line)
+    LOG_FILE.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    log(f"Pruned log entries older than {retention_days} days")

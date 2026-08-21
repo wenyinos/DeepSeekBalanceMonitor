@@ -55,9 +55,12 @@ class MainWindow:
         # hide on close, with unsaved check
         self._last_tab = "settings"
         def _on_close():
-            sett = self._tabs.get("settings")
-            if sett and hasattr(sett, "check_unsaved") and not sett.check_unsaved():
-                return  # user chose not to discard
+            try:
+                sett = self._tabs.get("settings")
+                if sett and hasattr(sett, "check_unsaved") and not sett.check_unsaved():
+                    return  # user chose not to discard
+            except Exception:
+                pass  # don't block close on check failure
             try:
                 win.withdraw()
             except Exception:

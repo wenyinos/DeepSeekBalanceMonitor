@@ -3,7 +3,7 @@ Tray icon image generation - rounded-rectangle with bold balance label.
 """
 from PIL import Image, ImageDraw, ImageFont
 
-from src.config import log
+from src.config import log, get_api_by_id
 
 _RADIUS = 12
 
@@ -101,7 +101,6 @@ def _create_icon_image_impl(app):
         try:
             pref_api_id = app.config.get("preferred_api_id")
             if pref_api_id:
-                from src.config import get_api_by_id
                 pref_api = get_api_by_id(pref_api_id)
                 if pref_api:
                     billing_period = pref_api.get("billing_period") or "monthly"
