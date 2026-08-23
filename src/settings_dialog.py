@@ -310,7 +310,7 @@ def open_settings(app):
                         variable=auto_start_var).pack(anchor="w", pady=(0, 2))
 
         ttk.Label(scroll_frame, text=T("retention_label", lang)).pack(anchor="w")
-        retention_var = tk.IntVar(value=app.config.get("retention_days", 30))
+        retention_var = tk.IntVar(value=app.config.get("retention_days", 180))
         rfr = ttk.Frame(scroll_frame)
         rfr.pack(fill="x", pady=(0, 8))
         retention_sb = ttk.Spinbox(rfr, from_=1, to=3650, textvariable=retention_var, width=8)
@@ -551,8 +551,9 @@ class SettingsFrame(ttk.Frame):
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=(10, 0))
 
-        # Preferred API (for tray and notifications)
-        ttk.Label(scroll_frame, text=T("preferred_api_label", lang)).pack(anchor="w")
+        # Preferred API (for tray and notifications) — one line
+        pref_row = ttk.Frame(scroll_frame); pref_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(pref_row, text=T("preferred_api_label", lang)).pack(side="left")
         apis = get_apis(self.app.config)
         # map display -> id
         self._pref_map = {}
@@ -566,45 +567,51 @@ class SettingsFrame(ttk.Frame):
         cur_pref = self.app.config.get("preferred_api_id", "")
         cur_disp = next((d for d, aid in self._pref_map.items() if aid == cur_pref), pref_displays[0] if pref_displays else "")
         self.preferred_var = tk.StringVar(value=cur_disp)
-        self.preferred_combo = ttk.Combobox(scroll_frame, textvariable=self.preferred_var, values=pref_displays, state="readonly" if pref_displays else "disabled", width=28)
-        self.preferred_combo.pack(anchor="w", pady=(0, 8))
+        self.preferred_combo = ttk.Combobox(pref_row, textvariable=self.preferred_var, values=pref_displays,
+                                            state="readonly" if pref_displays else "disabled", width=28)
+        self.preferred_combo.pack(side="left", padx=(6, 0))
         if not pref_displays:
             self.preferred_combo.configure(state="disabled")
-            ttk.Label(scroll_frame, text=T("no_apis", lang), font=("Segoe UI", 8), foreground="#888").pack(anchor="w", pady=(0, 4))
         ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=5)
 
-        ttk.Label(scroll_frame, text=T("interval_label", lang)).pack(anchor="w")
+        # interval — one line: 查询间隔（分钟）：[spin] hint
+        int_row = ttk.Frame(scroll_frame); int_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(int_row, text=T("interval_label", lang)).pack(side="left")
         interval_var = tk.IntVar(value=self.app.config.get("interval_minutes", 10))
-        ifr = ttk.Frame(scroll_frame); ifr.pack(fill="x", pady=(0, 8))
-        interval_sb = ttk.Spinbox(ifr, from_=1, to=1440, textvariable=interval_var, width=8)
-        interval_sb.pack(side="left"); ttk.Label(ifr, text=T("interval_hint", lang)).pack(side="left")
-        ttk.Label(scroll_frame, text=T("threshold_label", lang)).pack(anchor="w")
-        threshold_var = tk.DoubleVar(value=self.app.config.get("threshold_yuan", 1.0))
-        tfr = ttk.Frame(scroll_frame); tfr.pack(fill="x", pady=(0, 8))
-        threshold_sb = ttk.Spinbox(tfr, from_=0.0, to=10000.0, increment=0.5, textvariable=threshold_var, width=8)
-        threshold_sb.pack(side="left"); ttk.Label(tfr, text=T("threshold_hint", lang)).pack(side="left")
+        interval_sb = ttk.Spinbox(int_row, from_=1, to=1440, textvariable=interval_var, width=8)
+        interval_sb.pack(side="left", padx=(6, 0))
+        ttk.Label(int_row, text=T("interval_hint", lang)).pack(side="left")
 
-        # Package mode threshold
-        ttk.Label(scroll_frame, text=T("threshold_package_label", lang)).pack(anchor="w")
+        # thresholds — one line: 余额预警线：按量[spin] 套餐[spin]
+        thr_row = ttk.Frame(scroll_frame); thr_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(thr_row, text=T("threshold_label", lang)).pack(side="left")
+        threshold_var = tk.DoubleVar(value=self.app.config.get("threshold_yuan", 1.0))
+        ttk.Label(thr_row, text=T("threshold_mode_label", lang)).pack(side="left", padx=(10, 0))
+        threshold_sb = ttk.Spinbox(thr_row, from_=0.0, to=10000.0, increment=0.5, textvariable=threshold_var, width=8)
+        threshold_sb.pack(side="left", padx=(4, 0))
         threshold_pkg_var = tk.IntVar(value=self.app.config.get("threshold_package_percent", 10))
-        tpfr = ttk.Frame(scroll_frame); tpfr.pack(fill="x", pady=(0, 8))
-        ttk.Spinbox(tpfr, from_=0, to=100, textvariable=threshold_pkg_var, width=8).pack(side="left")
-        ttk.Label(tpfr, text=T("threshold_hint", lang)).pack(side="left")
+        ttk.Label(thr_row, text=T("threshold_pkg_mode_label", lang)).pack(side="left", padx=(10, 0))
+        ttk.Spinbox(thr_row, from_=0, to=100, textvariable=threshold_pkg_var, width=8).pack(side="left", padx=(4, 0))
+        ttk.Label(scroll_frame, text=T("threshold_hint", lang),
+                  foreground="#888").pack(anchor="w", pady=(0, 8))
 
         alert_map = {T("alert_never", lang): "never", T("alert_always", lang): "always", T("alert_once", lang): "once"}
         alert_disp = list(alert_map.keys())
         cur_disp = {v:k for k,v in alert_map.items()}.get(self.app.config.get("alert_mode","always"), T("alert_always", lang))
-        ttk.Label(scroll_frame, text=T("alert_mode_label", lang)).pack(anchor="w")
+        alert_row = ttk.Frame(scroll_frame); alert_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(alert_row, text=T("alert_mode_label", lang)).pack(side="left")
         alert_var = tk.StringVar(value=cur_disp)
-        alert_combo = ttk.Combobox(scroll_frame, textvariable=alert_var, values=alert_disp, state="readonly", width=14)
-        alert_combo.pack(anchor="w", pady=(0, 8))
+        alert_combo = ttk.Combobox(alert_row, textvariable=alert_var, values=alert_disp, state="readonly", width=14)
+        alert_combo.pack(side="left", padx=(6, 0))
         api_alert_var = tk.BooleanVar(value=self.app.config.get("api_alert_enabled", True))
-        ttk.Checkbutton(scroll_frame, text=T("api_alert_label", lang), variable=api_alert_var).pack(anchor="w", pady=(0, 8))
+        # API status-change alert on its own row
+        ttk.Checkbutton(scroll_frame, text=T("api_alert_label", lang),
+                        variable=api_alert_var).pack(anchor="w", pady=(0, 8))
         rain_var = tk.BooleanVar(value=self.app.config.get("rainmeter_enabled", True))
         ttk.Checkbutton(scroll_frame, text=T("rainmeter_label", lang), variable=rain_var).pack(anchor="w", pady=(0, 8))
         ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=5)
 
-        ttk.Label(scroll_frame, text=T("theme_label", lang)).pack(anchor="w")
+        # theme — one line: 托盘图标主题：[combo] [ ]图标描边 ; preview below
         THEME_KEYS = ["default","contrast","bright","dark_mode","mono","custom"]
         THEME_OPTS = ["theme_default","theme_contrast","theme_bright","theme_dark_mode","theme_mono","theme_custom"]
         theme_disp = [T(k, lang) for k in THEME_OPTS]
@@ -616,14 +623,20 @@ class SettingsFrame(ttk.Frame):
             CUSTOM_LABELS={"ok":"OK","low":"Low","degraded":"Degraded","nodata":"No Data"}
         cur_theme=self.app.config.get("theme","default")
         cur_idx=THEME_KEYS.index(cur_theme) if cur_theme in THEME_KEYS else 0
-        preview_frame=ttk.Frame(scroll_frame); preview_frame.pack(fill="x", pady=(4,6))
+        theme_row=ttk.Frame(scroll_frame); theme_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(theme_row, text=T("theme_label", lang)).pack(side="left")
+        theme_var=tk.StringVar(value=theme_disp[cur_idx])
+        theme_combo=ttk.Combobox(theme_row, textvariable=theme_var, values=theme_disp, state="readonly", width=14)
+        theme_combo.pack(side="left", padx=(6, 0))
+        stroke_var=tk.BooleanVar(value=self.app.config.get("icon_stroke",True))
+        ttk.Checkbutton(theme_row, text=T("icon_stroke_label", lang), variable=stroke_var).pack(side="left", padx=(16, 0))
+        preview_frame=ttk.Frame(scroll_frame); preview_frame.pack(fill="x", pady=(4,2))
         color_labels={}
         def _tk_color(rgba): return f"#{rgba[0]:02x}{rgba[1]:02x}{rgba[2]:02x}"
         for i,k in enumerate(("ok","low","degraded","nodata")):
             c=THEMES["default"][k]; hx=f"#{c[0]:02x}{c[1]:02x}{c[2]:02x}"; tc=_text_color(c)
             lbl=tk.Label(preview_frame, text=PREVIEW_LABELS[k], bg=hx, fg=_tk_color(tc), font=("Segoe UI",8,"bold"), width=6, height=1, relief="ridge")
             lbl.pack(side="left", padx=(0 if i==0 else 3,0)); color_labels[k]=lbl
-        theme_var=tk.StringVar(value=theme_disp[cur_idx])
         def _refresh_preview(*_a):
             idx=theme_disp.index(theme_var.get()) if theme_var.get() in theme_disp else 0
             tk_theme=THEME_KEYS[idx]; colors=THEMES.get(tk_theme, THEMES["default"])
@@ -631,10 +644,6 @@ class SettingsFrame(ttk.Frame):
                 c=colors[k]; hx=f"#{c[0]:02x}{c[1]:02x}{c[2]:02x}"; tc=_text_color(c)
                 lbl.configure(background=hx, foreground=_tk_color(tc))
         theme_var.trace_add("write", _refresh_preview); _refresh_preview()
-        theme_combo=ttk.Combobox(scroll_frame, textvariable=theme_var, values=theme_disp, state="readonly", width=14)
-        theme_combo.pack(anchor="w", pady=(0,4))
-        stroke_var=tk.BooleanVar(value=self.app.config.get("icon_stroke",True))
-        ttk.Checkbutton(scroll_frame, text=T("icon_stroke_label", lang), variable=stroke_var).pack(anchor="w", pady=(0,6))
         custom_frame=ttk.Frame(scroll_frame); custom_vars={}
         for k in ("ok","low","degraded","nodata"):
             row=ttk.Frame(custom_frame); row.pack(fill="x", pady=(0,3))
@@ -648,7 +657,7 @@ class SettingsFrame(ttk.Frame):
             if tk_theme=="custom":
                 cols=THEMES["default"]
                 for k,v in custom_vars.items(): v.set(f"{cols[k][0]:02x}{cols[k][1]:02x}{cols[k][2]:02x}")
-                custom_frame.pack(fill="x", pady=(0,6), after=theme_combo)
+                custom_frame.pack(fill="x", pady=(0,6))
             else: custom_frame.pack_forget()
         def _on_custom(*_a):
             for k,v in custom_vars.items():
@@ -664,29 +673,41 @@ class SettingsFrame(ttk.Frame):
             saved=self.app.config.get("icon_colors",{})
             cols=THEMES["default"]
             for k,v in custom_vars.items(): v.set(saved.get(k, f"{cols[k][0]:02x}{cols[k][1]:02x}{cols[k][2]:02x}"))
-            custom_frame.pack(fill="x", pady=(0,6), after=theme_combo)
-        ttk.Label(scroll_frame, text=T("language_label", lang)).pack(anchor="w", pady=(2,0))
+            custom_frame.pack(fill="x", pady=(0,6))
+        ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=5)
+
+        # language — one line
+        lang_row=ttk.Frame(scroll_frame); lang_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(lang_row, text=T("language_label", lang)).pack(side="left")
         LANG_OPTIONS={"中文":"zh","English":"en"}; LANG_DISPLAY=list(LANG_OPTIONS.keys())
         cur_lang_disp={v:k for k,v in LANG_OPTIONS.items()}.get(self.app.config.get("language","zh"),"中文")
         lang_var=tk.StringVar(value=cur_lang_disp)
-        lang_combo=ttk.Combobox(scroll_frame, textvariable=lang_var, values=LANG_DISPLAY, state="readonly", width=14)
-        lang_combo.pack(anchor="w", pady=(0,12))
+        lang_combo=ttk.Combobox(lang_row, textvariable=lang_var, values=LANG_DISPLAY, state="readonly", width=14)
+        lang_combo.pack(side="left", padx=(6, 0))
         from src.app_state import get_auto_start_state, set_auto_start
         auto_var=tk.BooleanVar(value=self.app.config.get("auto_start",False) or get_auto_start_state())
-        ttk.Checkbutton(scroll_frame, text=T("auto_start_label", lang), variable=auto_var).pack(anchor="w", pady=(0,2))
-        ttk.Label(scroll_frame, text=T("retention_label", lang)).pack(anchor="w")
-        retention_var=tk.IntVar(value=self.app.config.get("retention_days",30))
-        rfr=ttk.Frame(scroll_frame); rfr.pack(fill="x", pady=(0,8))
-        retention_sb=ttk.Spinbox(rfr, from_=1, to=3650, textvariable=retention_var, width=8); retention_sb.pack(side="left")
-        ttk.Label(scroll_frame, text=T("export_label", lang)).pack(anchor="w")
-        export_frame=ttk.Frame(scroll_frame); export_frame.pack(fill="x", pady=(0,8))
+        # auto-start on its own row
+        ttk.Checkbutton(scroll_frame, text=T("auto_start_label", lang),
+                        variable=auto_var).pack(anchor="w", pady=(0, 8))
+
+        # retention — one line
+        ret_row=ttk.Frame(scroll_frame); ret_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(ret_row, text=T("retention_label", lang)).pack(side="left")
+        retention_var=tk.IntVar(value=self.app.config.get("retention_days",180))
+        retention_sb=ttk.Spinbox(ret_row, from_=1, to=3650, textvariable=retention_var, width=8)
+        retention_sb.pack(side="left", padx=(6, 0))
+
+        # export path — one line
+        exp_row=ttk.Frame(scroll_frame); exp_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(exp_row, text=T("export_label", lang)).pack(side="left")
         export_var=tk.StringVar(value=self.app.config.get("export_path",""))
-        export_entry=ttk.Entry(export_frame, textvariable=export_var); export_entry.pack(side="left", fill="x", expand=True)
-        ttk.Button(export_frame, text=T("export_browse", lang), command=lambda: export_var.set(filedialog.askdirectory() or export_var.get())).pack(side="left", padx=(4,0))
+        export_entry=ttk.Entry(exp_row, textvariable=export_var); export_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        ttk.Button(exp_row, text=T("export_browse", lang), command=lambda: export_var.set(filedialog.askdirectory() or export_var.get())).pack(side="left", padx=(4,0))
+        proxy_row = ttk.Frame(scroll_frame); proxy_row.pack(fill="x", pady=(0, 8))
         proxy_enabled_var=tk.BooleanVar(value=self.app.config.get("proxy_enabled",False))
-        ttk.Checkbutton(scroll_frame, text=T("proxy_enable", lang), variable=proxy_enabled_var).pack(anchor="w")
+        ttk.Checkbutton(proxy_row, text=T("proxy_enable", lang), variable=proxy_enabled_var).pack(side="left")
         proxy_var=tk.StringVar(value=self.app.config.get("http_proxy",""))
-        proxy_entry=ttk.Entry(scroll_frame, textvariable=proxy_var); proxy_entry.pack(fill="x", pady=(0,8))
+        proxy_entry=ttk.Entry(proxy_row, textvariable=proxy_var); proxy_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
         placeholder=T("proxy_placeholder", lang)
         def _on_focus_in(e):
             if proxy_var.get()=="": proxy_entry.configure(foreground="black")
@@ -707,7 +728,36 @@ class SettingsFrame(ttk.Frame):
         _no_scroll=lambda e:"break"
         for w in (interval_sb, threshold_sb, alert_combo, theme_combo, lang_combo, retention_sb): w.bind("<MouseWheel>", _no_scroll)
         ttk.Separator(scroll_frame, orient="horizontal").pack(fill="x", pady=(12,8))
-        ttk.Label(scroll_frame, text="v1.2.7_260528", foreground="gray").pack(anchor="w")
+        ttk.Label(scroll_frame, text="v1.2.7_260528",
+                  foreground="gray").pack(anchor="w")
+
+        def _make_link(parent, text, url):
+            import webbrowser
+            lbl = tk.Label(parent, text=text, foreground="#1a5fb4", cursor="hand2", font=("Segoe UI", 8))
+            lbl.bind("<Button-1>", lambda e: webbrowser.open(url))
+            return lbl
+
+        by_frame = tk.Frame(scroll_frame)
+        by_frame.pack(anchor="w", pady=(2, 0))
+        tk.Label(by_frame, text="by ", foreground="gray", font=("Segoe UI", 8)).pack(side="left")
+        _make_link(by_frame, "@SrtaEstrella",
+                   "https://github.com/SrtaEstrella").pack(side="left")
+        tk.Label(by_frame, text=" (RedNote ", foreground="gray", font=("Segoe UI", 8)).pack(side="left")
+        _make_link(by_frame, "@Estella_han",
+                   "https://www.xiaohongshu.com/user/profile/62bc32b1000000001b026f6d").pack(side="left")
+        tk.Label(by_frame, text=")", foreground="gray", font=("Segoe UI", 8)).pack(side="left")
+
+        contrib_frame = tk.Frame(scroll_frame)
+        contrib_frame.pack(anchor="w", pady=(2, 0))
+        tk.Label(contrib_frame, text="Contributors: ", foreground="gray", font=("Segoe UI", 8)).pack(side="left")
+        _make_link(contrib_frame, "@wenyinos",
+                   "https://github.com/wenyinos").pack(side="left")
+        tk.Label(contrib_frame, text=" ", foreground="gray", font=("Segoe UI", 8)).pack(side="left")
+        _make_link(contrib_frame, "@CHW0n9",
+                   "https://github.com/CHW0n9").pack(side="left")
+
+        _make_link(scroll_frame, "github.com/SrtaEstrella/DeepSeekBalanceMonitor",
+                   "https://github.com/SrtaEstrella/DeepSeekBalanceMonitor").pack(anchor="w", pady=(2, 0))
 
         # --- Dirty tracking ---
         def _mark_dirty(*_a):
@@ -773,7 +823,9 @@ class SettingsFrame(ttk.Frame):
             self.app.config["interval_minutes"]=interval
             self.app.config["threshold_yuan"]=threshold
             self.app.config["threshold_package_percent"]=threshold_pkg_var.get()
-            self.app.config["language"]=LANG_OPTIONS.get(lang_var.get(),"zh")
+            new_lang = LANG_OPTIONS.get(lang_var.get(), "zh")
+            lang_changed = (new_lang != self.app.lang)
+            self.app.config["language"] = new_lang
             self.app.config["auto_start"]=auto_var.get()
             self.app.config["alert_mode"]=alert_map.get(alert_var.get(),"always")
             self.app.config["api_alert_enabled"]=api_alert_var.get()
@@ -796,6 +848,16 @@ class SettingsFrame(ttk.Frame):
             self.app.config["icon_stroke"]=stroke_var.get()
             set_auto_start(self.app.config["auto_start"])
             save_config(self.app.config)
+            # widgets can't re-i18n live — tear down the main window on language
+            # change so the next open() rebuilds every tab in the new language
+            if lang_changed:
+                try:
+                    mw = getattr(self.app, "_main_window", None)
+                    if mw is not None and hasattr(mw, "close_for_rebuild"):
+                        mw.close_for_rebuild()
+                        self.app._main_window = None
+                except Exception:
+                    pass
             self.app.cancel_timer()
             # load new preferred API's cached data into app state
             pref_api_id = self.app.config.get("preferred_api_id", "")
@@ -835,6 +897,8 @@ class SettingsFrame(ttk.Frame):
                     pass
 
         ttk.Button(btn_frame, text=T("save", lang), command=on_save).pack(side="right", padx=(5,0))
+        # expose nested save routine for class methods (check_unsaved)
+        self._do_save_impl = _do_save
         # keep refs
         self._lang_var=lang_var
 
@@ -863,8 +927,20 @@ class SettingsFrame(ttk.Frame):
 
     def refresh(self):
         self.refresh_preferred_selector()
+    def reload_from_config(self):
+        """Discard edits: rebuild all widgets from last-saved config."""
+        try:
+            self.app.config = load_config()
+        except Exception:
+            pass
+        for w in self.winfo_children():
+            w.destroy()
+        self._build()
+        self._dirty = False
+
     def on_show(self):
         self.refresh_preferred_selector()
+
     def check_unsaved(self):
         """Check for unsaved changes. Returns True if safe to proceed (after save or discard)."""
         if not self._dirty:
@@ -873,7 +949,11 @@ class SettingsFrame(ttk.Frame):
         from tkinter import messagebox
         save = messagebox.askyesno(T("warn_title", lang), T("unsaved_confirm", lang), parent=self.winfo_toplevel())
         if save:
-            self._do_save()
+            try:
+                self._do_save_impl()
+            except Exception as e:
+                from src.config import log
+                log(f"check_unsaved save failed: {e}")
         else:
-            self._dirty = False
+            self.reload_from_config()
         return True

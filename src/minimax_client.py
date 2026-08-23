@@ -11,6 +11,8 @@ Fields: current_interval_remaining_percent, current_weekly_remaining_percent, en
 Note: no monthly window — only 5h rolling + weekly.
 """
 import json
+import ssl
+import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
@@ -92,27 +94,39 @@ def fetch_minimax_quota(platform_key: str, api_key: str, http_proxy: str = "") -
         "Content-Type": "application/json",
         "User-Agent": USER_AGENT,
         "Accept": "application/json",
+        "Connection": "close",
     })
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            body = resp.read().decode("utf-8")
-            data = json.loads(body)
-            # check base_resp
-            base_resp = data.get("base_resp", {})
-            if base_resp.get("status_code", 0) != 0:
-                raise ValueError(base_resp.get("status_msg", "MiniMax API error"))
-            # find model_remains — could be under data or at root
-            remains = data.get("data", {}).get("model_remains") or data.get("model_remains") or []
-            if not remains:
-                raise ValueError("No model_remains data in MiniMax response")
-            result = _parse_model_remains(remains, "general")
-            if result["5h"] is None and result["weekly"] is None:
-                raise ValueError("No usage data found in MiniMax response")
-            return result
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            raise ValueError("Invalid API key (401)")
-        raise ValueError(f"MiniMax API error: HTTP {e.code}")
+    # TLS to minimax hosts intermittently drops mid-handshake (SSL UNEXPECTED_EOF);
+    # retry transient network errors before giving up
+    last_err = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = resp.read().decode("utf-8")
+                data = json.loads(body)
+                # check base_resp
+                base_resp = data.get("base_resp", {})
+                if base_resp.get("status_code", 0) != 0:
+                    raise ValueError(base_resp.get("status_msg", "MiniMax API error"))
+                # find model_remains — could be under data or at root
+                remains = data.get("data", {}).get("model_remains") or data.get("model_remains") or []
+                if not remains:
+                    raise ValueError("No model_remains data in MiniMax response")
+                result = _parse_model_remains(remains, "general")
+                if result["5h"] is None and result["weekly"] is None:
+                    raise ValueError("No usage data found in MiniMax response")
+                return result
+        except ValueError:
+            raise  # API-level errors are not transient
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                raise ValueError("Invalid API key (401)")
+            raise ValueError(f"MiniMax API error: HTTP {e.code}")
+        except (urllib.error.URLError, ssl.SSLError, ConnectionError, TimeoutError) as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(1.0)
+    raise ValueError(str(last_err))
 
 def format_reset_short(sec: int, lang: str = "zh") -> str:
     if sec <= 0:
@@ -122,13 +136,13 @@ def format_reset_short(sec: int, lang: str = "zh") -> str:
     m = (sec % 3600) // 60
     if lang == "zh":
         if d > 0:
-            return f"{d}天 {h}小时后重置"
+            return f"{d}天{h}小时重置"
         if h > 0:
-            return f"{h}小时 {m}分后重置"
+            return f"{h}小时{m}分重置"
         return f"{m}分钟后重置"
     else:
         if d > 0:
-            return f"{d}d {h}h"
+            return f"{d}d{h}h"
         if h > 0:
-            return f"{h}h {m}m"
+            return f"{h}h{m}m"
         return f"{m}m"

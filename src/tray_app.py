@@ -165,12 +165,29 @@ def do_balance_check(app: AppState):
         payg_apis = [a for a in apis if a.get("mode") == "payg"]
         pkg_apis = [a for a in apis if a.get("mode") == "package"]
 
+        def _fetch_status_for(plat):
+            try:
+                if plat == "deepseek":
+                    return fetch_service_status()
+                if plat.startswith("minimax_"):
+                    return fetch_minimax_service_status()
+            except Exception:
+                return None
+            return None
+
         futures = {}
-        with ThreadPoolExecutor(max_workers=min(len(apis) + 1, 8)) as pool:
+        with ThreadPoolExecutor(max_workers=min(len(apis) + 3, 10)) as pool:
             for api in payg_apis:
                 futures[pool.submit(_fetch_payg, api)] = ("payg", api)
             for api in pkg_apis:
                 futures[pool.submit(_fetch_package, api, proxy_url)] = ("package", api)
+            # fetch status for every platform that has a status page
+            status_futures = {}
+            for api in apis:
+                plat = api.get("platform", "")
+                pmeta = get_platform(plat)
+                if pmeta and pmeta.has_status_page and plat not in status_futures:
+                    status_futures[plat] = pool.submit(_fetch_status_for, plat)
 
         s_indicator = status.get("indicator") if status else None
         for f in as_completed(futures):
@@ -201,32 +218,38 @@ def do_balance_check(app: AppState):
                 )
                 log(f"Package OK for {api.get('name')}: h5={r5.get('usage_percent') if r5 else 'N/A'}, weekly={rw.get('usage_percent') if rw else 'N/A'}")
 
-        # cache results per API — preserve old cache on fetch failure
+        # collect per-platform service statuses
+        statuses = {}
+        for plat, sf in status_futures.items():
+            try:
+                st = sf.result()
+                if st is not None:
+                    statuses[plat] = st
+            except Exception:
+                pass
+
+        # cache results per API — merge into existing entry so status/error survive
         for f in futures:
             mode, api = futures[f]
             aid = api.get("id")
             try:
                 _, result, _err = f.result()
-                if result is None:
-                    # fetch failed — keep old cache, just update error
-                    with app._lock:
-                        if aid in app._api_cache:
-                            app._api_cache[aid]["error"] = _err
-                    continue
                 with app._lock:
+                    entry = app._api_cache.setdefault(aid, {})
+                    if result is None:
+                        entry["error"] = _err
+                        continue
                     if mode == "payg":
-                        app._api_cache[aid] = {"balances": result["all_balances"], "error": None, "last_check": datetime.now()}
-                    elif mode == "package":
-                        app._api_cache[aid] = {"package_data": result, "error": None, "last_check": datetime.now()}
+                        entry["balances"] = result["all_balances"]
+                    else:
+                        entry["package_data"] = result
+                    entry["error"] = None
+                    entry["last_check"] = datetime.now()
+                    st = statuses.get(api.get("platform", ""))
+                    if st is not None:
+                        entry["service_status"] = st
             except Exception:
                 pass
-        # store service status per API
-        if status:
-            pref = get_preferred_api(cfg)
-            if pref:
-                with app._lock:
-                    if "service_status" not in app._api_cache.get(pref.get("id"), {}):
-                        app._api_cache.setdefault(pref.get("id"), {})["service_status"] = status
         # update app state with preferred API's cached data
         pref = get_preferred_api(cfg)
         if pref:
@@ -265,11 +288,11 @@ def do_balance_check(app: AppState):
         except Exception:
             pass
 
-    # refresh main window overview/history if open
+    # refresh main window overview/history if open (follow new preferred API)
     try:
         mw = getattr(app, "_main_window", None)
         if mw and hasattr(mw, "refresh_all"):
-            app._tk_root.after(0, mw.refresh_all)
+            app._tk_root.after(0, lambda: mw.refresh_all(follow_preferred=True))
     except Exception:
         pass
 
@@ -326,35 +349,6 @@ def notify_api_status(app: AppState, transition: str):
     except Exception as e:
         log(f"API status notify failed: {e}")
 
-
-def _calc_package_rate_for_tray(api_id, lang, billing_period="monthly"):
-    """Calculate package rate for tray notification using the specified billing period."""
-    try:
-        rows = get_package_history_page(limit=100, api_id=api_id or None)
-        if len(rows) < 2:
-            return None
-        newest, oldest = rows[0], rows[-1]
-        # map billing_period to data column
-        period_map = {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}
-        period_labels = {"5h": T("unit_5h", lang), "weekly": T("unit_weekly", lang), "monthly": T("unit_monthly", lang)}
-        col = period_map.get(billing_period, "monthly_percent")
-        newest_pct = newest.get(col) or 0
-        oldest_pct = oldest.get(col) or 0
-        from datetime import datetime as _dt
-        t_new = _dt.strptime(newest["timestamp"], "%Y-%m-%d %H:%M:%S")
-        t_old = _dt.strptime(oldest["timestamp"], "%Y-%m-%d %H:%M:%S")
-        hours = (t_new - t_old).total_seconds() / 3600
-        if hours <= 0:
-            return None
-        hourly_rate = (newest_pct - oldest_pct) / hours
-        if hourly_rate <= 0:
-            return None
-        remaining_pct = 100 - newest_pct
-        remaining_hours = round(remaining_pct / hourly_rate, 1)
-        unit = period_labels.get(billing_period, T("unit_monthly", lang))
-        return T("pkg_rate_line", lang, rate=hourly_rate, unit=unit, remaining=remaining_hours)
-    except Exception:
-        return None
 
 # --- Tray Menu Actions ----------------------------------------------
 
@@ -422,18 +416,13 @@ def on_show_balance(icon, item):
                     remaining = wdata.get("percent_remaining", 100 - wdata.get("usage_percent", 0))
                     reset_s = wdata.get("reset_in_sec", 0)
                     reset_str = format_reset_short(reset_s, lang) if reset_s > 0 else "-"
-                    lines.append(f"{label}：剩余 {remaining:.0f}%（{reset_str}）")
+                    lines.append(f"{label}：{T('remaining_pct', lang, pct=remaining)}（{reset_str}）")
             # status line only if platform has a status page
             if pmeta and pmeta.has_status_page:
                 _STATUS_ICON = {"none": "🟢", "minor": "🟡", "major": "🟠", "critical": "🔴", "maintenance": "🔵"}
                 ind = raw_status.get("indicator") if raw_status else None
                 status_key = f"status_{ind}" if ind else "status_unknown"
                 lines.append(f"📡 {T('service_status', lang)} {_STATUS_ICON.get(ind, '⚪')} {T(status_key, lang)}")
-            # rate line using preferred billing period
-            pref_id = app.config.get("preferred_api_id")
-            rate_str = _calc_package_rate_for_tray(pref_id, lang, billing_period)
-            if rate_str:
-                lines.append(f"📊 {rate_str}")
             if last:
                 diff = datetime.now() - last
                 mins = int(diff.total_seconds() / 60)
@@ -720,6 +709,7 @@ def _show_main(icon, item, tab="history"):
         return
     def _show():
         try:
+            from src.main_window import MainWindow
             mw = getattr(app, "_main_window", None)
             if not isinstance(mw, MainWindow):
                 mw = MainWindow(app)
@@ -732,8 +722,8 @@ def _show_main(icon, item, tab="history"):
     except Exception:
         pass
 
-def _apply_preferred_switch(app: AppState, aid: str):
-    """Switch preferred API and refresh all UI."""
+def _apply_preferred_switch(app: AppState, aid: str, *_args):
+    """Switch preferred API and refresh all UI. Accepts extra pystray args."""
     if not set_preferred_api(aid):
         return
     app.config = load_config()
@@ -759,7 +749,7 @@ def _apply_preferred_switch(app: AppState, aid: str):
         app.icon.menu = app._rebuild_menu()
     mw = getattr(app, "_main_window", None)
     if mw and hasattr(mw, "refresh_all"):
-        app._tk_root.after(0, mw.refresh_all)
+        app._tk_root.after(0, lambda: mw.refresh_all(follow_preferred=True))
 
 
 def _build_api_selection_submenu(app):
@@ -771,10 +761,7 @@ def _build_api_selection_submenu(app):
     items = []
     for api in apis:
         aid = api["id"]
-        plat = api.get("platform", "")
-        pmeta = get_platform(plat)
-        plat_disp = pmeta.display_name if pmeta else plat
-        disp = f"{api['name']} ({plat_disp})"
+        disp = api.get("name", aid)
 
         items.append(pystray.MenuItem(
             disp,
@@ -787,7 +774,7 @@ def _build_api_selection_submenu(app):
         items.append(pystray.Menu.SEPARATOR)
     items.append(pystray.MenuItem(
         T("add_edit_api", lang),
-        lambda icon, item: _show_main(icon, item, "api_management"),
+        lambda icon, item: _show_main(icon, item, "manage"),
     ))
     return pystray.Menu(*items)
 
@@ -845,7 +832,7 @@ def main():
         app._demo_rate = hourly
         app._demo_hrs = hrs
     else:
-        retention = int(app.config.get("retention_days", 30))
+        retention = int(app.config.get("retention_days", 180))
         prune_old_data(retention)
 
     if app.config.get("rainmeter_enabled", True):
@@ -859,7 +846,7 @@ def main():
             from src.main_window import MainWindow
             mw = MainWindow(app)
             app._main_window = mw
-            _tk_root.after(300, lambda: mw.show("api_management"))
+            _tk_root.after(300, lambda: mw.show("manage"))
         except Exception as e:
             log(f"API management open failed: {e}")
             # fallback to old settings

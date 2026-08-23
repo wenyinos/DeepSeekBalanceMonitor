@@ -33,8 +33,15 @@ class MainWindow:
 
         lang = self.app.lang
         win.title("DSMonitor")
-        # History was 850x640, add tab height
-        win.geometry("860x700")
+        # Height computed to show EXACTLY two chart blocks + the third block's header.
+        # Chart canvases are fixed 210 physical px; headers/paddings scale with DPI
+        # (tkk/ttk fonts scale automatically), so only those parts multiply by _scale.
+        try:
+            _scale = win.winfo_fpixels("1i") / 96.0
+        except Exception:
+            _scale = 1.0
+        _need_h = int((28 + 125 + 10) * _scale + 2 * (30 * _scale + 210) + 30 * _scale + 40)
+        win.geometry(f"860x{_need_h}")
         win.minsize(600, 500)
         # center
         win.update_idletasks()
@@ -71,55 +78,79 @@ class MainWindow:
         self._notebook = nb
         nb.pack(fill="both", expand=True, padx=6, pady=6)
 
-        # API Management (first tab, for multi-account)
-        from src.api_management_frame import ApiManagementFrame
-        api_mgmt = ApiManagementFrame(nb, self.app, on_change=self._on_api_change)
-        nb.add(api_mgmt, text="🔀 " + T("api_management", lang))
-        self._tabs["api_management"] = api_mgmt
+        # Lazy tab construction: pre-register lightweight holders (keeps tab order
+        # stable); each tab's real content builds on FIRST selection — first launch
+        # only pays for the initially visible tab, killing the startup jank.
+        self._holders = {}    # key -> placeholder frame inside notebook
+        self._builders = {}   # key -> callable(parent) -> content widget
 
-        # History (second tab, with second-level API selector)
-        from src.history_dialog import HistoryFrame
-        hist = HistoryFrame(nb, self.app)
-        nb.add(hist, text=T("history", lang))
-        self._tabs["history"] = hist
+        def _register(key, title, builder):
+            holder = ttk.Frame(nb)
+            nb.add(holder, text=title)
+            self._holders[key] = holder
+            self._builders[key] = builder
 
-        # Settings
-        from src.settings_dialog import SettingsFrame
-        sett = SettingsFrame(nb, self.app, on_save=self._on_settings_saved)
-        nb.add(sett, text=T("settings", lang).rstrip("…"))
-        self._tabs["settings"] = sett
+        def _build_manage(parent):
+            from src.manage_frame import ManageFrame
+            return ManageFrame(parent, self.app, on_change=self._on_api_change)
 
-        # Dev (demo only)
+        def _build_dashboard(parent):
+            from src.history_dialog import HistoryFrame
+            return HistoryFrame(parent, self.app)
+
+        def _build_settings(parent):
+            from src.settings_dialog import SettingsFrame
+            return SettingsFrame(parent, self.app, on_save=self._on_settings_saved)
+
+        _register("manage", T("manage", lang), _build_manage)
+        _register("history", T("dashboard", lang), _build_dashboard)
+        _register("settings", T("settings", lang).rstrip("…"), _build_settings)
         if self.app.demo_mode:
-            from src.tray_app import DevFrame
-            dev = DevFrame(nb, self.app)
-            nb.add(dev, text=T("dev_tools", lang))
-            self._tabs["dev"] = dev
+            def _build_dev(parent):
+                from src.tray_app import DevFrame
+                return DevFrame(parent, self.app)
+            _register("dev", T("dev_tools", lang), _build_dev)
+
+        # start hidden
+        win.withdraw()
+        return win
+
+    def _ensure_tab(self, key):
+        """Build a registered tab's content on first use. Returns content or None."""
+        if key in self._tabs:
+            return self._tabs[key]
+        builder = self._builders.get(key)
+        holder = self._holders.get(key)
+        if not builder or not holder:
+            return None
+        try:
+            w = builder(holder)
+            w.pack(fill="both", expand=True)
+            self._tabs[key] = w
+            return w
+        except Exception as e:
+            log(f"Failed to build {key} tab: {e}")
+            return None
 
         # redraw history chart when tab selected; check unsaved on leave settings
         def _on_tab_changed(e):
             try:
                 sel = nb.select()
-                widget = nb.nametowidget(sel)
-                # determine which tab we're switching TO
+                holder = nb.nametowidget(sel)
+                # determine which tab we're switching TO (by holder frame)
                 new_tab = None
-                for k, w in self._tabs.items():
-                    if w is widget:
+                for k, h in self._holders.items():
+                    if h is holder:
                         new_tab = k
                         break
-                # if leaving settings tab, check unsaved
-                if self._last_tab == "settings" and new_tab != "settings":
-                    sett = self._tabs.get("settings")
-                    if sett and hasattr(sett, "check_unsaved"):
-                        if not sett.check_unsaved():
-                            # revert to settings tab
-                            nb.select(self._tabs["settings"])
-                            return
                 self._last_tab = new_tab
-                if hasattr(widget, "on_show"):
-                    widget.on_show()
-                if hasattr(widget, "refresh"):
-                    widget.refresh()
+                # lazy-build on first visit, then fire on_show/refresh
+                w = self._ensure_tab(new_tab)
+                if w is not None:
+                    if hasattr(w, "on_show"):
+                        w.on_show()
+                    if hasattr(w, "refresh"):
+                        w.refresh()
             except Exception:
                 pass
         nb.bind("<<NotebookTabChanged>>", _on_tab_changed)
@@ -128,23 +159,23 @@ class MainWindow:
         win.withdraw()
         return win
 
-    def show(self, tab="api_management"):
+    def show(self, tab="manage"):
         win = self._ensure()
         # tray items map directly to tab keys; unknown → first tab
-        tab_map = {"api_management": "api_management", "history": "history", "settings": "settings", "dev": "dev", "apis": "api_management"}
+        tab_map = {"api_management": "manage", "manage": "manage", "history": "history", "dashboard": "history", "ledger": "manage", "settings": "settings", "dev": "dev", "apis": "manage"}
         key = tab_map.get(tab, tab)
-        if key not in self._tabs:
-            # fallback to first available tab
-            key = next(iter(self._tabs), None)
-        if key in self._tabs:
+        if key not in self._holders:
+            # fallback to first registered tab
+            key = next(iter(self._holders), None)
+        if key:
             try:
-                self._notebook.select(self._tabs[key])
-                # trigger on_show for that tab
-                w = self._tabs[key]
-                if hasattr(w, "on_show"):
-                    w.on_show()
-                if hasattr(w, "refresh"):
-                    w.refresh()
+                w = self._ensure_tab(key)
+                self._notebook.select(self._holders[key])
+                if w is not None:
+                    if hasattr(w, "on_show"):
+                        w.on_show()
+                    if hasattr(w, "refresh"):
+                        w.refresh()
             except Exception:
                 pass
         try:
@@ -153,16 +184,62 @@ class MainWindow:
             win.after(50, win.focus_force)
         except Exception:
             pass
+        # deterministically pre-build remaining tabs AFTER first paint — but one tab
+        # per tick (chained), so no single callback blocks the UI long enough to jank
+        def _prebuild_next():
+            for k in self._holders:
+                if k not in self._tabs:
+                    self._ensure_tab(k)
+                    try:
+                        w = self._tabs.get(k)
+                        if w is not None and hasattr(w, "on_show"):
+                            w.on_show()
+                    except Exception:
+                        pass
+                    # schedule the NEXT tab build on a later tick
+                    win.after(350, _prebuild_next)
+                    return
+        win.after(200, _prebuild_next)
+
+    def _leave_settings_check(self):
+        """If settings has unsaved changes, prompt save/discard.
+        Returns False when the user cancels (stay on settings)."""
+        sett = self._tabs.get("settings")
+        if not sett or not hasattr(sett, "check_unsaved"):
+            return True
+        try:
+            if getattr(sett, "_dirty", False):
+                return sett.check_unsaved()
+        except Exception:
+            pass
+        return True
 
     def hide(self):
+        if not self._leave_settings_check():
+            return  # user cancelled — stay on settings, keep window open
         if self._win and self._win.winfo_exists():
             try:
                 self._win.withdraw()
             except Exception:
                 pass
 
+    def close_for_rebuild(self):
+        """Tear down the window + all lazy tab state so the next show() rebuilds
+        from scratch (used after a language switch — widgets can't re-i18n live)."""
+        try:
+            if self._win and self._win.winfo_exists():
+                self._win.destroy()
+        except Exception:
+            pass
+        self._win = None
+        self._tabs.clear()
+        self._holders.clear()
+        self._builders.clear()
+
     def _on_api_change(self):
-        # called when APIs added/edited/deleted — refresh other tabs
+        # called when APIs added/edited/deleted — refresh OTHER tabs.
+        # NOTE: do not touch manage.mgmt here — mgmt.refresh() invokes on_change,
+        # which would recurse (mgmt → on_change → mgmt → …)
         try:
             hist = self._tabs.get("history")
             if hist and hasattr(hist, "refresh_api_selector"):
@@ -199,11 +276,16 @@ class MainWindow:
             self._on_api_change()
         except Exception:
             pass
+        # dashboard should follow the newly-saved preferred API
+        try:
+            self.refresh_all(follow_preferred=True)
+        except Exception:
+            pass
 
-    def refresh_all(self):
+    def refresh_all(self, follow_preferred=False):
         for w in self._tabs.values():
             try:
                 if hasattr(w, "refresh"):
-                    w.refresh()
+                    w.refresh(follow_preferred=follow_preferred)
             except Exception:
                 pass

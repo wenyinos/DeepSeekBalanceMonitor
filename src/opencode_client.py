@@ -88,13 +88,13 @@ def format_reset_short(sec: int, lang: str = "zh") -> str:
     m = (sec % 3600) // 60
     if lang == "zh":
         if d > 0:
-            return f"{d}天 {h}小时后重置"
+            return f"{d}天{h}小时重置"
         if h > 0:
-            return f"{h}小时 {m}分后重置"
+            return f"{h}小时{m}分重置"
         return f"{m}分钟后重置"
     else:
         if d > 0:
-            return f"{d}d {h}h"
+            return f"{d}d{h}h"
         if h > 0:
-            return f"{h}h {m}m"
+            return f"{h}h{m}m"
         return f"{m}m"

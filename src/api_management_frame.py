@@ -10,10 +10,11 @@ from src.platforms import get_all_platforms, get_platform
 
 
 class ApiManagementFrame(ttk.Frame):
-    def __init__(self, parent, app, on_change=None):
+    def __init__(self, parent, app, on_change=None, on_select=None):
         super().__init__(parent, padding=10)
         self.app = app
         self.on_change = on_change
+        self.on_select = on_select
         self._build()
 
     def _build(self):
@@ -54,7 +55,8 @@ class ApiManagementFrame(ttk.Frame):
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
         self.hint = tk.StringVar(value="")
-        ttk.Label(self, textvariable=self.hint, font=("Segoe UI", 9), foreground="#888").pack(anchor="w", pady=(6, 0))
+        # empty-text labels still occupy a full line — pack only when there is content
+        self._hint_label = ttk.Label(self, textvariable=self.hint, font=("Segoe UI", 9), foreground="#888")
 
         self.refresh()
 
@@ -76,6 +78,12 @@ class ApiManagementFrame(ttk.Frame):
             self._btn_delete.configure(state=state)
         except Exception:
             pass
+        # notify external listener (e.g. ledger table below in Manage tab)
+        if self.on_select:
+            try:
+                self.on_select(selected)
+            except Exception:
+                pass
 
     def refresh(self):
         # reload tree from config
@@ -91,12 +99,17 @@ class ApiManagementFrame(ttk.Frame):
                 pmeta = get_platform(plat_key)
                 plat_disp = pmeta.display_name if pmeta else plat_key
                 bp = api.get("billing_period", "")
-                bp_disp = {"5h": "5h", "weekly": "每周", "monthly": "每月"}.get(bp, bp) if bp else "—"
+                # raw literal form ("5h"/"weekly"/"monthly"), em-dash placeholder if unset
+                bp_disp = bp if bp else "—"
                 self.tree.insert("", "end", values=(api.get("name"), plat_disp, bp_disp, api.get("id")))
             if not apis:
                 self.hint.set(T("no_apis", self.app.lang))
+                self._hint_label.pack(anchor="w", pady=(6, 0))
             else:
                 self.hint.set("")
+                self._hint_label.pack_forget()
+            # re-emit current selection so listeners (ledger) follow add/delete
+            self._on_select()
             # notify parent if needed
             if self.on_change:
                 try:

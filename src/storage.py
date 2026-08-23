@@ -150,22 +150,83 @@ def export_all_csv(path: str, api_id: str | None = None) -> int:
         return 0
 
 
-def get_consumption_rate(days=7, api_id: str | None = None):
-    """Busy-hour weighted hourly consumption rate. Filter by api_id if given."""
-    result = _get_consumption_rate_for_days(days, _interval_min=None, api_id=api_id)
+def export_package_csv(path: str, api_id: str | None = None) -> int:
+    """Export package quota records to CSV. Filter by api_id if given."""
+    try:
+        conn = _connect_package()
+        if api_id:
+            cur = conn.execute(
+                "SELECT timestamp, h5_percent, h5_reset, weekly_percent, weekly_reset, monthly_percent, monthly_reset, service_status FROM package_history WHERE api_id=? ORDER BY timestamp ASC", (api_id,))
+        else:
+            cur = conn.execute(
+                "SELECT timestamp, h5_percent, h5_reset, weekly_percent, weekly_reset, monthly_percent, monthly_reset, service_status FROM package_history ORDER BY timestamp ASC"
+            )
+        count = 0
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f)
+            w.writerow(["timestamp", "h5_used%", "h5_reset_sec", "weekly_used%", "weekly_reset_sec",
+                        "monthly_used%", "monthly_reset_sec", "service_status"])
+            for r in cur:
+                w.writerow(r)
+                count += 1
+        conn.close()
+        return count
+    except Exception as e:
+        log(f"Failed to export package CSV: {e}")
+        return 0
+
+
+def get_consumption_rate(days=7, api_id: str | None = None, billing_period: str | None = None):
+    """Busy-hour weighted hourly consumption rate. Filter by api_id if given.
+    Pass billing_period ("5h"/"weekly"/"monthly") for package-mode quota rate."""
+    result = _get_consumption_rate_for_days(days, _interval_min=None, api_id=api_id, billing_period=billing_period)
     if result or days != 7:
         return result
-    retention_days = load_config().get("retention_days", 30)
+    retention_days = load_config().get("retention_days", 180)
     fallback_days = max(days, retention_days)
     if fallback_days <= days:
         return result
-    return _get_consumption_rate_for_days(fallback_days, _interval_min=None, api_id=api_id)
+    return _get_consumption_rate_for_days(fallback_days, _interval_min=None, api_id=api_id, billing_period=billing_period)
 
 
-def _get_consumption_rate_for_days(days=7, _interval_min=None, api_id: str | None = None):
+def _get_consumption_rate_for_days(days=7, _interval_min=None, api_id: str | None = None, billing_period: str | None = None):
     """Busy-hour slicing: split on top-ups, long idle gaps, and long flat periods.
-    Only "busy" intervals contribute to the weighted hourly rate. Filter by api_id if given."""
+    Only "busy" intervals contribute to the weighted hourly rate. Filter by api_id if given.
+    If billing_period is set, read package_history usage%% instead (negated so that
+    usage rises count as consumption and quota resets act as top-ups)."""
     try:
+        if billing_period:
+            col_map = {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}
+            col = col_map.get(billing_period, "monthly_percent")
+            conn = _connect_package()
+            cur = conn.execute(
+                f"SELECT timestamp, '{col}', {col} FROM package_history WHERE timestamp >= datetime('now', ?) AND api_id=? AND {col} IS NOT NULL ORDER BY timestamp ASC",
+                (f"-{days} days", api_id or ""),
+            )
+            raw_rows = cur.fetchall()
+            conn.close()
+            if len(raw_rows) < 2:
+                return None
+            # convert usage%% to remaining%% (consumption = remaining dropping)
+            # NOTE: percent values are integer-quantized (1%% steps), so busy-interval
+            # slicing amplifies quantization noise into huge %/h rates. Use a robust
+            # reset-safe estimate instead: sum of positive drops / total calendar hours.
+            parsed = [(datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S"), r[1], 100.0 - (r[2] or 0)) for r in raw_rows]
+            currency = "%"
+
+            total_drop = 0.0
+            for i in range(1, len(parsed)):
+                d = parsed[i - 1][2] - parsed[i][2]
+                if d > 0:
+                    total_drop += d
+            hours_total = (parsed[-1][0] - parsed[0][0]).total_seconds() / 3600
+            if hours_total <= 0 or total_drop <= 0:
+                return None
+            avg_hourly = total_drop / hours_total
+            latest_remaining = parsed[-1][2]
+            busy_hours = max(0.0, latest_remaining) / avg_hourly
+            return avg_hourly, busy_hours, currency
+
         conn = _connect()
         if api_id:
             cur = conn.execute(
@@ -185,7 +246,7 @@ def _get_consumption_rate_for_days(days=7, _interval_min=None, api_id: str | Non
         parsed = [(datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S"), r[1], r[2]) for r in rows]
         currency = parsed[0][1]
         if _interval_min is None:
-            interval_min = int(load_config().get("interval_minutes", 10))
+            _interval_min = int(load_config().get("interval_minutes", 10))
         m_sec = max(30, 2 * _interval_min) * 60
 
         intervals = _slice_busy_intervals(parsed, m_sec)
