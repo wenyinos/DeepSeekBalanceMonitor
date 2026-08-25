@@ -4,9 +4,9 @@ import unittest
 import sys
 from pathlib import Path
 from unittest.mock import patch, Mock
-from src import api_client
-from src.config import DEFAULT_CONFIG, T
-from src.app_state import AppState
+from src.platforms import deepseek as api_client
+from src.core.config import DEFAULT_CONFIG, T
+from src.core.app_state import AppState
 
 # Skip macOS-specific tests on non-macOS platforms
 if sys.platform == "darwin":
@@ -24,7 +24,7 @@ class ApiClientTests(unittest.TestCase):
                 "topped_up_balance": "10.50",
             }],
         }
-        with patch("src.api_client._get_json", return_value=payload):
+        with patch("src.platforms.deepseek.http_get_json", return_value=payload):
             result = api_client.fetch_balance("key")
         self.assertFalse(result["is_available"])
         balance = result["all_balances"]["CNY"]
@@ -32,11 +32,11 @@ class ApiClientTests(unittest.TestCase):
                           balance["topped_up_balance"]), (12.5, 2.0, 10.5))
 
     def test_fetch_balance_handles_empty_and_unauthorized_responses(self):
-        with patch("src.api_client._get_json", return_value={"balance_infos": []}):
+        with patch("src.platforms.deepseek.http_get_json", return_value={"balance_infos": []}):
             with self.assertRaises(ValueError):
                 api_client.fetch_balance("key")
         error = urllib.error.HTTPError("url", 401, "", {}, None)
-        with patch("src.api_client._get_json", side_effect=error):
+        with patch("src.platforms.deepseek.http_get_json", side_effect=error):
             with self.assertRaises(PermissionError):
                 api_client.fetch_balance("bad-key")
         error.close()
@@ -63,7 +63,7 @@ class AppStateTests(unittest.TestCase):
     def _state(self, alert_mode="once", threshold=10):
         config = {"language": "en", "threshold_yuan": threshold,
                   "alert_mode": alert_mode}
-        with patch("src.app_state.load_config", return_value=config):
+        with patch("src.core.app_state.load_config", return_value=config):
             return AppState()
 
     def test_low_balance_alert_once_and_api_status_transitions(self):

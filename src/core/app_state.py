@@ -5,7 +5,7 @@ import os
 import sys
 import threading
 
-from src.config import load_config, T, log, APP_ID
+from src.core.config import load_config, T, log, APP_ID
 
 
 class AppState:
@@ -41,14 +41,6 @@ class AppState:
         for c, b in self.balances.items():
             return {**b, "currency": c}
         return None
-
-    def _get_package_data_for_billing(self, billing_period="monthly"):
-        """Get package data using billing_period as monthly proxy."""
-        pd = self.package_data
-        if not pd:
-            return None
-        col_map = {"5h": pd.get("5h") or pd.get("rolling"), "weekly": pd.get("weekly"), "monthly": pd.get("monthly")}
-        return col_map.get(billing_period) or pd.get("monthly") or pd.get("weekly") or pd.get("5h")
 
     def balance_tooltip(self):
         with self._lock:
@@ -107,6 +99,46 @@ class AppState:
             self._alert_suppressed = True
             return True
 
+    def is_daily_spend_fast(self):
+        """True when today's consumption crosses the configured daily-spend line.
+        Resets naturally at midnight (aggregation window = today)."""
+        from src.core.storage import get_today_spend
+        with self._lock:
+            pref_id = self.config.get("preferred_api_id", "")
+            apis = self.config.get("apis") or []
+            api = next((a for a in apis if a.get("id") == pref_id), None)
+            mode = (api or {}).get("mode", "payg")
+            bp = (api or {}).get("billing_period") or None
+            try:
+                if mode == "package":
+                    line = float(self.config.get("daily_spend_line_percent", 10))
+                    spent = get_today_spend(pref_id, "package", bp)
+                    fast = spent >= line > 0
+                else:
+                    line = float(self.config.get("daily_spend_line_yuan", 20))
+                    spent = get_today_spend(pref_id, "payg")
+                    fast = spent >= line > 0
+            except Exception as e:
+                log(f"daily-spend check failed: {e}")
+                return False
+            # one-shot alert state (same pattern as low-balance suppression)
+            if getattr(self, "_spend_was_fast", False) != fast:
+                self._spend_was_fast = fast
+                self._spend_alert_fired = False
+            return fast
+
+    def should_spend_alert(self):
+        """One-shot alert on entering the daily-spend-fast state."""
+        if not self.config.get("daily_spend_alert_enabled", False):
+            return False
+        if not self.is_daily_spend_fast():
+            return False
+        with self._lock:
+            if getattr(self, "_spend_alert_fired", False):
+                return False
+            self._spend_alert_fired = True
+            return True
+
     def check_api_status_alert(self):
         """Return "degraded", "recovered", or None on first status change.
         Fires once per transition — only when the API operational flag flips."""
@@ -122,6 +154,34 @@ class AppState:
             if not was_ok and now_ok:
                 return "recovered"
             return None
+
+    @staticmethod
+    def _deepseek_peak_phase(now=None):
+        """Return "peak" or "valley" for DeepSeek peak/off-peak pricing.
+        Beijing time (GMT+8) Mon–Fri 09:00–12:00 & 14:00–18:00 = peak;
+        weekends and all other hours = valley (half price)."""
+        from datetime import datetime, timezone, timedelta as _td
+        tz = timezone(_td(hours=8))
+        n = now or datetime.now(tz)
+        if n.tzinfo is None:
+            pass
+        weekday = n.weekday()  # Mon=0 .. Sun=6
+        if weekday >= 5:
+            return "valley"
+        hm = n.hour * 60 + n.minute
+        if (9 * 60 <= hm < 12 * 60) or (14 * 60 <= hm < 18 * 60):
+            return "peak"
+        return "valley"
+
+    def check_peak_valley_transition(self):
+        """Return "peak", "valley", or None when the DeepSeek pricing phase flips."""
+        with self._lock:
+            phase = self._deepseek_peak_phase()
+            prev = getattr(self, "_pv_phase", None)
+            self._pv_phase = phase
+            if prev is None or prev == phase:
+                return None
+            return phase
 
     def schedule_next_check(self, cb, interval_sec):
         with self._lock:

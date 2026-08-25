@@ -3,7 +3,7 @@
 import os
 import sys
 
-from src.config import load_config, save_config, T, log, CONFIG_DIR
+from src.core.config import load_config, save_config, T, log, CONFIG_DIR
 
 SENTINEL_FILE = CONFIG_DIR / ".settings_changed"
 PID_FILE = CONFIG_DIR / "settings.pid"
@@ -67,7 +67,7 @@ class JsApi:
 
             # Unified encrypted storage — same as Windows tray
             try:
-                from src.secure_settings import store_api_key
+                from src.core.secure_settings import store_api_key
                 store_api_key(api_key)
             except Exception:
                 pass
@@ -75,7 +75,7 @@ class JsApi:
             settings["api_key"] = api_key
             save_config(settings)
 
-            from src.app_state import set_auto_start
+            from src.core.app_state import set_auto_start
             set_auto_start(bool(settings.get("auto_start", False)))
 
             try:
@@ -108,7 +108,7 @@ class JsApi:
 
     def export_csv(self):
         """Export all balance records to CSV. Opens save dialog."""
-        from src.storage import export_all_csv
+        from src.core.storage import export_all_csv
         cfg = load_config()
         default_dir = cfg.get("export_path", "")
         if not self._window:
@@ -136,7 +136,7 @@ class JsApi:
     # ---- History API ----
 
     def get_history_page(self, limit=100, offset=0):
-        from src.storage import get_history_page as _get_history_page
+        from src.core.storage import get_history_page as _get_history_page
         try:
             data = _get_history_page(limit, offset)
             return {"success": True, "data": data}
@@ -144,7 +144,7 @@ class JsApi:
             return {"success": False, "error": str(e)}
 
     def get_consumption_rate(self):
-        from src.storage import get_consumption_rate as _get_consumption_rate
+        from src.core.storage import get_consumption_rate as _get_consumption_rate
         try:
             result = _get_consumption_rate()
             if result:
@@ -159,7 +159,7 @@ class JsApi:
             return {"success": False, "error": str(e)}
 
     def get_api_status(self):
-        from src.api_client import fetch_service_status
+        from src.platforms.deepseek import fetch_service_status
         try:
             status = fetch_service_status()
             if status:

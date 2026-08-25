@@ -10,12 +10,16 @@ Response: {"base_resp":{"status_code":0}, "data":{"model_remains":[{"model_name"
 Fields: current_interval_remaining_percent, current_weekly_remaining_percent, end_time, weekly_end_time.
 Note: no monthly window — only 5h rolling + weekly.
 """
-import json
+import re
 import ssl
 import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
+
+from src.core.paths import log
+from src.platforms._http import install_proxy as _install_proxy
+from src.platforms._http import http_get_json
 
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0"
 
@@ -26,14 +30,6 @@ _MINIMAX_ENDPOINTS = {
     "minimax_coding_cn":    ("https://www.minimaxi.com", "/v1/api/openplatform/coding_plan/remains"),
     "minimax_coding_global":("https://www.minimax.io",    "/v1/api/openplatform/coding_plan/remains"),
 }
-
-def _install_proxy(proxy_url: str):
-    if proxy_url:
-        handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
-        opener = urllib.request.build_opener(handler)
-    else:
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    urllib.request.install_opener(opener)
 
 def _parse_timestamp(ts):
     """Parse a timestamp that could be seconds or milliseconds."""
@@ -89,33 +85,31 @@ def fetch_minimax_quota(platform_key: str, api_key: str, http_proxy: str = "") -
     url = base_url + path
 
     _install_proxy(http_proxy or "")
-    req = urllib.request.Request(url, headers={
+    headers = {
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
         "User-Agent": USER_AGENT,
         "Accept": "application/json",
         "Connection": "close",
-    })
+    }
     # TLS to minimax hosts intermittently drops mid-handshake (SSL UNEXPECTED_EOF);
     # retry transient network errors before giving up
     last_err = None
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                body = resp.read().decode("utf-8")
-                data = json.loads(body)
-                # check base_resp
-                base_resp = data.get("base_resp", {})
-                if base_resp.get("status_code", 0) != 0:
-                    raise ValueError(base_resp.get("status_msg", "MiniMax API error"))
-                # find model_remains — could be under data or at root
-                remains = data.get("data", {}).get("model_remains") or data.get("model_remains") or []
-                if not remains:
-                    raise ValueError("No model_remains data in MiniMax response")
-                result = _parse_model_remains(remains, "general")
-                if result["5h"] is None and result["weekly"] is None:
-                    raise ValueError("No usage data found in MiniMax response")
-                return result
+            data = http_get_json(url, headers=headers, timeout=10)
+            # check base_resp
+            base_resp = data.get("base_resp", {})
+            if base_resp.get("status_code", 0) != 0:
+                raise ValueError(base_resp.get("status_msg", "MiniMax API error"))
+            # find model_remains — could be under data or at root
+            remains = data.get("data", {}).get("model_remains") or data.get("model_remains") or []
+            if not remains:
+                raise ValueError("No model_remains data in MiniMax response")
+            result = _parse_model_remains(remains, "general")
+            if result["5h"] is None and result["weekly"] is None:
+                raise ValueError("No usage data found in MiniMax response")
+            return result
         except ValueError:
             raise  # API-level errors are not transient
         except urllib.error.HTTPError as e:
@@ -128,21 +122,38 @@ def fetch_minimax_quota(platform_key: str, api_key: str, http_proxy: str = "") -
                 time.sleep(1.0)
     raise ValueError(str(last_err))
 
-def format_reset_short(sec: int, lang: str = "zh") -> str:
-    if sec <= 0:
-        return "—"
-    d = sec // 86400
-    h = (sec % 86400) // 3600
-    m = (sec % 3600) // 60
-    if lang == "zh":
-        if d > 0:
-            return f"{d}天{h}小时重置"
-        if h > 0:
-            return f"{h}小时{m}分重置"
-        return f"{m}分钟后重置"
-    else:
-        if d > 0:
-            return f"{d}d{h}h"
-        if h > 0:
-            return f"{h}h{m}m"
-        return f"{m}m"
+
+def fetch_minimax_service_status():
+    """Fetch MiniMax service status from status.minimax.io.
+    Returns dict {"indicator": str, "api_operational": bool}, or None on failure."""
+    try:
+        url = "https://status.minimax.io/"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            html = resp.read().decode("utf-8")
+        full = " ".join(html.split("\n"))
+
+        llm_match = re.search(
+            r'Large Language Models.*?(Operational|Degraded|Partial Outage|Major Outage|Under Maintenance)',
+            full, re.IGNORECASE)
+        if llm_match:
+            status_text = llm_match.group(1).strip().lower()
+            if "operational" in status_text:
+                return {"indicator": "none", "api_operational": True}
+            elif "degraded" in status_text:
+                return {"indicator": "minor", "api_operational": False}
+            elif "partial" in status_text or "major" in status_text:
+                return {"indicator": "major", "api_operational": False}
+            elif "maintenance" in status_text:
+                return {"indicator": "maintenance", "api_operational": False}
+            elif "outage" in status_text:
+                return {"indicator": "critical", "api_operational": False}
+
+        if "All Systems Operational" in full:
+            return {"indicator": "none", "api_operational": True}
+
+        return {"indicator": "none", "api_operational": True}
+    except Exception as e:
+        log(f"MiniMax status fetch failed: {e}")
+        return None

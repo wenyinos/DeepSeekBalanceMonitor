@@ -8,9 +8,9 @@ from urllib.parse import urlparse, parse_qs
 
 from datetime import datetime
 
-from src.config import T, log, get_api_by_id
-from src.icon_renderer import _get_colors
-from src.storage import get_consumption_rate
+from src.core.config import T, log, get_api_by_id
+from src.ui.icon_renderer import _get_colors
+from src.core.storage import get_consumption_rate
 
 
 def _start_server(app):
@@ -79,17 +79,16 @@ def _start_server(app):
                 key = f"status_{indicator}" if indicator else "status_unknown"
                 service_status_line = T(key, lang)
 
-                # estimated_line — for preferred API (DeepSeek only, package not yet)
+                # estimated_line — for preferred API (package mode has no rate)
                 pref_id = app.config.get("preferred_api_id")
-                # if preferred is opencode_go, don't show rate
+                cr = None
                 try:
                     pref_api = get_api_by_id(pref_id) if pref_id else None
-                    if pref_api and pref_api.get("mode") == "package":
-                        cr = None
-                    else:
+                    if not (pref_api and pref_api.get("mode") == "package"):
                         cr = get_consumption_rate(api_id=pref_id) if pref_id else get_consumption_rate()
-                except Exception:
-                    cr = get_consumption_rate(api_id=pref_id) if pref_id else get_consumption_rate()
+                except Exception as e:
+                    from src.core.paths import log
+                    log(f"Rainmeter rate lookup failed: {e}")
                 if cr and b:
                     hourly_rate, busy_hours, _curr = cr
                     days = int(busy_hours // 24)

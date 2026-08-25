@@ -3,7 +3,7 @@ Tray icon image generation - rounded-rectangle with bold balance label.
 """
 from PIL import Image, ImageDraw, ImageFont
 
-from src.config import log, get_api_by_id
+from src.core.config import log, get_api_by_id
 
 _RADIUS = 12
 
@@ -11,30 +11,35 @@ THEMES = {
     "default": {
         "ok":       (60, 105, 102, 255),
         "low":      (185, 70, 60, 255),
+        "fast":     (230, 145, 40, 255),
         "degraded": (120, 105, 90, 255),
         "nodata":   (105, 105, 110, 255),
     },
     "contrast": {
         "ok":       (45, 128, 116, 255),
         "low":      (212, 52, 46, 255),
+        "fast":     (245, 140, 20, 255),
         "degraded": (139, 105, 20, 255),
         "nodata":   (85, 85, 85, 255),
     },
     "bright": {
         "ok":       (200, 235, 230, 255),
         "low":      (245, 210, 205, 255),
+        "fast":     (250, 195, 130, 255),
         "degraded": (235, 220, 205, 255),
         "nodata":   (215, 215, 220, 255),
     },
     "dark_mode": {
         "ok":       (80, 155, 148, 255),
         "low":      (215, 100, 90, 255),
+        "fast":     (235, 160, 70, 255),
         "degraded": (155, 140, 115, 255),
         "nodata":   (125, 125, 130, 255),
     },
     "mono": {
         "ok":       (85, 85, 85, 255),
         "low":      (34, 34, 34, 255),
+        "fast":     (190, 190, 190, 255),
         "degraded": (119, 119, 119, 255),
         "nodata":   (153, 153, 153, 255),
     },
@@ -58,7 +63,7 @@ def _get_colors(config):
         def _c(k):
             h = custom.get(k, "")
             return _hex_to_rgba(h) if len(h) == 6 else THEMES["default"][k]
-        return {k: _c(k) for k in ("ok", "low", "degraded", "nodata")}
+        return {k: _c(k) for k in ("ok", "low", "fast", "degraded", "nodata")}
     return THEMES.get(theme, THEMES["default"])
 
 
@@ -113,6 +118,8 @@ def _create_icon_image_impl(app):
             label = str(remaining)
             if app.is_low_balance():
                 fill = colors["low"]
+            elif app.is_daily_spend_fast():
+                fill = colors["fast"]
             else:
                 fill = colors["ok"]
     elif err:
@@ -128,6 +135,8 @@ def _create_icon_image_impl(app):
             fill = colors["degraded"]
         elif app.is_low_balance():
             fill = colors["low"]
+        elif app.is_daily_spend_fast():
+            fill = colors["fast"]
         else:
             fill = colors["ok"]
         label = str(val) if val <= 99 else "OK"

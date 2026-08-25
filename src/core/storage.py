@@ -5,8 +5,9 @@ import csv
 import sqlite3
 from datetime import datetime
 
-from src.paths import DB_FILE, CONFIG_DIR, LOG_FILE, log
-from src.config import load_config
+from src.core.paths import DB_FILE, CONFIG_DIR, LOG_FILE, log
+from src.core.config import load_config
+from src.platforms.registry import billing_col as BILLING_COL_MAP_REF
 
 
 def _connect():
@@ -65,6 +66,46 @@ def save_balance_record(currency: str, total: float, topped: float, granted: flo
         conn.close()
     except Exception as e:
         log(f"Failed to save balance record: {e}")
+
+
+def get_today_spend(api_id: str, mode: str = "payg", billing_period: str | None = None) -> float:
+    """Single-day consumption for today, in CNY (payg) or percent-points (package).
+    Busy-period deltas only (same aggregation as the daily-usage charts)."""
+    try:
+        from datetime import datetime
+        cutoff = datetime.now().strftime("%Y-%m-%d 00:00:00")
+        if mode == "package":
+            col_map = {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}
+            col = col_map.get(billing_period or "", "monthly_percent")
+            conn = _connect_package()
+            cur = conn.execute(
+                f"SELECT timestamp, {col} FROM package_history "
+                f"WHERE api_id=? AND timestamp >= ? AND {col} IS NOT NULL ORDER BY timestamp ASC",
+                (api_id or "", cutoff))
+            rows = cur.fetchall()
+            conn.close()
+            spend = 0.0
+            for i in range(1, len(rows)):
+                rise = (rows[i][1] or 0) - (rows[i-1][1] or 0)
+                if rise > 0:
+                    spend += rise
+        else:
+            conn = _connect()
+            cur = conn.execute(
+                "SELECT timestamp, topped FROM balance_history "
+                "WHERE api_id=? AND timestamp >= ? ORDER BY timestamp ASC",
+                (api_id or "", cutoff))
+            rows = cur.fetchall()
+            conn.close()
+            spend = 0.0
+            for i in range(1, len(rows)):
+                drop = rows[i-1][1] - rows[i][1]
+                if drop > 0:
+                    spend += drop
+        return round(spend, 2)
+    except Exception as e:
+        log(f"Failed to compute today spend: {e}")
+        return 0.0
 
 
 def get_history_page(limit: int = 100, offset: int = 0, api_id: str | None = None):
@@ -196,8 +237,7 @@ def _get_consumption_rate_for_days(days=7, _interval_min=None, api_id: str | Non
     usage rises count as consumption and quota resets act as top-ups)."""
     try:
         if billing_period:
-            col_map = {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}
-            col = col_map.get(billing_period, "monthly_percent")
+            col = BILLING_COL_MAP_REF(billing_period)
             conn = _connect_package()
             cur = conn.execute(
                 f"SELECT timestamp, '{col}', {col} FROM package_history WHERE timestamp >= datetime('now', ?) AND api_id=? AND {col} IS NOT NULL ORDER BY timestamp ASC",
@@ -404,28 +444,11 @@ def get_package_history_page(limit: int = 100, offset: int = 0, api_id: str | No
         else:
             cur = conn.execute("SELECT timestamp, h5_percent, h5_reset, weekly_percent, weekly_reset, monthly_percent, monthly_reset, service_status FROM package_history ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
         rows = [{"timestamp": r[0], "h5_percent": r[1], "h5_reset": r[2], "weekly_percent": r[3], "weekly_reset": r[4], "monthly_percent": r[5], "monthly_reset": r[6], "service_status": r[7] if len(r) > 7 else None} for r in cur.fetchall()]
-        # handle case with api_id column
-        if rows and len(cur.description) == 8:
-            # when api_id requested, the above query without api_id includes it
-            pass
         conn.close()
         return rows
     except Exception as e:
         log(f"Failed to read package history: {e}")
         return []
-
-def get_latest_package(api_id: str):
-    try:
-        conn = _connect_package()
-        cur = conn.execute("SELECT timestamp, h5_percent, h5_reset, weekly_percent, weekly_reset, monthly_percent, monthly_reset FROM package_history WHERE api_id=? ORDER BY timestamp DESC LIMIT 1", (api_id,))
-        r = cur.fetchone()
-        conn.close()
-        if r:
-            return {"timestamp": r[0], "h5_percent": r[1], "h5_reset": r[2], "weekly_percent": r[3], "weekly_reset": r[4], "monthly_percent": r[5], "monthly_reset": r[6]}
-        return None
-    except Exception as e:
-        log(f"Failed to read latest package: {e}")
-        return None
 
 def prune_old_data(retention_days: int):
     """Delete balance records and log entries older than retention_days.

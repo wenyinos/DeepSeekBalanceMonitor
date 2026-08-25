@@ -5,9 +5,9 @@ from tkinter import ttk, messagebox
 # --- MAC OS PATH ADAPTATION ---
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from src.config import load_config, save_config, T as _T
-from src.app_state import get_auto_start_state, set_auto_start
-from src.secure_settings import store_api_key
+from src.core.config import load_config, save_config, T as _T
+from src.core.app_state import get_auto_start_state, set_auto_start
+from src.core.secure_settings import store_api_key
 
 def T(key, lang="zh", **kwargs):
     text = _T(key, lang, **kwargs)

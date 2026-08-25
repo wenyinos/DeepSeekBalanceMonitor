@@ -8,7 +8,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 
-from src.config import T, log
+from src.core.config import T, log
 
 
 class MainWindow:
@@ -53,7 +53,8 @@ class MainWindow:
             if getattr(sys, "frozen", False):
                 icon_path = os.path.join(sys._MEIPASS, "app.ico")
             else:
-                icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "app.ico")
+                # src/ui/main_window.py → repo root = parents[2]
+                icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "app.ico")
             if os.path.isfile(icon_path):
                 win.iconbitmap(icon_path)
         except Exception:
@@ -91,15 +92,15 @@ class MainWindow:
             self._builders[key] = builder
 
         def _build_manage(parent):
-            from src.manage_frame import ManageFrame
+            from src.ui.manage_frame import ManageFrame
             return ManageFrame(parent, self.app, on_change=self._on_api_change)
 
         def _build_dashboard(parent):
-            from src.history_dialog import HistoryFrame
+            from src.ui.history_dialog import HistoryFrame
             return HistoryFrame(parent, self.app)
 
         def _build_settings(parent):
-            from src.settings_dialog import SettingsFrame
+            from src.ui.settings_dialog import SettingsFrame
             return SettingsFrame(parent, self.app, on_save=self._on_settings_saved)
 
         _register("manage", T("manage", lang), _build_manage)
@@ -110,6 +111,12 @@ class MainWindow:
                 from src.tray_app import DevFrame
                 return DevFrame(parent, self.app)
             _register("dev", T("dev_tools", lang), _build_dev)
+
+        nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+        # start hidden
+        win.withdraw()
+        return win
 
         # start hidden
         win.withdraw()
@@ -132,32 +139,25 @@ class MainWindow:
             log(f"Failed to build {key} tab: {e}")
             return None
 
-        # redraw history chart when tab selected; check unsaved on leave settings
-        def _on_tab_changed(e):
-            try:
-                sel = nb.select()
-                holder = nb.nametowidget(sel)
-                # determine which tab we're switching TO (by holder frame)
-                new_tab = None
-                for k, h in self._holders.items():
-                    if h is holder:
-                        new_tab = k
-                        break
-                self._last_tab = new_tab
-                # lazy-build on first visit, then fire on_show/refresh
-                w = self._ensure_tab(new_tab)
-                if w is not None:
-                    if hasattr(w, "on_show"):
-                        w.on_show()
-                    if hasattr(w, "refresh"):
-                        w.refresh()
-            except Exception:
-                pass
-        nb.bind("<<NotebookTabChanged>>", _on_tab_changed)
-
-        # start hidden
-        win.withdraw()
-        return win
+    def _on_tab_changed(self, e):
+        """NotebookTabChanged: lazy-build target tab, then on_show/refresh."""
+        try:
+            sel = self._notebook.select()
+            holder = self._notebook.nametowidget(sel)
+            new_tab = None
+            for k, h in self._holders.items():
+                if h is holder:
+                    new_tab = k
+                    break
+            self._last_tab = new_tab
+            w = self._ensure_tab(new_tab)
+            if w is not None:
+                if hasattr(w, "on_show"):
+                    w.on_show()
+                if hasattr(w, "refresh"):
+                    w.refresh()
+        except Exception as e:
+            log(f"Tab change failed: {e}")
 
     def show(self, tab="manage"):
         win = self._ensure()
@@ -253,7 +253,7 @@ class MainWindow:
         except Exception:
             pass
         try:
-            from src.icon_renderer import create_icon_image
+            from src.ui.icon_renderer import create_icon_image
             if self.app.icon:
                 self.app.icon.icon = create_icon_image(self.app)
                 if hasattr(self.app, "_rebuild_menu"):
@@ -264,7 +264,7 @@ class MainWindow:
     def _on_settings_saved(self):
         # called from SettingsFrame after successful save — refresh tray and history
         try:
-            from src.icon_renderer import create_icon_image
+            from src.ui.icon_renderer import create_icon_image
             if self.app.icon:
                 self.app.icon.icon = create_icon_image(self.app)
                 if hasattr(self.app, "_rebuild_menu"):

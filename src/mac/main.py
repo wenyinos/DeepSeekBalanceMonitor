@@ -10,7 +10,7 @@ from pathlib import Path
 # Ensure root directory is in sys.path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-import src.config
+import src.core.config
 from PIL import Image, ImageDraw, ImageFont
 import tempfile
 import rumps
@@ -32,7 +32,7 @@ _STATUS_SYMBOLS = {
     "_error":      ("exclamationmark.circle.fill", (185, 70, 60)),
 }
 
-from src.config import load_config, save_config, T as _T, log, CONFIG_DIR
+from src.core.config import load_config, save_config, T as _T, log, CONFIG_DIR
 
 # WebView settings sentinel & PID
 _SETTINGS_SENTINEL = CONFIG_DIR / ".settings_changed"
@@ -64,9 +64,9 @@ def T(key, lang="zh", **kwargs):
     if text:
         return text.format(**kwargs) if kwargs else text
     return _T(key, lang, **kwargs)
-from src.api_client import fetch_balance, fetch_service_status
-from src.icon_renderer import _get_colors, _text_color
-from src.storage import save_balance_record
+from src.platforms.deepseek import fetch_balance, fetch_service_status
+from src.ui.icon_renderer import _get_colors, _text_color
+from src.core.storage import save_balance_record
 
 # macOS system font attempts
 import glob
@@ -385,7 +385,7 @@ class DeepSeekBalanceMacApp(rumps.App):
                 self.detail_granted.title = f"  {T('th_granted', self.lang)}: {b['granted_balance']:.2f}"
                 
                 # Update consumption rate
-                from src.storage import get_consumption_rate
+                from src.core.storage import get_consumption_rate
                 cr = get_consumption_rate()
                 if cr:
                     hourly_rate, busy_hours, _curr = cr

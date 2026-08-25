@@ -8,10 +8,10 @@ import tkinter as tk
 from datetime import datetime, timedelta
 from tkinter import filedialog, messagebox, ttk
 
-from src.config import T, load_config, get_apis, get_api_by_id
-from src.platforms import get_all_platforms as _get_plats, get_platform
-from src.storage import export_all_csv, export_package_csv, get_consumption_rate, get_history_by_date, get_history_page, get_package_history_page
-from src.paths import DB_FILE
+from src.core.config import T, load_config, get_apis, get_api_by_id, format_ago
+from src.platforms.registry import get_all_platforms as _get_plats, get_platform, billing_col as BILLING_COL_MAP_REF, STATUS_ICON as _STATUS_ICON_SHARED
+from src.core.storage import export_all_csv, export_package_csv, get_consumption_rate, get_history_by_date, get_history_page, get_package_history_page
+from src.core.paths import DB_FILE
 import sqlite3
 
 def _connect_db():
@@ -23,303 +23,6 @@ STATUS_SHORT = {
     "none": "OK", "minor": "Min", "major": "Maj",
     "critical": "Crit", "maintenance": "Mnt",
 }
-
-
-def open_history(app):
-    """Open the history viewer window. Re-focuses if already open."""
-    if app._history_open:
-        try:
-            app._history_window.deiconify()
-            app._history_window.lift()
-            app._history_window.after(50, app._history_window.focus_force)
-        except Exception:
-            pass
-        return
-
-    lang = app.lang
-
-    # tk root is already initialised on the main thread in main()
-    root = app._tk_root
-    win = tk.Toplevel(root)
-    app._history_open = True
-    app._history_window = win
-
-    def _cleanup():
-        app._history_open = False
-        app._history_window = None
-        win.destroy()
-
-    win.protocol("WM_DELETE_WINDOW", _cleanup)
-    win.title(T("history", lang))
-    win.geometry("850x640")
-    win.minsize(500, 400)
-    win.after(50, win.focus_force)
-    win.update_idletasks()
-    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-    w, h = win.winfo_width(), win.winfo_height()
-    win.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
-
-    # App icon
-    try:
-        if getattr(_sys, "frozen", False):
-            icon_path = os.path.join(_sys._MEIPASS, "app.ico")
-        else:
-            icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                     "assets", "app.ico")
-        if os.path.isfile(icon_path):
-            win.iconbitmap(icon_path)
-    except Exception:
-        pass
-
-    # --- Treeview ----------------------------------------------------
-    tree_frame = tk.Frame(win)
-    tree_frame.pack(fill="both", expand=True, padx=10, pady=(10, 0))
-
-    style = ttk.Style()
-    style.configure("History.Treeview", rowheight=34, font=("Segoe UI", 9))
-
-    tree = ttk.Treeview(tree_frame, columns=("time", "curr", "total", "topped", "granted", "status"),
-                        show="headings", style="History.Treeview")
-    tree.heading("time",   text=T("th_time", lang))
-    tree.heading("curr",   text=T("th_currency", lang))
-    tree.heading("total",  text=T("th_total", lang))
-    tree.heading("topped", text=T("th_topped", lang))
-    tree.heading("granted",text=T("th_granted", lang))
-    tree.heading("status", text=T("th_status", lang))
-    tree.column("time", width=220, minwidth=180)
-    tree.column("curr", width=60, anchor="center", minwidth=50)
-    tree.column("total", width=100, anchor="e", minwidth=80)
-    tree.column("topped", width=100, anchor="e", minwidth=80)
-    tree.column("granted", width=100, anchor="e", minwidth=80)
-    tree.column("status", width=90, anchor="center", minwidth=75)
-
-    scrollbar = tk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
-    tree.configure(yscrollcommand=scrollbar.set)
-    tree.pack(side="left", fill="both", expand=True)
-    scrollbar.pack(side="right", fill="y")
-
-    def _on_tree_wheel(event):
-        tree.yview_scroll(int(-1 * (event.delta / 60)), "units")
-    tree.bind("<MouseWheel>", _on_tree_wheel)
-    tree.bind("<Enter>", lambda e: tree.bind_all("<MouseWheel>", _on_tree_wheel))
-    tree.bind("<Leave>", lambda e: tree.unbind_all("<MouseWheel>"))
-
-    # --- Chart -------------------------------------------------------
-    chart_h = 150
-    chart = tk.Canvas(win, height=chart_h, bg="#f5f5f5", highlightthickness=0)
-    chart.pack(fill="x", padx=10, pady=(6, 0))
-
-    # --- Rate label --------------------------------------------------
-    rate_var = tk.StringVar()
-    rate_label = tk.Label(win, textvariable=rate_var, font=("Segoe UI", 9),
-                          fg="#555", anchor="w")
-    rate_label.pack(fill="x", padx=14, pady=(2, 0))
-
-    def _update_rate_label():
-        if app.demo_mode:
-            d = int(app._demo_hrs // 24)
-            h = int(app._demo_hrs % 24)
-            if d > 0:
-                remaining = T("remaining_dh", lang, d=d, h=h)
-            elif h >= 1:
-                remaining = T("remaining_h", lang, h=h)
-            else:
-                remaining = T("remaining_lt1h", lang)
-            prefix = T("est_prefix", lang)
-            rate_var.set(T("rate_line", lang, rate=app._demo_rate, prefix=prefix, remaining=remaining))
-            return
-        cr = get_consumption_rate()
-        if cr:
-            hourly_rate, busy_hours, curr = cr
-            days = int(busy_hours // 24)
-            hrs = int(busy_hours % 24)
-            if days > 0:
-                remaining = T("remaining_dh", lang, d=days, h=hrs)
-            elif hrs >= 1:
-                remaining = T("remaining_h", lang, h=hrs)
-            else:
-                remaining = T("remaining_lt1h", lang)
-            prefix = T("est_prefix", lang)
-            rate_var.set(T("rate_line", lang, rate=hourly_rate, prefix=prefix, remaining=remaining))
-        else:
-            rate_var.set(T("not_enough_data", lang))
-
-    # --- Data loading -------------------------------------------------
-    offset_var = [0]
-    all_rows = []
-    btn_frame = ttk.Frame(win)
-    btn_frame.pack(fill="x", side="bottom", padx=10, pady=10)
-    load_btn = ttk.Button(btn_frame, text=T("load_more", lang))
-
-    def _redraw_chart():
-        # Reverse so oldest is on the left
-        totals = [(r["total"], r["currency"]) for r in reversed(all_rows) if r["currency"]]
-        totals = totals[-1000:]
-        if len(totals) < 2:
-            chart.delete("all")
-            return
-        chart.delete("all")
-        cw = chart.winfo_width()
-        ml, mr, mt, mb = 50, 12, 16, 28
-        w = cw - ml - mr
-        h = chart_h - mt - mb
-        vals = [t[0] for t in totals]
-        lo, hi = min(vals), max(vals)
-        if hi == lo:
-            hi = lo + 1
-
-        chart.create_line(ml, mt, ml, mt + h, fill="#999", width=1)
-        chart.create_line(ml, mt + h, ml + w, mt + h, fill="#999", width=1)
-
-        for pct in (0, 0.5, 1):
-            v = lo + (hi - lo) * pct
-            y = mt + h * (1 - pct)
-            chart.create_text(ml - 6, y, text=f"{v:.1f}", anchor="e",
-                              fill="#666", font=("Segoe UI", 7))
-
-        if all_rows:
-            last_ts = all_rows[0]["timestamp"]
-            n = min(len(all_rows), 1000)
-            first_ts = all_rows[n - 1]["timestamp"]
-        else:
-            first_ts = last_ts = ""
-        chart.create_text(ml, mt + h + 6, text=first_ts[:10] if len(first_ts) > 10 else first_ts,
-                          anchor="nw", fill="#666", font=("Segoe UI", 7))
-        chart.create_text(ml + w, mt + h + 6, text=last_ts[:10] if len(last_ts) > 10 else last_ts,
-                          anchor="ne", fill="#666", font=("Segoe UI", 7))
-
-        pts = []
-        for i, v in enumerate(vals):
-            x = ml + w * i / (len(vals) - 1)
-            y = mt + h * (1 - (v - lo) / (hi - lo))
-            pts.extend((x, y))
-        if len(pts) >= 4:
-            chart.create_line(pts, fill="#3C6966", width=2, smooth=True)
-            for x, y in zip(pts[::2], pts[1::2]):
-                chart.create_oval(x - 2, y - 2, x + 2, y + 2,
-                                  fill="#3C6966", outline="")
-        chart.configure(scrollregion=(0, 0, cw, chart_h))
-
-    chart.bind("<Configure>", lambda e: _redraw_chart())
-
-    def _load_page():
-        if app.demo_mode:
-            rows = app._demo_history[offset_var[0]:offset_var[0] + 100]
-        else:
-            rows = get_history_page(limit=100, offset=offset_var[0])
-        for r in rows:
-            s = r["service_status"]
-            s_label = STATUS_SHORT.get(s, s) if s else "-"
-            tree.insert("", "end", values=(
-                r["timestamp"], r["currency"], f"{r['total']:.2f}",
-                f"{r['topped']:.2f}", f"{r['granted']:.2f}", s_label,
-            ))
-        all_rows.extend(rows)
-        offset_var[0] += len(rows)
-        if len(rows) < 100:
-            load_btn.configure(state="disabled",
-                               text=T("all_loaded", lang))
-        else:
-            load_btn.configure(state="normal",
-                               text=T("load_more", lang))
-        _redraw_chart()
-        _update_rate_label()
-
-    def _export_csv():
-        path = app.config.get("export_path", "").strip()
-        if path:
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            f = os.path.join(path, f"deepseek_balance_{ts}.csv")
-        else:
-            f = filedialog.asksaveasfilename(
-                parent=win, defaultextension=".csv",
-                filetypes=[("CSV files", "*.csv")],
-                initialfile="deepseek_balance_history.csv",
-            )
-        if f:
-            if app.demo_mode:
-                with open(f, "w", newline="", encoding="utf-8-sig") as fh:
-                    w = _csv.writer(fh)
-                    w.writerow(["timestamp", "currency", "total", "topped", "granted", "service_status"])
-                    for r in app._demo_history:
-                        w.writerow([r["timestamp"], r["currency"], r["total"], r["topped"], r["granted"], r["service_status"]])
-                n = len(app._demo_history)
-            else:
-                n = export_all_csv(f)
-            msg = T("export_msg", lang, n=n)
-            messagebox.showinfo("Export", msg, parent=win)
-
-    export_btn = ttk.Button(btn_frame, text=T("export_csv_btn", lang),
-                            command=_export_csv)
-
-    load_btn.configure(command=_load_page)
-
-    # --- Date filter -------------------------------------------------
-    PLACEHOLDER = "YYYYMMDD"
-    date_var = tk.StringVar(value=PLACEHOLDER)
-    date_entry = ttk.Entry(btn_frame, textvariable=date_var, width=10)
-
-    def _on_date_focus(e):
-        if date_var.get() == PLACEHOLDER:
-            date_var.set("")
-            date_entry.configure(foreground="black")
-    def _on_date_blur(e):
-        if date_var.get() == "":
-            date_var.set(PLACEHOLDER)
-            date_entry.configure(foreground="gray")
-    date_entry.configure(foreground="gray")
-    date_entry.bind("<FocusIn>", _on_date_focus)
-    date_entry.bind("<FocusOut>", _on_date_blur)
-
-    def _query_by_date():
-        d = date_var.get().strip()
-        if d in ("", PLACEHOLDER):
-            return
-        if len(d) == 8 and d.isdigit():
-            d = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
-        tree.delete(*tree.get_children())
-        if app.demo_mode:
-            rows = [r for r in app._demo_history if r["timestamp"].startswith(d)]
-            all_rows.clear()
-            all_rows.extend(rows)
-        else:
-            rows = get_history_by_date(d)
-            all_rows.clear()
-            all_rows.extend(reversed(rows))
-        for r in rows:
-            s = r["service_status"]
-            s_label = STATUS_SHORT.get(s, s) if s else "-"
-            tree.insert("", "end", values=(
-                r["timestamp"], r["currency"], f"{r['total']:.2f}",
-                f"{r['topped']:.2f}", f"{r['granted']:.2f}", s_label,
-            ))
-        reset_btn.configure(state="normal")
-        _redraw_chart()
-        _update_rate_label()
-        load_btn.configure(state="disabled", text=T("all_loaded", lang))
-
-    def _reset_query():
-        date_var.set(PLACEHOLDER)
-        date_entry.configure(foreground="gray")
-        reset_btn.configure(state="disabled")
-        tree.delete(*tree.get_children())
-        offset_var[0] = 0
-        all_rows.clear()
-        _load_page()
-
-    # --- Bottom bar layout -------------------------------------------
-    load_btn.pack(side="left")
-    export_btn.pack(side="left", padx=(6, 0))
-    ttk.Separator(btn_frame, orient="vertical").pack(side="left", padx=8, fill="y")
-    date_entry.pack(side="left", padx=(8, 4))
-    query_btn = ttk.Button(btn_frame, text=T("filter_btn", lang), width=6, command=_query_by_date)
-    reset_btn = ttk.Button(btn_frame, text=T("cancel_btn", lang), width=6, command=_reset_query)
-    query_btn.pack(side="left")
-    reset_btn.pack(side="left", padx=(4, 0))
-    reset_btn.configure(state="disabled")
-
-    _load_page()
-    win.focus_force()
 
 
 class HistoryFrame(ttk.Frame):
@@ -484,7 +187,7 @@ class HistoryFrame(ttk.Frame):
                 else:
                     self._draw_hourly_distribution(api_id, days=30, **kw)
         except Exception as e:
-            from src.config import log
+            from src.core.config import log
             log(f"Chart block {key} failed: {e}")
 
     def _redraw_chart(self):
@@ -493,7 +196,7 @@ class HistoryFrame(ttk.Frame):
             try:
                 self._draw_block(key, canvas)
             except Exception as e:
-                from src.config import log
+                from src.core.config import log
                 log(f"Chart redraw {key} failed: {e}")
 
     def _on_chart_hover(self, e):
@@ -553,17 +256,19 @@ class HistoryFrame(ttk.Frame):
         try:
             cfg = load_config()
             apis = get_apis(cfg)
-            # build display -> id map
+                        # build display -> id map
             self._api_id_map.clear()
             for api in apis:
-                plat = api.get("platform", "")
-                plat_disp = next((p.display_name for p in _PLAT_META if p.key == plat), plat)
-                disp = f"{api.get('name')} ({plat_disp})"
+                disp = api.get("name", "") or "API"
+                # dedupe same-name APIs (no platform annotation in display)
+                base, n = disp, 2
+                while disp in self._api_id_map:
+                    disp = f"{base} #{n}"; n += 1
                 displays.append(disp)
                 self._api_id_map[disp] = api.get("id", "")
             self.api_combo["values"] = displays
         except Exception as e:
-            from src.config import log
+            from src.core.config import log
             log(f"refresh_api_selector failed: {e}")
         # normal refresh: preserve valid manual selection;
         # after a preferred switch: always follow the preferred API
@@ -600,15 +305,12 @@ class HistoryFrame(ttk.Frame):
         self._refresh_api_selector(follow_preferred=follow_preferred)
         self._on_api_selected()
 
-    def _update_rate(self):
-        self._update_info()
-
     def _update_info(self):
         """Populate the info bar for the currently SELECTED API."""
         try:
             self._update_info_impl()
         except Exception as e:
-            from src.config import log
+            from src.core.config import log
             log(f"Info bar update failed: {e}")
             try:
                 self._render_info([T("not_enough_data", self.app.lang)])
@@ -654,7 +356,7 @@ class HistoryFrame(ttk.Frame):
                     last = self.app.last_check
                     st = self.app.service_status
 
-        _STATUS_ICON = {"none": "🟢", "minor": "🟡", "major": "🟠", "critical": "🔴", "maintenance": "🔵"}
+        _STATUS_ICON = _STATUS_ICON_SHARED
 
         if api_mode == "package":
             # Package mode info
@@ -691,7 +393,7 @@ class HistoryFrame(ttk.Frame):
                     if wdata:
                         remaining = wdata.get("percent_remaining", 100 - wdata.get("usage_percent", 0))
                         reset_s = wdata.get("reset_in_sec", 0)
-                        from src.opencode_client import format_reset_short
+                        from src.platforms.opencode import format_reset_short
                         reset_str = format_reset_short(reset_s, lang) if reset_s > 0 else "-"
                         lines.append({"bar": True, "label": f"{label} ", "pct": remaining,
                                       "suffix": f" {T('remaining_pct', lang, pct=remaining)}（{reset_str}）"})
@@ -745,11 +447,8 @@ class HistoryFrame(ttk.Frame):
             lines.append(f"📡 {T('service_status', lang)} {_STATUS_ICON.get(ind, '⚪')} {T(skey, lang)}")
 
         if last:
-            diff = datetime.now() - last
-            mins = int(diff.total_seconds() / 60)
-            ago = T("ago_just", lang) if mins < 1 else (T("ago_min", lang, n=mins) if mins < 60 else T("ago_hr", lang, n=mins // 60))
             sp = " " if lang == "en" else ""
-            lines.append(f"🕐 {T('last_check', lang)}{sp}{ago}")
+            lines.append(f"🕐 {T('last_check', lang)}{sp}{format_ago(last, lang)}")
 
         self._render_info(lines)
 
@@ -1108,8 +807,8 @@ class HistoryFrame(ttk.Frame):
                     billing_period = api.get("billing_period") or "monthly"
             except Exception:
                 pass
-            col_map = {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}
-            col = col_map.get(billing_period, "monthly_percent")
+            from src.platforms.registry import billing_col
+            col = billing_col(billing_period)
             rows = self._query_range("package_history", ["timestamp", col], days, api_id)
             labels = [r[0][5:10] for r in rows]  # MM-DD
             vals = [100 - (r[1] or 0) for r in rows]
@@ -1165,7 +864,8 @@ class HistoryFrame(ttk.Frame):
                 billing_period = api.get("billing_period")
         except Exception:
             pass
-        return {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}.get(billing_period, "monthly_percent")
+        from src.platforms.registry import billing_col
+        return billing_col(billing_period)
 
     def _draw_package_daily(self, api_id, days=30, canvas=None, chart_h=None):
         """Draw daily quota consumption bar chart from package_history percent changes."""
@@ -1179,7 +879,6 @@ class HistoryFrame(ttk.Frame):
             rise = (rows[i][1] or 0) - (rows[i-1][1] or 0)
             if rise > 0:
                 daily[rows[i][0][:10]] += rise
-                labels = []
         vals = []
         d = datetime.now() - timedelta(days=days-1)
         for i in range(days):
@@ -1253,8 +952,9 @@ class LedgerFrame(ttk.Frame):
         style.configure("Ledger.Treeview", rowheight=28, font=("Segoe UI", 9))
         self.tree = None
         self._current_mode = "payg"
-        # centered placeholder shown when no API is selected (embedded mode)
-        self.placeholder = tk.Label(tree_frame, text=T("select_api_prompt", lang),
+                # centered placeholder shown when no API is selected (embedded mode);
+        # text customizable by the embedding parent via empty_text attr
+        self.placeholder = tk.Label(tree_frame, text=getattr(self, "empty_text", "") or T("select_api_prompt", lang),
                                     font=("Microsoft YaHei UI", 10),
                                     fg="#000", bg="#ffffff")
         self.tree_frame = tree_frame
@@ -1317,9 +1017,10 @@ class LedgerFrame(ttk.Frame):
             self._api_id_map.clear()
             displays = []
             for api in apis:
-                plat = api.get("platform", "")
-                plat_disp = next((p.display_name for p in _PLAT_META if p.key == plat), plat)
-                disp = f"{api.get('name')} ({plat_disp})"
+                disp = api.get("name", "") or "API"
+                base, n = disp, 2
+                while disp in self._api_id_map:
+                    disp = f"{base} #{n}"; n += 1
                 displays.append(disp)
                 self._api_id_map[disp] = api.get("id", "")
             self.api_combo["values"] = displays
@@ -1394,11 +1095,15 @@ class LedgerFrame(ttk.Frame):
         self.reset_btn.configure(state="disabled")
         self.date_var.set(self.PLACEHOLDER)
         self.date_entry.configure(foreground="gray")
-        # embedded mode with no selection: empty tree + centered placeholder
+        # embedded mode with no selection: empty tree + centered placeholder,
+        # and ALL data controls disabled so stray clicks can't load other APIs' rows
         if not api_id and not self._show_selector:
+            for w in (self.load_btn, self.export_btn, self.query_btn):
+                try: w.configure(state="disabled")
+                except Exception: pass
             try:
+                self.date_entry.configure(state="disabled")
                 self.placeholder.place(relx=0.5, rely=0.5, anchor="center")
-                # keep above the tree/scrollbar created by _rebuild_tree
                 self.placeholder.lift()
             except Exception:
                 pass
@@ -1407,10 +1112,20 @@ class LedgerFrame(ttk.Frame):
             self.placeholder.place_forget()
         except Exception:
             pass
+        for w in (self.load_btn, self.export_btn, self.query_btn):
+            try: w.configure(state="normal")
+            except Exception: pass
+        try:
+            self.date_entry.configure(state="normal")
+        except Exception:
+            pass
         self._load_page()
 
     def _load_page(self):
         api_id = self._get_selected_api_id()
+        # guard: embedded mode without selection must never query (would hit all rows)
+        if not api_id and not self._show_selector:
+            return
         if self.app.demo_mode:
             rows = self.app._demo_history[self._offset[0]:self._offset[0] + 100]
         elif self._current_mode == "package":
@@ -1427,8 +1142,8 @@ class LedgerFrame(ttk.Frame):
                         ss = r.get("service_status")
                         vals.append(STATUS_SHORT.get(ss, ss) if ss else "-")
                         continue
-                    col_map = {"5h": "h5_percent", "weekly": "weekly_percent", "monthly": "monthly_percent"}
-                    pct = r.get(col_map.get(c, ""), None)
+                    col = BILLING_COL_MAP_REF(c, default="")
+                    pct = r.get(col, None)
                     vals.append(f"{100 - (pct or 0):.0f}%" if pct is not None else "-")
                 self.tree.insert("", "end", values=tuple(vals))
             else:
@@ -1461,7 +1176,7 @@ class LedgerFrame(ttk.Frame):
             n = export_package_csv(f, api_id=api_id or None)
         else:
             n = export_all_csv(f, api_id=api_id or None)
-        messagebox.showinfo(T("export_btn", self.app.lang), T("export_msg", self.app.lang, n=n), parent=parent)
+        messagebox.showinfo(T("export_csv_btn", self.app.lang), T("export_msg", self.app.lang, n=n), parent=parent)
 
     def _query_by_date(self):
         d = self.date_var.get().strip()
@@ -1487,5 +1202,5 @@ class LedgerFrame(ttk.Frame):
     def on_show(self):
         self._on_api_selected()
 
-    def refresh(self):
+    def refresh(self, follow_preferred=False):
         pass

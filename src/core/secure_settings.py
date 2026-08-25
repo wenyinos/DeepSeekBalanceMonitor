@@ -5,7 +5,7 @@ import sqlite3
 
 from cryptography.fernet import Fernet
 
-from src.paths import CONFIG_DIR, log
+from src.core.paths import CONFIG_DIR, log
 
 DB_PATH = CONFIG_DIR / "secure_settings.db"
 KEY_PATH = CONFIG_DIR / ".keyfile"
@@ -77,23 +77,8 @@ def read_api_key_for_id(api_id: str) -> str | None:
     # fallback: if this is the first migrated api, try global key
     return _read_secret("api_key") if api_id else None
 
-def store_opencode_go_for_id(api_id: str, workspace_id: str, auth_cookie: str):
-    _store_secret(f"opencode_go:{api_id}:workspace_id", workspace_id)
-    _store_secret(f"opencode_go:{api_id}:auth_cookie", auth_cookie)
-
-def read_opencode_go_for_id(api_id: str):
-    wid = _read_secret(f"opencode_go:{api_id}:workspace_id")
-    cookie = _read_secret(f"opencode_go:{api_id}:auth_cookie")
-    if wid is None and cookie is None:
-        # fallback to legacy global keys for first api
-        wid = _read_secret("opencode_go_workspace_id")
-        cookie = _read_secret("opencode_go_auth_cookie")
-        if wid or cookie:
-            return wid, cookie
-        return None, None
-    return wid, cookie
-
 def delete_api_credentials(api_id: str):
     _delete_secret(f"api:{api_id}:key")
+    # legacy opencode_go workspace/cookie entries (pre-unified scheme)
     _delete_secret(f"opencode_go:{api_id}:workspace_id")
     _delete_secret(f"opencode_go:{api_id}:auth_cookie")

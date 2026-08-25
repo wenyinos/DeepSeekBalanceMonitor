@@ -86,6 +86,48 @@ PLATFORMS = {
         package_windows=["5h", "weekly"],
         has_status_page=True,
     ),
+    # Kimi (Moonshot) — payg, balance via /v1/users/me/balance
+    "kimi_token_cn": PlatformMeta(
+        key="kimi_token_cn",
+        display_name="Kimi (CN)",
+        default_mode="payg",
+        supports_payg=True,
+        supports_package=False,
+        package_windows=[],
+        has_status_page=False,
+        console_url="https://platform.kimi.com",
+    ),
+        "kimi_token_global": PlatformMeta(
+        key="kimi_token_global",
+        display_name="Kimi (Global)",
+        default_mode="payg",
+        supports_payg=True,
+        supports_package=False,
+        package_windows=[],
+        has_status_page=False,
+        console_url="https://platform.kimi.ai",
+    ),
+    # StepFun (阶跃星辰) — payg only; balance via /v1/accounts
+    "stepfun_token_cn": PlatformMeta(
+        key="stepfun_token_cn",
+        display_name="StepFun (CN)",
+        default_mode="payg",
+        supports_payg=True,
+        supports_package=False,
+        package_windows=[],
+        has_status_page=False,
+        console_url="https://platform.stepfun.com",
+    ),
+    "stepfun_token_global": PlatformMeta(
+        key="stepfun_token_global",
+        display_name="StepFun (Global)",
+        default_mode="payg",
+        supports_payg=True,
+        supports_package=False,
+        package_windows=[],
+        has_status_page=False,
+        console_url="https://platform.stepfun.ai",
+    ),
 }
 
 def get_platform(key: str) -> PlatformMeta | None:
@@ -93,3 +135,19 @@ def get_platform(key: str) -> PlatformMeta | None:
 
 def get_all_platforms() -> list[PlatformMeta]:
     return list(PLATFORMS.values())
+
+# billing_period → package_history column
+BILLING_COL_MAP = {
+    "5h": "h5_percent",
+    "weekly": "weekly_percent",
+    "monthly": "monthly_percent",
+}
+
+def billing_col(billing_period: str | None, default: str = "monthly_percent") -> str:
+    return BILLING_COL_MAP.get(billing_period or "", default)
+
+# status indicator → display emoji (shared by tray/history/rainmeter)
+STATUS_ICON = {
+    "none": "🟢", "minor": "🟡", "major": "🟠",
+    "critical": "🔴", "maintenance": "🔵",
+}

@@ -5,8 +5,8 @@ Multi-platform multi-account via platform registry.
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from src.config import T, load_config, create_api, update_api, delete_api, get_apis
-from src.platforms import get_all_platforms, get_platform
+from src.core.config import T, load_config, create_api, update_api, delete_api, get_apis
+from src.platforms.registry import get_all_platforms, get_platform
 
 
 class ApiManagementFrame(ttk.Frame):
@@ -29,13 +29,19 @@ class ApiManagementFrame(ttk.Frame):
         self._btn_delete.pack(side="right")
         self._btn_add = ttk.Button(header, text="➕ " + T("add_api", lang), command=self._on_add)
         self._btn_add.pack(side="right", padx=(0, 8))
+        # set-as-preferred: applies to the highlighted row; disabled when it IS preferred
+        self._btn_pref = ttk.Button(header, text="⭐ " + T("set_preferred_btn", lang), command=self._on_set_preferred)
+        self._btn_pref.pack(side="right")
         # initially disable edit/delete (no selection)
         self._btn_edit.configure(state="disabled")
         self._btn_delete.configure(state="disabled")
 
-        # Tree
+                # Tree
         tree_frame = ttk.Frame(self)
         tree_frame.pack(fill="both", expand=True)
+        # centered placeholder when no APIs exist
+        self._empty_label = tk.Label(tree_frame, text=T("no_apis", lang),
+                                     font=("Microsoft YaHei UI", 11), fg="#999")
         tree_style = ttk.Style()
         tree_style.configure("Api.Treeview", rowheight=30, font=("Segoe UI", 9))
         self.tree = ttk.Treeview(tree_frame, columns=("name", "platform", "billing", "id"), show="headings", height=8, style="Api.Treeview")
@@ -78,6 +84,17 @@ class ApiManagementFrame(ttk.Frame):
             self._btn_delete.configure(state=state)
         except Exception:
             pass
+        # preferred button: enabled only when the selected row is NOT already preferred
+        cur_pref = (self.app.config or {}).get("preferred_api_id", "")
+        is_pref = bool(selected) and selected == cur_pref
+        try:
+            self._btn_pref.configure(
+                state="disabled" if is_pref else state,
+                text=("⭐ " + T("already_preferred", lang)) if is_pref
+                     else ("⭐ " + T("set_preferred_btn", lang)),
+            )
+        except Exception:
+            pass
         # notify external listener (e.g. ledger table below in Manage tab)
         if self.on_select:
             try:
@@ -85,14 +102,33 @@ class ApiManagementFrame(ttk.Frame):
             except Exception:
                 pass
 
-    def refresh(self):
+    def _on_set_preferred(self):
+        """Persist the highlighted API as preferred, then sync tray/ledger/dashboard."""
+        api_id = self._selected_id()
+        if not api_id:
+            return
+        # reuse the tray's full switch chain: config + cache + icon + main-window sync
+        from src.tray_app import _apply_preferred_switch
+        from src.core.paths import log as _log
+        _apply_preferred_switch(self.app, api_id)
+        _log(f"Preferred API set to {api_id} via manage tab")
+        # re-render row states (button label/disabled) + notify ledger listener
+        self.refresh()
+        messagebox.showinfo(T("set_preferred_btn", self.app.lang),
+                            T("preferred_api_label", self.app.lang) + " " +
+                            (self.tree.item(self.tree.selection()[0], "values")[0]
+                             if self.tree.selection() else ""),
+                            parent=self.winfo_toplevel())
+
+    def refresh(self, follow_preferred=False):
         # reload tree from config
         try:
             self.tree.delete(*self.tree.get_children())
         except Exception:
             pass
         try:
-            cfg = load_config()
+            # read the shared in-memory config (authoritative; test/mock friendly)
+            cfg = self.app.config
             apis = cfg.get("apis") or []
             for api in apis:
                 plat_key = api.get("platform", "")
@@ -104,10 +140,30 @@ class ApiManagementFrame(ttk.Frame):
                 self.tree.insert("", "end", values=(api.get("name"), plat_disp, bp_disp, api.get("id")))
             if not apis:
                 self.hint.set(T("no_apis", self.app.lang))
-                self._hint_label.pack(anchor="w", pady=(6, 0))
+                try:
+                    self._empty_label.place(relx=0.5, rely=0.5, anchor="center")
+                    self._empty_label.lift()
+                except Exception:
+                    pass
             else:
                 self.hint.set("")
-                self._hint_label.pack_forget()
+                try:
+                    self._empty_label.place_forget()
+                except Exception:
+                    pass
+                # default-select the preferred API (or first row) so the ledger follows
+                pref_id = cfg.get("preferred_api_id", "")
+                target_iid = None
+                for iid in self.tree.get_children():
+                    vals = self.tree.item(iid, "values")
+                    if len(vals) >= 4 and vals[3] == pref_id:
+                        target_iid = iid
+                        break
+                if target_iid is None:
+                    kids = self.tree.get_children()
+                    target_iid = kids[0] if kids else None
+                if target_iid:
+                    self.tree.selection_set(target_iid)
             # re-emit current selection so listeners (ledger) follow add/delete
             self._on_select()
             # notify parent if needed
@@ -203,7 +259,7 @@ class ApiManagementFrame(ttk.Frame):
         # Name — directly filled with default "平台-序号", editable
         ttk.Label(top, text=T("api_name_label", lang)).pack(anchor="w", padx=12)
         def _default_name_for(plat):
-            from src.config import _get_next_api_name, load_config as _lc
+            from src.core.config import _get_next_api_name, load_config as _lc
             try:
                 _cfg = _lc()
                 return _get_next_api_name(plat, _cfg.get("apis") or [])

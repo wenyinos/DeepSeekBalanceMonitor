@@ -12,7 +12,7 @@ def encrypt_api_key(plaintext: str, data_dir: Optional[Path] = None) -> str:
     if not plaintext:
         return ""
     try:
-        from src.secure_settings import store_api_key
+        from src.core.secure_settings import store_api_key
         store_api_key(plaintext)
     except Exception:
         pass
@@ -21,7 +21,7 @@ def encrypt_api_key(plaintext: str, data_dir: Optional[Path] = None) -> str:
 
 def decrypt_api_key(ciphertext: str, data_dir: Optional[Path] = None) -> str:
     try:
-        from src.secure_settings import read_api_key
+        from src.core.secure_settings import read_api_key
         key = read_api_key()
         return key or ""
     except Exception:

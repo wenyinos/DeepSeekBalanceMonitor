@@ -11,15 +11,18 @@ import pystray
 import tkinter as tk
 from tkinter import ttk
 
-from src.config import T, log, CONFIG_DIR, APP_NAME, APP_ID
-from src.config import load_config, get_apis, get_preferred_api, get_api_by_id, set_preferred_api
-from src.platforms import get_platform, get_all_platforms as _get_plats
-from src.secure_settings import read_api_key_for_id
-from src.api_client import fetch_balance, fetch_service_status, install_proxy, fetch_minimax_service_status
-from src.icon_renderer import create_icon_image
-from src.app_state import AppState
-from src.rainmeter_server import start_rainmeter_server
-from src.storage import save_balance_record, prune_old_data, get_consumption_rate, save_package_record, get_package_history_page
+from src.core.config import T, log, CONFIG_DIR, APP_NAME, APP_ID
+from src.core.config import load_config, get_apis, get_preferred_api, get_api_by_id, set_preferred_api
+from src.core.config import format_ago
+from src.platforms.registry import get_platform, get_all_platforms as _get_plats
+from src.platforms.registry import STATUS_ICON as _STATUS_ICON
+from src.core.secure_settings import read_api_key_for_id
+from src.platforms.deepseek import fetch_balance, fetch_service_status, install_proxy
+from src.platforms.minimax import fetch_minimax_service_status
+from src.ui.icon_renderer import create_icon_image
+from src.core.app_state import AppState
+from src.integrations.rainmeter_server import start_rainmeter_server
+from src.core.storage import save_balance_record, prune_old_data, get_consumption_rate, save_package_record, get_package_history_page
 
 _DEMO = {
     "balances": {"CNY": {"total_balance": 42.50, "topped_up_balance": 40.00, "granted_balance": 2.50}},
@@ -90,11 +93,27 @@ def _fetch_payg(api):
     key = read_api_key_for_id(api_id)
     if not key:
         return api_id, None, "no key"
+    plat = api.get("platform", "")
     try:
+        if plat.startswith("kimi_"):
+            from src.platforms.kimi import fetch_kimi_balance
+            data = fetch_kimi_balance(key, platform_key=plat,
+                                      http_proxy=app_proxy_url())
+            return api_id, data, None
+        if plat.startswith("stepfun_"):
+            from src.platforms.stepfun import fetch_stepfun_balance
+            data = fetch_stepfun_balance(key, platform_key=plat,
+                                         http_proxy=app_proxy_url())
+            return api_id, data, None
         data = fetch_balance(key)
         return api_id, data, None
     except Exception as e:
         return api_id, None, str(e).split("\n")[0]
+
+
+def app_proxy_url():
+    cfg = load_config()
+    return cfg.get("http_proxy", "") if cfg.get("proxy_enabled") else ""
 
 
 def _fetch_package(api, proxy_url=""):
@@ -105,10 +124,10 @@ def _fetch_package(api, proxy_url=""):
     plat = api.get("platform", "")
     try:
         if plat.startswith("minimax_"):
-            from src.minimax_client import fetch_minimax_quota
-            quota = fetch_minimax_quota(platform_key=plat, api_key=key)
+            from src.platforms.minimax import fetch_minimax_quota
+            quota = fetch_minimax_quota(platform_key=plat, api_key=key, http_proxy=proxy_url)
         else:
-            from src.opencode_client import fetch_opencode_quota
+            from src.platforms.opencode import fetch_opencode_quota
             quota = fetch_opencode_quota(api_key=key, http_proxy=proxy_url)
         return api_id, quota, None
     except Exception as e:
@@ -129,8 +148,6 @@ def do_balance_check(app: AppState):
         app.schedule_next_check(lambda: do_balance_check(app), interval_sec)
         return
 
-    if not app.running:
-        return
     if not app.running:
         return
     # fetch service status based on preferred API's platform
@@ -189,6 +206,17 @@ def do_balance_check(app: AppState):
                 if pmeta and pmeta.has_status_page and plat not in status_futures:
                     status_futures[plat] = pool.submit(_fetch_status_for, plat)
 
+        # collect per-platform service statuses FIRST — each API's DB row is
+        # written with its own platform's status, not the preferred one's
+        statuses = {}
+        for plat, sf in status_futures.items():
+            try:
+                st = sf.result()
+                if st is not None:
+                    statuses[plat] = st
+            except Exception as e:
+                log(f"Status fetch failed for {plat}: {e}")
+
         s_indicator = status.get("indicator") if status else None
         for f in as_completed(futures):
             mode, api = futures[f]
@@ -196,10 +224,13 @@ def do_balance_check(app: AppState):
             if result is None:
                 log(f"Check failed for {api.get('name')} ({mode}): {err}")
                 continue
+            # per-API status: this platform's fetch result (fallback: preferred's)
+            own_st = statuses.get(api.get("platform", ""))
+            s_ind = own_st.get("indicator") if own_st else s_indicator
             if mode == "payg":
                 data = result
                 for code, bal in data["all_balances"].items():
-                    save_balance_record(code, bal["total_balance"], bal["topped_up_balance"], bal["granted_balance"], service_status=s_indicator, api_id=api_id)
+                    save_balance_record(code, bal["total_balance"], bal["topped_up_balance"], bal["granted_balance"], service_status=s_ind, api_id=api_id)
                 log(f"Balance OK for {api.get('name')}: {list(data['all_balances'].values())[0]['total_balance']:.2f}")
             else:
                 quota = result
@@ -214,19 +245,9 @@ def do_balance_check(app: AppState):
                     weekly_reset=rw.get("reset_in_sec") if rw else None,
                     monthly_percent=rm.get("usage_percent") if rm else None,
                     monthly_reset=rm.get("reset_in_sec") if rm else None,
-                    service_status=s_indicator,
+                    service_status=s_ind,
                 )
                 log(f"Package OK for {api.get('name')}: h5={r5.get('usage_percent') if r5 else 'N/A'}, weekly={rw.get('usage_percent') if rw else 'N/A'}")
-
-        # collect per-platform service statuses
-        statuses = {}
-        for plat, sf in status_futures.items():
-            try:
-                st = sf.result()
-                if st is not None:
-                    statuses[plat] = st
-            except Exception:
-                pass
 
         # cache results per API — merge into existing entry so status/error survive
         for f in futures:
@@ -248,8 +269,8 @@ def do_balance_check(app: AppState):
                     st = statuses.get(api.get("platform", ""))
                     if st is not None:
                         entry["service_status"] = st
-            except Exception:
-                pass
+            except Exception as e:
+                log(f"Cache merge failed for {api.get('name')}: {e}")
         # update app state with preferred API's cached data
         pref = get_preferred_api(cfg)
         if pref:
@@ -299,16 +320,60 @@ def do_balance_check(app: AppState):
     if app.should_alert():
         notify_user(app)
 
+    # single-day spend too fast → one-shot alert + orange icon state is derived in renderer
+    try:
+        app.is_daily_spend_fast()  # refresh fast-state for icon
+        if app.should_spend_alert():
+            lang = app.lang
+            msg = T("spend_alert_msg", lang,
+                    value=f"{get_today_spend_value(app)}",
+                    line=(f"{app.config.get('daily_spend_line_yuan', 20)}"
+                          if _pref_mode(app) == "payg" else
+                          f"{app.config.get('daily_spend_line_percent', 10)}%"))
+            app.icon.notify(msg, title=T("spend_alert_title", lang))
+    except Exception as e:
+        log(f"Spend alert failed: {e}")
+
     if app.config.get("api_alert_enabled", True):
         transition = app.check_api_status_alert()
         if transition:
             notify_api_status(app, transition)
+
+    # DeepSeek peak/valley phase-change reminder (only when a deepseek API is preferred)
+    try:
+        if app.config.get("peak_valley_alert_enabled", False):
+            pref = next((a for a in app.config.get("apis") or []
+                         if a.get("id") == app.config.get("preferred_api_id")), {})
+            if str(pref.get("platform", "")).startswith("deepseek"):
+                lang = app.lang
+                phase = app.check_peak_valley_transition()
+                if phase:
+                    key = f"peak_alert_{phase}"
+                    app.icon.notify(T(key, lang), title="DeepSeek")
+                    log(f"Peak/valley reminder: {phase}")
+    except Exception as e:
+        log(f"Peak/valley reminder failed: {e}")
 
     interval_sec = int(app.config.get("interval_minutes", 10)) * 60
     app.schedule_next_check(lambda: do_balance_check(app), interval_sec)
 
 
 # --- Low-Balance Notification ---------------------------------------
+
+def _pref_mode(app: AppState) -> str:
+    pref_id = app.config.get("preferred_api_id", "")
+    for a in app.config.get("apis") or []:
+        if a.get("id") == pref_id:
+            return a.get("mode", "payg")
+    return "payg"
+
+
+def get_today_spend_value(app: AppState) -> float:
+    from src.core.storage import get_today_spend
+    pref_id = app.config.get("preferred_api_id", "")
+    api = next((a for a in app.config.get("apis") or [] if a.get("id") == pref_id), {})
+    return get_today_spend(pref_id, api.get("mode", "payg"), api.get("billing_period") or None)
+
 
 def notify_user(app: AppState):
     b = app.get_preferred_balance()
@@ -357,10 +422,6 @@ def on_show_balance(icon, item):
     if app is None:
         return
     lang = app.lang
-    _STATUS_ICON = {
-        "none": "🟢", "minor": "🟡", "major": "🟠",
-        "critical": "🔴", "maintenance": "🔵",
-    }
     with app._lock:
         balances = dict(app.balances)
         err = app.error
@@ -379,7 +440,7 @@ def on_show_balance(icon, item):
     # Package mode notification
     if pd:
         try:
-            from src.opencode_client import format_reset_short
+            from src.platforms.opencode import format_reset_short
             # determine which windows this platform supports and preferred billing period
             pref_platform = ""
             billing_period = "monthly"
@@ -419,16 +480,12 @@ def on_show_balance(icon, item):
                     lines.append(f"{label}：{T('remaining_pct', lang, pct=remaining)}（{reset_str}）")
             # status line only if platform has a status page
             if pmeta and pmeta.has_status_page:
-                _STATUS_ICON = {"none": "🟢", "minor": "🟡", "major": "🟠", "critical": "🔴", "maintenance": "🔵"}
                 ind = raw_status.get("indicator") if raw_status else None
                 status_key = f"status_{ind}" if ind else "status_unknown"
                 lines.append(f"📡 {T('service_status', lang)} {_STATUS_ICON.get(ind, '⚪')} {T(status_key, lang)}")
             if last:
-                diff = datetime.now() - last
-                mins = int(diff.total_seconds() / 60)
-                ago = T("ago_just", lang) if mins < 1 else (T("ago_min", lang, n=mins) if mins < 60 else T("ago_hr", lang, n=mins // 60))
                 sp = " " if lang == "en" else ""
-                lines.append(f"🕐 {T('last_check', lang)}{sp}{ago}")
+                lines.append(f"🕐 {T('last_check', lang)}{sp}{format_ago(last, lang)}")
             icon.notify("\n".join(lines), title=T("bal_title", lang, name=api_name))
         except Exception as e:
             log(f"Package notify failed: {e}")
@@ -452,7 +509,7 @@ def on_show_balance(icon, item):
             bal = T('bal_line', lang, balance=f"{b['total_balance']:,.2f}", code=first_code, topped=f"{b['topped_up_balance']:,.2f}", granted=f"{b['granted_balance']:,.2f}")
         lines.append(f"💰 {bal}")
         if app.demo_mode and hasattr(app, '_demo_rate'):
-            hourly_rate = app._demo_rate; busy_hours = getattr(app, '_demo_hours', getattr(app, '_demo_hrs', 0))
+            hourly_rate = app._demo_rate; busy_hours = app._demo_hrs
         else:
             hourly_rate = busy_hours = None
             pref_id = app.config.get("preferred_api_id")
@@ -465,10 +522,8 @@ def on_show_balance(icon, item):
             lines.append(f"📊 {T('rate_line', lang, rate=hourly_rate, prefix=T('est_prefix', lang), remaining=f'{total_hrs}')}")
     lines.append(f"📡 {status_line}")
     if last:
-        diff = datetime.now() - last; mins = int(diff.total_seconds() / 60)
-        ago = T("ago_just", lang) if mins < 1 else (T("ago_min", lang, n=mins) if mins < 60 else T("ago_hr", lang, n=mins // 60))
         sp = " " if lang == "en" else ""
-        lines.append(f"🕐 {T('last_check', lang)}{sp}{ago}")
+        lines.append(f"🕐 {T('last_check', lang)}{sp}{format_ago(last, lang)}")
     icon.notify("\n".join(lines), title=title)
 
 
@@ -487,15 +542,14 @@ def _on_history(icon, item):
         return
     def _show():
         try:
-            from src.main_window import MainWindow
+            from src.ui.main_window import MainWindow
             mw = getattr(app, "_main_window", None)
             if not isinstance(mw, MainWindow):
                 mw = MainWindow(app)
                 app._main_window = mw
             mw.show("history")
-        except Exception:
-            from src.history_dialog import open_history
-            open_history(app)
+        except Exception as e:
+            log(f"MainWindow history error: {e}")
     app._tk_root.after(0, _show)
 
 def on_settings(icon, item):
@@ -504,7 +558,7 @@ def on_settings(icon, item):
         return
     def _show():
         try:
-            from src.main_window import MainWindow
+            from src.ui.main_window import MainWindow
             mw = getattr(app, "_main_window", None)
             if not isinstance(mw, MainWindow):
                 mw = MainWindow(app)
@@ -512,8 +566,6 @@ def on_settings(icon, item):
             mw.show("settings")
         except Exception as e:
             log(f"MainWindow settings error: {e}")
-            from src.settings_dialog import open_settings
-            open_settings(app)
     app._tk_root.after(0, _show)
 
 
@@ -563,87 +615,15 @@ def _on_dev_tools(icon, item):
         return
     def _show():
         try:
-            from src.main_window import MainWindow
+            from src.ui.main_window import MainWindow
             mw = getattr(app, "_main_window", None)
             if not isinstance(mw, MainWindow):
                 mw = MainWindow(app)
                 app._main_window = mw
             mw.show("dev")
-        except Exception:
-            app._tk_root.after(0, lambda: _create_dev_window(app))
-            return
+        except Exception as e:
+            log(f"Dev tools open failed: {e}")
     app._tk_root.after(0, _show)
-
-def _create_dev_window(app):
-    """Create the Dev Tools window. Must be called on the tkinter main thread."""
-    import tkinter as tk
-    from tkinter import ttk
-
-    lang = app.lang
-    win = tk.Toplevel(app._tk_root)
-    win.title("Dev Tools")
-    win.geometry("300x480")
-    win.resizable(False, False)
-
-    f = ttk.Frame(win, padding=10)
-    f.pack(fill="both", expand=True)
-
-    ttk.Label(f, text="Balance (total / topped / granted)").pack(anchor="w")
-    bf = ttk.Frame(f)
-    bf.pack(fill="x", pady=(0, 8))
-    total_var = tk.DoubleVar(value=42.50)
-    topped_var = tk.DoubleVar(value=40.00)
-    granted_var = tk.DoubleVar(value=2.50)
-    ttk.Spinbox(bf, from_=0, to=9999, textvariable=total_var, width=6).pack(side="left")
-    ttk.Spinbox(bf, from_=0, to=9999, textvariable=topped_var, width=6).pack(side="left", padx=4)
-    ttk.Spinbox(bf, from_=0, to=9999, textvariable=granted_var, width=6).pack(side="left")
-
-    ttk.Label(f, text="Error (empty = none)").pack(anchor="w")
-    err_var = tk.StringVar()
-    ttk.Entry(f, textvariable=err_var).pack(fill="x", pady=(0, 8))
-
-    ttk.Label(f, text="API Status").pack(anchor="w")
-    status_opts = ["none", "minor", "major", "critical", "maintenance"]
-    status_var = tk.StringVar(value="none")
-    ttk.Combobox(f, textvariable=status_var, values=status_opts,
-                 state="readonly", width=14).pack(anchor="w", pady=(0, 8))
-
-    ttk.Label(f, text="Consumption rate / Est. hours (display only)").pack(anchor="w")
-    rf = ttk.Frame(f)
-    rf.pack(fill="x", pady=(0, 8))
-    rate_var = tk.DoubleVar(value=0.06)
-    hours_var = tk.DoubleVar(value=28 * 24)
-    ttk.Spinbox(rf, from_=0, to=9999, increment=0.01, textvariable=rate_var, width=6).pack(side="left")
-    ttk.Label(rf, text=" /hr").pack(side="left")
-    ttk.Spinbox(rf, from_=0, to=99999, textvariable=hours_var, width=6).pack(side="left", padx=4)
-    ttk.Label(rf, text=" h").pack(side="left")
-
-    def _apply():
-        with app._lock:
-            app.balances = {"CNY": {
-                "total_balance": total_var.get(),
-                "topped_up_balance": topped_var.get(),
-                "granted_balance": granted_var.get(),
-            }}
-            app.service_status = {
-                "indicator": status_var.get(),
-                "api_operational": status_var.get() == "none",
-            }
-            err = err_var.get().strip()
-            app.error = err if err else None
-            app.last_check = datetime.now()
-            app._demo_rate = rate_var.get()
-            app._demo_hours = hours_var.get()
-        if app.icon:
-            app.icon.title = app.balance_tooltip()
-            app.icon.icon = create_icon_image(app)
-
-    ttk.Button(f, text="Apply", command=_apply).pack(pady=(4, 0))
-
-    def _dev_cleanup():
-        win.destroy()
-    win.protocol("WM_DELETE_WINDOW", _dev_cleanup)
-    win.focus_force()
 
 
 class DevFrame(ttk.Frame):
@@ -656,7 +636,7 @@ class DevFrame(ttk.Frame):
         import tkinter as tk
         from tkinter import ttk
         from datetime import datetime
-        from src.icon_renderer import create_icon_image
+        from src.ui.icon_renderer import create_icon_image
         ttk.Label(self, text="Balance (total / topped / granted)").pack(anchor="w")
         bf = ttk.Frame(self); bf.pack(fill="x", pady=(0, 8))
         self.total_var = tk.DoubleVar(value=42.50)
@@ -688,7 +668,7 @@ class DevFrame(ttk.Frame):
                 self.app.error = err if err else None
                 self.app.last_check = datetime.now()
                 self.app._demo_rate = self.rate_var.get()
-                self.app._demo_hours = self.hours_var.get()
+                self.app._demo_hrs = self.hours_var.get()
             if self.app.icon:
                 self.app.icon.title = self.app.balance_tooltip()
                 self.app.icon.icon = create_icon_image(self.app)
@@ -700,7 +680,7 @@ class DevFrame(ttk.Frame):
             except: pass
         ttk.Button(self, text="Apply", command=_apply).pack(pady=(4, 0))
     def on_show(self): pass
-    def refresh(self): pass
+    def refresh(self, follow_preferred=False): pass
 
 
 def _show_main(icon, item, tab="history"):
@@ -709,7 +689,7 @@ def _show_main(icon, item, tab="history"):
         return
     def _show():
         try:
-            from src.main_window import MainWindow
+            from src.ui.main_window import MainWindow
             mw = getattr(app, "_main_window", None)
             if not isinstance(mw, MainWindow):
                 mw = MainWindow(app)
@@ -782,10 +762,10 @@ def make_menu(app: AppState):
     lang = app.lang
     items = [
         pystray.MenuItem(T("view_balance", lang), on_show_balance, default=True),
+        pystray.MenuItem(T("history", lang), _on_history),
         pystray.MenuItem(T("api_select", lang), _build_api_selection_submenu(app)),
         pystray.MenuItem(T("check_now", lang), on_check_now),
         pystray.MenuItem(T("top_up", lang), on_top_up),
-        pystray.MenuItem(T("history", lang), _on_history),
         pystray.MenuItem(T("settings", lang), on_settings),
     ]
     if app.demo_mode:
@@ -838,27 +818,17 @@ def main():
     if app.config.get("rainmeter_enabled", True):
         start_rainmeter_server(app)
 
-    # First-time setup: no APIs → open API management (v2) — don't block, tray stays with gray icon
+    # First-time setup: no APIs → open manage tab — don't block, tray stays with gray icon
     apis = app.config.get("apis") or []
     if not app.demo_mode and not apis:
         log("No APIs -- opening API management")
         try:
-            from src.main_window import MainWindow
+            from src.ui.main_window import MainWindow
             mw = MainWindow(app)
             app._main_window = mw
             _tk_root.after(300, lambda: mw.show("manage"))
         except Exception as e:
             log(f"API management open failed: {e}")
-            # fallback to old settings
-            try:
-                from src.settings_dialog import open_settings
-                open_settings(app)
-                if app._settings_window is not None:
-                    _tk_root.wait_window(app._settings_window)
-                    from src.config import load_config
-                    app.config = load_config()
-            except Exception as e2:
-                log(f"Fallback settings failed: {e2}")
 
     icon_img = create_icon_image(app)
     app.icon = pystray.Icon(

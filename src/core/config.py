@@ -9,12 +9,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from src.paths import APP_NAME, APP_ID, CONFIG_DIR, CONFIG_FILE, LOG_FILE, DB_FILE, log
-from src.platforms import get_platform
-from src.secure_settings import (
+from src.core.paths import APP_NAME, APP_ID, CONFIG_DIR, CONFIG_FILE, LOG_FILE, DB_FILE, log
+from src.platforms.registry import get_platform
+from src.core.secure_settings import (
     read_api_key, store_api_key, delete_api_credentials,
     read_api_key_for_id, store_api_key_for_id,
-    store_opencode_go_for_id, read_opencode_go_for_id,
 )
 
 # ─── High-DPI Awareness (before any GUI) ──────────────────────────
@@ -38,9 +37,13 @@ DEFAULT_CONFIG = {
     "interval_minutes": 10,
     "threshold_yuan": 1.0,
     "threshold_package_percent": 10,  # for package mode (remaining %)
+    "daily_spend_line_yuan": 20,      # payg: single-day spend that flips the icon
+    "daily_spend_line_percent": 10,   # package: single-day quota usage that flips it
+    "daily_spend_alert_enabled": False,
     "language": "zh",
     "alert_mode": "once",    # "never" | "always" | "once"
     "api_alert_enabled": True,
+    "peak_valley_alert_enabled": False,
     "retention_days": 180,
     "theme": "default",
     "icon_colors": {},
@@ -59,7 +62,7 @@ _T = {
         "last_check":       "上次查询：",
         "not_checked":      "尚未查询",
         "error_no_key":     "未配置 API Key",
-        "view_balance":     "📋 查看余额",
+        "view_balance":     "⚡ 余额速览",
         "check_now":        "🔄 立即查询",
         "top_up":           "🌐 控制台",
         "history":          "📊 看板",
@@ -88,12 +91,13 @@ _T = {
         "threshold_mode_label": "按量",
         "threshold_pkg_mode_label": "套餐",
         "threshold_hint":   "  低于此值时托盘图标显示红色预警",
+        "spend_line_label": "单日消耗线：",
+        "spend_line_hint":  "  单日消耗达到此值时托盘图标显示橙色预警",
         "language_label":   "语言 / Language：",
         "save":             "保存",
         "cancel":           "取消",
         "warn_title":       "警告",
         "warn_no_key":      "API Key 不能为空！",
-        "exit_no_key":      "请在下次启动时配置 API Key。程序退出。",
         "low_bal_title":    "⚠ DeepSeek 余额不足",
         "low_bal_msg":      "当前余额仅剩 {balance}，已低于您设置的提醒阈值 {threshold}。\n请及时充值！",
         "api_degraded_title": "⚠️ DeepSeek API 服务异常",
@@ -116,8 +120,16 @@ _T = {
         "service_status":     "API 服务状态：",
         "retention_label":    "日志和记录保留天数：",
         "api_alert_label":    "API 服务状态变化提醒",
+        "spend_alert_label":  "单日消耗过快提醒",
+        "spend_alert_title": "⚠ 单日消耗过快",
+        "peak_alert_peak":   "△ DeepSeek 高峰时段开始（计价 2x）",
+        "peak_alert_valley": "▽ DeepSeek 空闲时段开始（半价）",
+        "spend_alert_msg":   "今日已消耗 {value}（预警线 {line}），请注意控制节奏。",
         "auto_start_label": "开机自动启动",
-        "alert_mode_label": "低余额提醒：",
+        "alert_mode_label": "低余额提醒",
+        "alert_check_label": "低额提醒",
+        "spend_check_label":  "过快提醒",
+        "peak_valley_alert_label": "DeepSeek 峰谷时提醒",
         "alert_mode_never":  "不提醒",
         "alert_mode_always": "持续提醒",
         "alert_mode_once":   "仅提醒一次",
@@ -162,9 +174,6 @@ _T = {
         "validate_interval": "查询间隔需在 1 ~ 1440 分钟之间。",
         "validate_threshold": "预警阈值需在 0 ~ 10000 之间。",
         "validate_retention": "保留天数需在 1 ~ 3650 之间。",
-        "alert_never":       "不提醒",
-        "alert_always":      "持续提醒",
-        "alert_once":        "仅提醒一次",
         "rms_fallback":      "📊 预计可用 --",
         # v2 multi-API
         "api_management":    "API 管理",
@@ -175,16 +184,16 @@ _T = {
         "api_name_hint":     "默认 平台-序号",
         "api_id_label":      "ID：",
         "add_api":           "添加 API",
+        "set_preferred_btn": "设为首选",
+        "already_preferred": "已是首选",
         "edit_api":          "编辑",
         "delete_api":        "删除",
         "preferred_api_label": "首选展示项：",
         "no_apis":           "暂无 API，请先添加",
         "confirm_delete":    "确定删除 {name} 吗？",
         "api_exists":        "API 已存在",
-        "add_success":       "已添加 {name}",
         "delete_success":    "已删除 {name}",
         "select_api":        "选择 API：",
-        "threshold_package_label": "套餐剩余预警线（%）：",
         "key_stored_hint": "已加密存储，若需修改请填写新值",
         "billing_period_label": "展示周期：",
         "billing_period_hint": "用于托盘图标与速率统计的窗口维度",
@@ -198,19 +207,11 @@ _T = {
         "col_5h":            "5h 余额%",
         "col_weekly":        "周余额%",
         "col_monthly":       "月余额%",
-        "unit_monthly":      "月额度",
-        "unit_weekly":       "周额度",
-        "unit_5h":           "5h额度",
         "preview_ok":        "正常",
         "preview_low":       "低额",
+        "preview_fast":      "过快",
         "preview_degraded":  "异常",
         "preview_nodata":    "等待",
-        "chart_7d_bal":      "7天余额变动",
-        "chart_30d_bal":     "30天余额变动",
-        "chart_30d_daily":   "30天每日消耗",
-        "chart_180d_heat":   "180天每日消耗",
-        "chart_7d_hourly":   "7天时段分布",
-        "chart_30d_hourly":  "30天时段分布",
         "block_balance":     "余额变动",
         "block_daily":       "每日消耗",
         "block_dist":        "时段分布",
@@ -223,7 +224,7 @@ _T = {
         "last_check":       "Last check:",
         "not_checked":      "Not checked",
         "error_no_key":     "No API Key configured",
-        "view_balance":     "📋 View Balance",
+        "view_balance":     "⚡ Balance Glance",
         "check_now":        "🔄 Check Now",
         "top_up":           "🌐 Console",
         "history":          "📊 Dashboard",
@@ -249,15 +250,16 @@ _T = {
         "interval_label":   "Check interval (min):",
         "interval_hint":    "  (1 ~ 1440 min)",
         "threshold_label":  "Low balance threshold:",
-        "threshold_mode_label": "Pay-as-you-go",
+        "threshold_mode_label": "PAYG",
         "threshold_pkg_mode_label": "Package",
         "threshold_hint":   "  Icon turns red when balance drops below this value",
+        "spend_line_label": "Daily spend line:",
+        "spend_line_hint":  "  Icon turns orange when single-day usage reaches this value",
         "language_label":   "Language / 语言：",
         "save":             "Save",
         "cancel":           "Cancel",
         "warn_title":       "Warning",
         "warn_no_key":      "API Key cannot be empty!",
-        "exit_no_key":      "Please configure an API Key on next launch. Exiting.",
         "low_bal_title":    "⚠ DeepSeek Low Balance",
         "low_bal_msg":      "Balance is only {balance}, below your alert threshold of {threshold}.\nPlease top up!",
         "api_degraded_title": "⚠️ DeepSeek API Degraded",
@@ -280,8 +282,16 @@ _T = {
         "service_status":     "API Status:",
         "retention_label":    "Log & record retention (days): ",
         "api_alert_label":    "API service status alerts",
+        "spend_alert_label":  "Daily spend too fast alert",
+        "spend_alert_title": "⚠ Daily spend too fast",
+        "peak_alert_peak":   "△ DeepSeek peak hours started (2x pricing)",
+        "peak_alert_valley": "▽ DeepSeek off-peak hours started (half price)",
+        "spend_alert_msg":   "Today: {value} (threshold {line}). Consider slowing down.",
         "auto_start_label": "Auto-start on boot",
-        "alert_mode_label": "Low balance alert:",
+        "alert_mode_label": "Low balance alert",
+        "alert_check_label": "Low-balance alert",
+        "spend_check_label":  "Fast-spend alert",
+        "peak_valley_alert_label": "DeepSeek peak/off-peak reminder",
         "alert_mode_never":  "Never",
         "alert_mode_always": "Always",
         "alert_mode_once":   "Once",
@@ -326,9 +336,6 @@ _T = {
         "validate_interval": "Check interval must be 1–1440 minutes.",
         "validate_threshold": "Threshold must be 0–10000.",
         "validate_retention": "Retention days must be 1–3650.",
-        "alert_never":       "Never",
-        "alert_always":      "Always",
-        "alert_once":        "Once",
         "rms_fallback":      "📊 --",
         "api_management":    "API Management",
         "platform_label":    "Platform:",
@@ -338,16 +345,16 @@ _T = {
         "api_name_hint":     "Default Platform-Idx",
         "api_id_label":      "ID:",
         "add_api":           "Add API",
+        "set_preferred_btn": "Set as Preferred",
+        "already_preferred": "Already Preferred",
         "edit_api":          "Edit",
         "delete_api":        "Delete",
         "preferred_api_label": "Preferred Display:",
         "no_apis":           "No APIs, please add one",
         "confirm_delete":    "Delete {name}?",
         "api_exists":        "API already exists",
-        "add_success":       "Added {name}",
         "delete_success":    "Deleted {name}",
         "select_api":        "Select API:",
-        "threshold_package_label": "Package remaining threshold (%):",
         "package_display_period_label": "Package display period:",
         "key_stored_hint": "Encrypted, fill new value to change",
         "billing_period_label": "Display Period:",
@@ -362,19 +369,11 @@ _T = {
         "col_5h":            "5h Remaining%",
         "col_weekly":        "Weekly Remaining%",
         "col_monthly":       "Monthly Remaining%",
-        "unit_monthly":      "monthly",
-        "unit_weekly":       "weekly",
-        "unit_5h":           "5h quota",
         "preview_ok":        "OK",
         "preview_low":       "Low",
+        "preview_fast":     "Fast",
         "preview_degraded":  "Deg",
         "preview_nodata":    "...",
-        "chart_7d_bal":      "7d Balance",
-        "chart_30d_bal":     "30d Balance",
-        "chart_30d_daily":   "30d Daily Usage",
-        "chart_180d_heat":   "180d Daily Heatmap",
-        "chart_7d_hourly":   "7d Hourly Distribution",
-        "chart_30d_hourly":  "30d Hourly Distribution",
         "block_balance":     "Balance Trend",
         "block_daily":       "Daily Usage",
         "block_dist":        "Hourly Distribution",
@@ -390,6 +389,16 @@ def T(key: str, lang: str = "zh", **kwargs) -> str:
     if text is None:
         text = _T["zh"].get(key, key)
     return text.format(**kwargs) if kwargs else text
+
+
+def format_ago(last_check, lang: str, now=None) -> str:
+    """Humanized 'X ago' from a datetime. Shared by tray/history/rainmeter."""
+    mins = int(((now or datetime.now()) - last_check).total_seconds() / 60)
+    if mins < 1:
+        return T("ago_just", lang)
+    if mins < 60:
+        return T("ago_min", lang, n=mins)
+    return T("ago_hr", lang, n=mins // 60)
 
 # ─── Config I/O ──────────────────────────────────────────────────
 def _resolve_api_key(cfg: dict):
@@ -547,7 +556,7 @@ def get_preferred_api(cfg: dict | None = None):
     apis = get_apis(cfg)
     return apis[0] if apis else None
 
-def create_api(platform: str, name: str | None = None, api_key: str | None = None, workspace_id: str | None = None, auth_cookie: str | None = None, mode: str | None = None, billing_period: str | None = None) -> str:
+def create_api(platform: str, name: str | None = None, api_key: str | None = None, mode: str | None = None, billing_period: str | None = None) -> str:
     cfg = load_config()
     apis = list(cfg.get("apis") or [])
     if not name or not name.strip():
@@ -563,7 +572,7 @@ def create_api(platform: str, name: str | None = None, api_key: str | None = Non
     api_id = _generate_api_id()
     # determine mode from platform registry
     if not mode:
-        from src.platforms import get_platform as _gp
+        from src.platforms.registry import get_platform as _gp
         pmeta = _gp(platform)
         mode = pmeta.default_mode if pmeta else "payg"
     entry = {"id": api_id, "platform": platform, "name": name, "mode": mode, "billing_period": billing_period or "", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -581,7 +590,7 @@ def create_api(platform: str, name: str | None = None, api_key: str | None = Non
     log(f"Created API {name} ({platform}:{api_id})")
     return api_id
 
-def update_api(api_id: str, name: str | None = None, api_key: str | None = None, workspace_id: str | None = None, auth_cookie: str | None = None, platform: str | None = None, mode: str | None = None, billing_period: str | None = None) -> bool:
+def update_api(api_id: str, name: str | None = None, api_key: str | None = None, platform: str | None = None, mode: str | None = None, billing_period: str | None = None) -> bool:
     cfg = load_config()
     apis = list(cfg.get("apis") or [])
     idx = next((i for i, a in enumerate(apis) if a.get("id") == api_id), None)
@@ -598,12 +607,13 @@ def update_api(api_id: str, name: str | None = None, api_key: str | None = None,
         entry["billing_period"] = billing_period
     # ensure mode default if still missing
     if "mode" not in entry or entry["mode"] not in ("payg", "package"):
-        from src.platforms import get_platform as _gp
+        from src.platforms.registry import get_platform as _gp
         _pmeta = _gp(entry.get("platform", ""))
         entry["mode"] = _pmeta.default_mode if _pmeta else "payg"
     apis[idx] = entry
     cfg["apis"] = apis
-    if entry.get("platform") == "deepseek" and api_key is not None:
+    # all platforms store their key under api:{id}:key (unified credential scheme)
+    if api_key is not None:
         store_api_key_for_id(api_id, api_key.strip())
         if cfg.get("preferred_api_id") == api_id:
             store_api_key(api_key.strip())
@@ -639,7 +649,7 @@ def delete_api(api_id: str) -> bool:
     # also delete history for this api_id
     try:
         import sqlite3
-        from src.config import DB_FILE
+        from src.core.config import DB_FILE
         if DB_FILE.exists():
             conn = sqlite3.connect(str(DB_FILE))
             conn.execute("DELETE FROM balance_history WHERE api_id=?", (api_id,))
