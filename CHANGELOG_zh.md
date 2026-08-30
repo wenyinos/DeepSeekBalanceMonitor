@@ -2,6 +2,17 @@
 
 所有值得记录的变更均记录于此。
 
+## Rust v1.3.3 (2026-08-30)
+
+### 变更
+
+- Rust Windows 从 native-tls（Schannel）迁移到 rustls + 内嵌 webpki-roots，与 rust-linux 统一：不再依赖系统证书库，Windows 7/8.1 开箱即用并获得 TLS 1.3；企业代理 / 安全软件做 HTTPS 检查时将无法通过证书校验（仅信任内嵌根证书）
+- 移除 `scripts/update_windows_root_certs.bat`：内嵌根证书后不再需要（Python 版本本就仅支持 Windows 10+）；README 的 TLS 章节与目录树已同步更新
+
+### 修复
+
+- 设置窗口分组标题字体渲染错误：加粗标题不再硬编码 Segoe UI（其缺少 CJK 字形，中文 UI 下走字体回退或显示豆腐块），改用统一 UI 字体族并经真实字体枚举回落（Microsoft YaHei UI → Microsoft YaHei / SimSun）；同时去掉误传的 9 像素字号，标题不再小于正文
+
 ## Rust v1.3.2 (2026-08-14)
 
 ### 变更

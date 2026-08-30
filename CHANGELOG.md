@@ -2,6 +2,17 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v1.3.3 (2026-08-30)
+
+### Changed
+
+- Rust Windows migrated from native-tls (Schannel) to rustls with embedded webpki-roots, matching rust-linux: no OS certificate store is consulted, Windows 7/8.1 installs validate out of the box, and TLS 1.3 is now available on old systems; TLS-inspecting proxies or security software will fail certificate validation since only the embedded root store is trusted
+- Removed `scripts/update_windows_root_certs.bat`, unnecessary after the embedded-root migration (Py-Win requires Windows 10+ anyway); README TLS sections and directory trees updated accordingly
+
+### Fixed
+
+- Settings window font rendering: bold group titles no longer hardcode Segoe UI, whose missing CJK glyphs caused font fallback or tofu on the Chinese UI — the heading font now follows the unified UI family with real font enumeration (Microsoft YaHei UI, falling back to Microsoft YaHei / SimSun), and a stray 9-pixel size that rendered titles smaller than body text was dropped
+
 ## Rust v1.3.2 (2026-08-14)
 
 ### Changed

@@ -29,7 +29,8 @@ Rainmeter widget preview
 - Encrypted API key storage: Fernet + SQLite on Py-Win, SQLite `secure_settings` on Rust, Keychain on Py-Mac.
 - Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
 - Rainmeter `/widget-status` now includes OpenCode Go quota fields (`og_*`), refreshed every 10 minutes in the background; interface contract documented with Python-port guidance.
-- OpenCode Go quota display (Rust builds): scrapes the opencode.ai workspace dashboard for rolling (5h), weekly, and monthly usage; credentials stored encrypted in SQLite, never in config.json.
+- OpenCode Go quota display (Rust builds): fetches the official OpenCode Go API (`opencode.ai/zen/go/v1/usage`, Bearer API key) for rolling (5h), weekly, and monthly usage; credentials stored encrypted in SQLite, never in config.json.
+- Rust builds use rustls with embedded webpki-roots: no OS certificate store is consulted, so the Windows build works out of the box on Windows 7/8.1 and supports TLS 1.3.
 
 Rust Linux-specific:
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
@@ -117,11 +118,11 @@ Direct downloads (`.exe`, `.tar.gz`, `.dmg`) require no additional runtimes.
 
 Building from source additionally requires Python 3.10+ (Py-Win, Py-Mac) or Rust 1.77.2 (Rust-Win, Rust-Linux).
 
-### Windows 7/8.1 Root Certificates
+### TLS Certificates
 
-For Windows 7/8.1 systems that cannot query `status.deepseek.com`, run `scripts\update_windows_root_certs.bat` as administrator to update the Windows root certificate store from Windows Update. The script does not bundle certificates and does not change the app TLS backend.
+Both Rust builds use rustls with embedded webpki-roots: the Mozilla root store is compiled into the binary and no operating system certificate store is consulted. The Windows build therefore works on Windows 7/8.1 with stale trust stores out of the box (TLS 1.3 included), and the former `update_windows_root_certs.bat` helper script has been removed as unnecessary — Py-Win requires Windows 10+ anyway.
 
-Even after updating root certificates, old Windows systems may still fail to fetch the API service status because DeepSeek's status page uses a different TLS endpoint from the balance API. Common causes include missing TLS 1.2 or Windows Update patches, outdated Schannel cipher support, stale system trust settings, incorrect system time, or HTTPS inspection by a proxy/security product. Balance checks may still work when service-status checks fail. This project treats API service-status checks on Windows 7/8.1 as best-effort and does not plan a program-side workaround.
+Note that TLS inspection by a corporate proxy or security software will fail certificate validation, because only the embedded root store is trusted.
 
 ### Run from Source (Python)
 
@@ -223,7 +224,6 @@ DeepSeekBalance/
 │   ├── build_exe.bat
 │   ├── build_mac.sh
 │   ├── setup.bat
-│   ├── update_windows_root_certs.bat
 │   ├── run_silent.vbs
 │   └── demo.vbs
 ├── assets/                     # Icons, previews, fonts

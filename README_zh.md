@@ -29,7 +29,8 @@ Rainmeter 小组件预览图
 - API Key 加密存储：Py-Win 使用 Fernet + SQLite，Rust 使用 SQLite `secure_settings`，Py-Mac 使用 Keychain。
 - Rainmeter 桌面小工具：仅本地可访问的状态接口；`.rmskin` 发布打包。Rust/Python Windows 双版均已支持。
 - Rainmeter `/widget-status` 现包含 OpenCode Go 额度字段（`og_*`），后台每 10 分钟刷新；接口约定与 Python 版实施建议见 `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`。
-- OpenCode Go 额度显示（Rust 版）：爬取 opencode.ai 工作区仪表板，展示 5 小时滚动 / 每周 / 每月三档用量；凭据加密存于 SQLite，绝不写入 config.json。
+- OpenCode Go 额度显示（Rust 版）：改用官方 OpenCode Go API（`opencode.ai/zen/go/v1/usage`，Bearer API Key 认证），展示 5 小时滚动 / 每周 / 每月三档用量；凭据加密存于 SQLite，绝不写入 config.json。
+- Rust 双端统一 TLS 栈（rustls + 内嵌 webpki-roots）：不依赖系统证书库，Windows 版在 Windows 7/8.1 上开箱即用并支持 TLS 1.3。
 
 Rust Linux 版本限定：
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
@@ -118,11 +119,11 @@ Rainmeter 桌面小工具是可选功能。它通过本地地址 `127.0.0.1:1765
 
 从源码构建需额外安装 Python 3.10+（Py-Win、Py-Mac）或 Rust 1.77.2（Rust-Win、Rust-Linux）。
 
-### Windows 7/8.1 根证书说明
+### TLS 证书说明
 
-如果 Windows 7/8.1 无法查询 `status.deepseek.com`，可以右键 `scripts\update_windows_root_certs.bat` 并选择“以管理员身份运行”，通过 Windows Update 更新系统根证书库。该脚本不内置证书，也不会修改程序 TLS 后端。
+两个 Rust 版本均使用 rustls + webpki-roots：Mozilla 根证书库内嵌于二进制，不依赖操作系统证书库。Windows 版在根证书陈旧的 Windows 7/8.1 上可开箱即用（并支持 TLS 1.3），原 `scripts\update_windows_root_certs.bat` 辅助脚本已随之移除——Python 版仅支持 Windows 10+，本就无需该脚本。
 
-旧版 Windows 即使更新根证书后，仍可能无法获取 API 服务状态，因为 DeepSeek 状态页和余额接口使用不同的 TLS 端点。常见原因包括缺少 TLS 1.2 或 Windows Update 相关补丁、Schannel 密码套件支持过旧、系统信任设置陈旧、系统时间不正确，或代理 / 安全软件进行 HTTPS 检查。余额查询可能仍然正常。项目将 Windows 7/8.1 上的 API 服务状态查询视为尽力而为，不准备在程序侧增加绕过方案。
+请注意：由于程序只信任内嵌根证书，企业代理或安全软件进行 HTTPS 检查时将无法通过证书校验。
 
 ### 源码运行（Python）
 
@@ -224,7 +225,6 @@ DeepSeekBalance/
 │   ├── build_exe.bat
 │   ├── build_mac.sh
 │   ├── setup.bat
-│   ├── update_windows_root_certs.bat
 │   ├── run_silent.vbs
 │   └── demo.vbs
 ├── assets/                     # 图标、预览图、字体
