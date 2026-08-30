@@ -1,46 +1,23 @@
-import os
 import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
-from pathlib import Path
 
 # --- MAC OS PATH ADAPTATION ---
-# Ensure root directory is in sys.path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-import src.config
-from src.config import load_config, save_config, T as _T, CONFIG_DIR
-from src.app_state import get_auto_start_state, set_auto_start
-
-# --- macOS Local Translations ---
-_MAC_T = {
-    "zh": {"currency": "货币"},
-    "en": {"currency": "Currency"}
-}
+from src.core.config import load_config, save_config, T as _T
+from src.core.app_state import get_auto_start_state, set_auto_start
+from src.core.secure_settings import store_api_key
 
 def T(key, lang="zh", **kwargs):
-    """Local translation wrapper that falls back to global T."""
-    text = _MAC_T.get(lang, _MAC_T["zh"]).get(key)
-    if text:
-        return text.format(**kwargs) if kwargs else text
-    return _T(key, lang, **kwargs)
-from src.mac.keystore import encrypt_api_key, decrypt_api_key
-
-# ─── Eye icon (SVG-style drawn on Canvas) ─────────────────────────────────────
-_EYE_OPEN = (
-    "M8 5C4.5 5 1.5 8 1.5 8S4.5 11 8 11 14.5 8 14.5 8 11.5 5 8 5z "
-    "M8 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"
-)
-_EYE_CLOSED = (
-    "M2 2 L14 14 M8 5C4.5 5 1.5 8 1.5 8S4.5 11 8 11 14.5 8 14.5 8"
-)
+    text = _T(key, lang, **kwargs)
+    return text
 
 def _make_eye_button(parent, entry_widget, show_var: tk.BooleanVar):
     """Draw an eye icon on a Canvas that toggles password visibility."""
     BTN = 28
     c = tk.Canvas(parent, width=BTN, height=BTN, highlightthickness=0,
                   cursor="hand2")
-    # ttk widgets don't support "bg"; use systemWindowBackgroundColor for native look
     try:
         c.configure(bg="systemWindowBackgroundColor")
     except Exception:
@@ -49,17 +26,12 @@ def _make_eye_button(parent, entry_widget, show_var: tk.BooleanVar):
     def _redraw():
         c.delete("all")
         is_visible = show_var.get()
-        color = "gray" # Subtle gray
-        
+        color = "gray"
         cx, cy = 14, 14
-        # Smaller eye base (oval)
         c.create_oval(cx-7, cy-4, cx+7, cy+4, outline=color, width=1.5)
-        
         if is_visible:
-            # Eye opened: Pupil
             c.create_oval(cx-2, cy-2, cx+2, cy+2, fill=color, outline=color)
         else:
-            # Eye closed: Smaller pupil + Diagonal slash
             c.create_oval(cx-1, cy-1, cx+1, cy+1, fill=color, outline=color)
             c.create_line(cx-9, cy-6, cx+9, cy+6, fill=color, width=1.5, capstyle="round")
 
@@ -125,66 +97,49 @@ class Tooltip:
 def run_settings():
     config = load_config()
     lang = config.get("language", "zh")
-    CTRL_W = 18  # uniform width for all controls (in text units)
+    CTRL_W = 18
 
     root = tk.Tk()
     root.title(T("settings_title", lang))
     root.resizable(False, False)
-
-    # Force geometry update to get accurate winfo_width/height
     root.update_idletasks()
-    # For macOS, winfo_reqwidth/height are often more accurate for fixed-size windows before they are drawn
     w = root.winfo_reqwidth()
     h = root.winfo_reqheight()
-    # Fallback to defaults if req is too small
     w = max(w, 420)
     h = max(h, 480)
-    
     sw = root.winfo_screenwidth()
     sh = root.winfo_screenheight()
     x = (sw - w) // 2
     y = (sh - h) // 2
     root.geometry(f"{w}x{h}+{x}+{y}")
-
     root.lift()
     root.attributes('-topmost', True)
     root.after_idle(root.attributes, '-topmost', False)
     root.focus_force()
 
     style = ttk.Style()
-    # Let Tkinter use its default platform theme
-
-    # Use system colors
     bg_color = "systemWindowBackgroundColor"
     fg_color = "systemTextColor"
-    
     root.configure(bg=bg_color)
-    
     style.configure("TFrame", background=bg_color)
     style.configure("TLabel", font=("system", 13), background=bg_color, foreground=fg_color)
     style.configure("TCheckbutton", font=("system", 13), background=bg_color, foreground=fg_color)
     style.configure("Title.TLabel", font=("system", 26, "bold"), background=bg_color, foreground=fg_color)
-    
-    # Standardize Button font
     style.configure("TButton", font=("system", 13))
 
-    # ── Header ────────────────────────────────────────────────────────────────
     header = ttk.Frame(root)
     header.pack(fill="x", pady=(30, 20), padx=30)
     banner_sub = "配置您的账号与预警偏好。" if lang == "zh" else "Configure your account and monitor preferences."
     ttk.Label(header, text="DeepSeek Balance", style="Title.TLabel").pack(anchor="w")
     ttk.Label(header, text=banner_sub, foreground="gray", font=("system", 12)).pack(anchor="w")
 
-    # ── Content ───────────────────────────────────────────────────────────────
     content = ttk.Frame(root)
     content.pack(fill="both", expand=True, padx=30, pady=(0, 10))
 
-    # ── Grid of controls ──────────────────────────────────────────────────────
     grid_frame = ttk.Frame(content)
     grid_frame.pack(fill="x", pady=4)
-    # Column 0: labels, Column 1: Entry/Combobox/Spinbox, Column 2: Eye button
     grid_frame.columnconfigure(0, weight=0)
-    grid_frame.columnconfigure(1, weight=1) # Allow input column to expand
+    grid_frame.columnconfigure(1, weight=1)
     grid_frame.columnconfigure(2, weight=0)
 
     def _label(row, text):
@@ -192,28 +147,21 @@ def run_settings():
 
     def _spinbox(row, var, **kw):
         sb = ttk.Spinbox(grid_frame, textvariable=var, font=("system", 13), width=CTRL_W, **kw)
-        # sticky="ew" ensures it fills column 1 and 2
         sb.grid(row=row, column=1, sticky="ew", columnspan=2)
         return sb
 
     def _combo(row, var, values):
         cb = ttk.Combobox(grid_frame, textvariable=var, values=values,
                           state="readonly", font=("system", 13), width=CTRL_W)
-        # sticky="ew" ensures it fills column 1 and 2
         cb.grid(row=row, column=1, sticky="ew", columnspan=2)
         return cb
 
-    # --- API KEY (Row 0) ---
+    # --- API KEY (Row 0) — unified: read from secure_settings via load_config ---
     _label(0, T("api_key_label", lang))
-    decrypted_key = decrypt_api_key(config.get("api_key_enc", ""), CONFIG_DIR)
-    if not decrypted_key:
-        decrypted_key = config.get("api_key", "")
-    api_var = tk.StringVar(value=decrypted_key)
+    api_var = tk.StringVar(value=config.get("api_key", ""))
     show_var = tk.BooleanVar(value=False)
-    # Use consistent font size 13
     api_entry = ttk.Entry(grid_frame, textvariable=api_var, show="•", width=CTRL_W-4, font=("system", 13))
     api_entry.grid(row=0, column=1, sticky="ew")
-    # Make canvas background match the container
     eye_btn = _make_eye_button(grid_frame, api_entry, show_var)
     eye_btn.configure(bg=bg_color)
     eye_btn.grid(row=0, column=2, padx=(8, 0), sticky="w")
@@ -235,28 +183,30 @@ def run_settings():
     lang_var = tk.StringVar(value=cur_lang)
     _combo(3, lang_var, list(LANG_OPTIONS.keys()))
 
-    _label(4, T("currency", lang) + " / Currency:")
-    CUR_OPTIONS = ["CNY", "USD"]
-    cur_var = tk.StringVar(value=config.get("currency", "CNY"))
-    _combo(4, cur_var, CUR_OPTIONS)
-
-    enable_alerts_var = tk.BooleanVar(value=config.get("enable_alerts", True))
-    ttk.Checkbutton(content, text=T("enable_alerts_label", lang),
-                    variable=enable_alerts_var).pack(anchor="w", pady=(12, 0))
+    alert_mode_map = {
+        T("alert_mode_never", lang): "never",
+        T("alert_mode_always", lang): "always",
+        T("alert_mode_once", lang): "once",
+    }
+    alert_mode_display = list(alert_mode_map.keys())
+    cur_alert_display = {v: k for k, v in alert_mode_map.items()}.get(
+        config.get("alert_mode", "once"), T("alert_mode_once", lang))
+    alert_mode_var = tk.StringVar(value=cur_alert_display)
+    ttk.Label(content, text=T("alert_mode_label", lang)).pack(anchor="w", pady=(12, 0))
+    ttk.Combobox(content, textvariable=alert_mode_var, values=alert_mode_display,
+                 state="readonly", width=CTRL_W, font=("system", 13)).pack(
+        anchor="w", pady=(4, 0))
 
     auto_start_var = tk.BooleanVar(value=config.get("auto_start", False) or get_auto_start_state())
     ttk.Checkbutton(content, text=T("auto_start_label", lang),
                     variable=auto_start_var).pack(anchor="w", pady=(8, 4))
 
-    # ── Credits ───────────────────────────────────────────────────────────────
     footer_info = ttk.Frame(content)
     footer_info.pack(fill="x", pady=(15, 0))
     ttk.Label(footer_info, text="V1.0.1_260508", foreground="gray", font=("system", 11)).pack(anchor="w")
     ttk.Label(footer_info, text="GitHub @SrtaEstrella  |  RedNote @Estella_han",
               foreground="gray", font=("system", 11)).pack(anchor="w")
 
-    # ── Buttons ───────────────────────────────────────────────────────────────
-    # Add a flexible spacer to push buttons down if needed, or just larger pady
     btn_frame = ttk.Frame(root)
     btn_frame.pack(fill="x", pady=(30, 20), padx=30)
 
@@ -265,13 +215,15 @@ def run_settings():
         if not key:
             messagebox.showwarning(T("warn_title", lang), T("warn_no_key", lang), parent=root)
             return
-        config["api_key_enc"] = encrypt_api_key(key, CONFIG_DIR)
-        config.pop("api_key", None)           # remove any legacy plain-text
+        config["api_key"] = key
+        try:
+            store_api_key(key)
+        except Exception:
+            pass
         config["interval_minutes"] = interval_var.get()
         config["threshold_yuan"] = threshold_var.get()
         config["language"] = LANG_OPTIONS.get(lang_var.get(), "zh")
-        config["currency"] = cur_var.get()
-        config["enable_alerts"] = enable_alerts_var.get()
+        config["alert_mode"] = alert_mode_map.get(alert_mode_var.get(), "once")
         config["auto_start"] = auto_start_var.get()
         set_auto_start(config["auto_start"])
         save_config(config)
@@ -280,14 +232,11 @@ def run_settings():
     def _cleanup():
         root.destroy()
 
-    # Center buttons using an inner frame with expand=True
     btn_container = ttk.Frame(btn_frame)
     btn_container.pack(expand=True)
-
     ttk.Button(btn_container, text=T("cancel", lang), command=_cleanup).pack(side="left", padx=10)
     save_btn = ttk.Button(btn_container, text=T("save", lang), command=on_save, default="active")
     save_btn.pack(side="left", padx=10)
-
     root.bind("<Return>", lambda e: save_btn.invoke())
     root.bind("<Escape>", lambda e: _cleanup())
     api_entry.focus_set()

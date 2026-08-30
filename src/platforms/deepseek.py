@@ -1,62 +1,34 @@
 """
-DeepSeek API client - fetches account balance from the DeepSeek API.
+DeepSeek API client — balance + FlashDuty status page.
 """
-import json
-import socket
+import re
 import urllib.request
 import urllib.error
 
-socket.setdefaulttimeout(15)
-
-_proxy_installed = False
-
-
-def install_proxy(proxy_url: str):
-    """Install a global HTTP/HTTPS proxy. If proxy_url is non-empty, use it.
-    Otherwise install an opener that bypasses system proxy (direct connection)."""
-    global _proxy_installed
-    if proxy_url:
-        handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
-        urllib.request.install_opener(urllib.request.build_opener(handler))
-    else:
-        urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
-    _proxy_installed = True
-
-
-def _get_json(url, headers=None, timeout=15):
-    """GET a JSON endpoint. Returns parsed dict, or raises HTTPError on
-    4xx/5xx, URLError on network failure."""
-    req = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8")
-        if resp.status >= 400:
-            raise urllib.error.HTTPError(url, resp.status, "", resp.headers, None)
-        return json.loads(body)
+from src.platforms._http import install_proxy, http_get_json
 
 
 def fetch_balance(api_key: str) -> dict:
     """Query balance. Returns dict with 'is_available' and 'all_balances'.
 
-    Raises PermissionError on 401, URLError/HTTPError on other failures,
-    ValueError if the response contains no balance_infos.
+    Raises PermissionError on 401, ValueError on empty payload,
+    URLError/HTTPError on other failures.
     """
-    api_key = api_key.encode("latin-1", errors="ignore").decode("latin-1")
-
-    url = "https://api.deepseek.com/user/balance"
-    headers = {"Accept": "application/json", "Authorization": f"Bearer {api_key}"}
-
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
     try:
-        data = _get_json(url, headers)
+        data = http_get_json("https://api.deepseek.com/user/balance", headers=headers)
     except urllib.error.HTTPError as e:
         if e.code == 401:
-            raise PermissionError("Invalid API Key (401 Unauthorized)")
+            raise PermissionError("Invalid API key (401)")
         raise
+    if not data.get("balance_infos"):
+        raise ValueError("No balance information returned")
 
-    infos = data.get("balance_infos", [])
-    if not infos:
-        raise ValueError("No balance information in response")
     all_balances = {}
-    for info in infos:
+    for info in data.get("balance_infos", []):
         code = info.get("currency", "CNY")
         all_balances[code] = {
             "total_balance": float(info.get("total_balance", 0)),
@@ -84,7 +56,6 @@ def fetch_service_status():
     Returns dict {"indicator": str, "api_operational": bool},
     or None on failure."""
     try:
-        import re
         url = "https://status.flashcat.cloud/deepseek"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         req = urllib.request.Request(url, headers=headers)
@@ -110,7 +81,8 @@ def fetch_service_status():
         active_match = re.search(r'\\"active_changes\\"\s*:\s*(\[[^\]]*\])', full)
         if active_match:
             raw = active_match.group(1).replace("\\", "")
-            changes = json.loads(raw)
+            import json as _json
+            changes = _json.loads(raw)
             for inc in changes:
                 for ac in inc.get("affected_components", []):
                     if ac.get("name") == api_name:

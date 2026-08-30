@@ -3,12 +3,13 @@ class SettingsUI {
         this.i18n = {};
         this.settings = {};
         this.dirty = false;
-        this.themeSwatches = {
-            default:  { ok: [60,105,102], low: [185,70,60], degraded: [120,89,90], nodata: [105,105,110] },
-            contrast: { ok: [0,128,128],   low: [200,50,50], degraded: [180,140,60], nodata: [80,80,90] },
-            bright:   { ok: [70,150,140],  low: [220,90,80], degraded: [200,170,80], nodata: [130,130,140] },
-            dark_mode:{ ok: [45,85,80],    low: [140,55,50], degraded: [90,75,60],   nodata: [60,60,65] },
-            mono:     { ok: [80,80,80],    low: [80,80,80],  degraded: [80,80,80],   nodata: [80,80,80] },
+        // Unified with src/icon_renderer.py THEMES (single source of truth)
+    this.themeSwatches = {
+            default:  { ok: [60,105,102], low: [185,70,60], degraded: [120,105,90], nodata: [105,105,110] },
+            contrast: { ok: [45,128,116], low: [212,52,46],  degraded: [139,105,20], nodata: [85,85,85] },
+            bright:   { ok: [200,235,230], low: [245,210,205], degraded: [235,220,205], nodata: [215,215,220] },
+            dark_mode:{ ok: [80,155,148], low: [215,100,90],  degraded: [155,140,115], nodata: [125,125,130] },
+            mono:     { ok: [85,85,85],   low: [34,34,34],   degraded: [119,119,119], nodata: [153,153,153] },
         };
     }
 
@@ -37,7 +38,6 @@ class SettingsUI {
 
     _populateDefaults() {
         this._setVal('api_key', '');
-        this._setVal('currency', 'CNY');
         this._setVal('threshold_yuan', 1.0);
         this._setVal('alert_mode', 'always');
         this._setVal('api_alert_enabled', true);
@@ -73,16 +73,12 @@ class SettingsUI {
     // ---- Populate ----
     _populate() {
         const s = this.settings;
-        
-        // Only populate API key if it's plaintext, otherwise keep it blank (masked by default)
-        // If api_key_enc is set but api_key is empty (e.g. wiped for security), we just show blank.
         if (s.api_key && s.api_key !== 'masked') {
             this._setVal('api_key', s.api_key);
         } else {
             this._setVal('api_key', '');
         }
 
-        this._setVal('currency', s.currency || 'CNY');
         this._setVal('threshold_yuan', s.threshold_yuan != null ? s.threshold_yuan : 1.0);
         this._setVal('alert_mode', s.alert_mode || 'always');
         this._setVal('api_alert_enabled', s.api_alert_enabled !== false);
@@ -125,7 +121,6 @@ class SettingsUI {
     _collect() {
         const cfg = {};
         cfg.api_key = this._getVal('api_key');
-        cfg.currency = this._getVal('currency');
         cfg.threshold_yuan = parseFloat(this._getVal('threshold_yuan')) || 0;
         cfg.alert_mode = this._getVal('alert_mode');
         cfg.api_alert_enabled = this._getVal('api_alert_enabled');
@@ -139,9 +134,6 @@ class SettingsUI {
         cfg.http_proxy = this._getVal('http_proxy');
 
         const existing = this.settings;
-        cfg.enable_alerts = existing.enable_alerts;
-        cfg.api_key_enc = existing.api_key_enc;
-
         const theme = cfg.theme;
         if (theme === 'custom') {
             cfg.icon_colors = {
@@ -264,9 +256,7 @@ class SettingsUI {
 
     async save() {
         const data = this._collect();
-        // If the API key is blank but we already have an encrypted one, it means user didn't change it.
-        // We only warn if there's no encrypted key either.
-        if (!data.api_key.trim() && !this.settings.api_key_enc) {
+        if (!data.api_key.trim() && !this.settings.api_key) {
             this._showToast(this.t('warn_no_key') || 'API Key cannot be empty!', 'error');
             return;
         }

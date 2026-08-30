@@ -5,7 +5,7 @@ import os
 import sys
 import threading
 
-from src.config import load_config, T, log, APP_ID
+from src.core.config import load_config, T, log, APP_ID
 
 
 class AppState:
@@ -23,10 +23,15 @@ class AppState:
         self._settings_window = None
         self._history_open = False
         self._history_window = None
+        self._main_window = None
         self._tk_root = None
         self._alert_suppressed = False
         self._api_was_operational = True
         self.demo_mode = False
+        self.package_data = None  # latest package quota for preferred API
+        self._alert_suppressed_pkg = False
+        self._check_generation = 0  # incremented on API switch to discard stale results
+        self._api_cache = {}  # {api_id: {"balances": {...}, "package_data": {...}, "service_status": {...}, "error": str}}
 
     @property
     def lang(self):
@@ -39,6 +44,13 @@ class AppState:
 
     def balance_tooltip(self):
         with self._lock:
+            pd = self.package_data
+            if pd:
+                # package mode: show best available remaining %
+                mp = pd.get("monthly") or pd.get("weekly") or pd.get("5h") or pd.get("rolling")
+                if mp:
+                    rm = mp.get("percent_remaining", 100 - mp.get("usage_percent", 0))
+                    return f"📊 {T('total_balance', self.lang)} {rm:.0f}%"
             if self.error:
                 return T("tooltip_error", self.lang, error=self.error)
             b = self.get_preferred_balance()
@@ -50,6 +62,15 @@ class AppState:
 
     def is_low_balance(self):
         with self._lock:
+            # package mode: check remaining % using billing_period
+            pd = self.package_data
+            if pd:
+                mp = pd.get("monthly") or pd.get("weekly") or pd.get("5h") or pd.get("rolling")
+                if mp:
+                    remaining_pct = mp.get("percent_remaining", 100 - mp.get("usage_percent", 0))
+                    threshold = float(self.config.get("threshold_package_percent", 10))
+                    return remaining_pct < threshold
+            # payg mode: check total balance
             b = self.get_preferred_balance()
             if b is None:
                 return False
@@ -78,6 +99,46 @@ class AppState:
             self._alert_suppressed = True
             return True
 
+    def is_daily_spend_fast(self):
+        """True when today's consumption crosses the configured daily-spend line.
+        Resets naturally at midnight (aggregation window = today)."""
+        from src.core.storage import get_today_spend
+        with self._lock:
+            pref_id = self.config.get("preferred_api_id", "")
+            apis = self.config.get("apis") or []
+            api = next((a for a in apis if a.get("id") == pref_id), None)
+            mode = (api or {}).get("mode", "payg")
+            bp = (api or {}).get("billing_period") or None
+            try:
+                if mode == "package":
+                    line = float(self.config.get("daily_spend_line_percent", 10))
+                    spent = get_today_spend(pref_id, "package", bp)
+                    fast = spent >= line > 0
+                else:
+                    line = float(self.config.get("daily_spend_line_yuan", 20))
+                    spent = get_today_spend(pref_id, "payg")
+                    fast = spent >= line > 0
+            except Exception as e:
+                log(f"daily-spend check failed: {e}")
+                return False
+            # one-shot alert state (same pattern as low-balance suppression)
+            if getattr(self, "_spend_was_fast", False) != fast:
+                self._spend_was_fast = fast
+                self._spend_alert_fired = False
+            return fast
+
+    def should_spend_alert(self):
+        """One-shot alert on entering the daily-spend-fast state."""
+        if not self.config.get("daily_spend_alert_enabled", False):
+            return False
+        if not self.is_daily_spend_fast():
+            return False
+        with self._lock:
+            if getattr(self, "_spend_alert_fired", False):
+                return False
+            self._spend_alert_fired = True
+            return True
+
     def check_api_status_alert(self):
         """Return "degraded", "recovered", or None on first status change.
         Fires once per transition — only when the API operational flag flips."""
@@ -93,6 +154,34 @@ class AppState:
             if not was_ok and now_ok:
                 return "recovered"
             return None
+
+    @staticmethod
+    def _deepseek_peak_phase(now=None):
+        """Return "peak" or "valley" for DeepSeek peak/off-peak pricing.
+        Beijing time (GMT+8) Mon–Fri 09:00–12:00 & 14:00–18:00 = peak;
+        weekends and all other hours = valley (half price)."""
+        from datetime import datetime, timezone, timedelta as _td
+        tz = timezone(_td(hours=8))
+        n = now or datetime.now(tz)
+        if n.tzinfo is None:
+            pass
+        weekday = n.weekday()  # Mon=0 .. Sun=6
+        if weekday >= 5:
+            return "valley"
+        hm = n.hour * 60 + n.minute
+        if (9 * 60 <= hm < 12 * 60) or (14 * 60 <= hm < 18 * 60):
+            return "peak"
+        return "valley"
+
+    def check_peak_valley_transition(self):
+        """Return "peak", "valley", or None when the DeepSeek pricing phase flips."""
+        with self._lock:
+            phase = self._deepseek_peak_phase()
+            prev = getattr(self, "_pv_phase", None)
+            self._pv_phase = phase
+            if prev is None or prev == phase:
+                return None
+            return phase
 
     def schedule_next_check(self, cb, interval_sec):
         with self._lock:

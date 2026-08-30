@@ -7,6 +7,10 @@ __pycache__/
 *.spec
 *.log
 
+# IDE / tooling
+.claude/
+.workbuddy/
+
 # Rust local build output and cache
 target/
 **/target/
