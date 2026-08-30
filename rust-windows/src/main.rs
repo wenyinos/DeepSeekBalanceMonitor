@@ -23,7 +23,7 @@ mod windows_app {
     use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::{self, Receiver, Sender};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, OnceLock};
     use std::thread;
     use std::time::Duration;
 
@@ -495,11 +495,31 @@ mod windows_app {
     }
 
     fn set_ui_font() {
-        for family in ["Microsoft YaHei UI", "Segoe UI", "Microsoft Sans Serif"] {
-            if nwg::Font::set_global_family(family).is_ok() {
-                return;
+        let _ = nwg::Font::set_global_family(ui_font_family());
+    }
+
+    /// UI 统一使用雅黑，系统缺失时回落宋体。CreateFontW 对不存在的字体名会静默替换，
+    /// 因此用字体枚举做真实存在性检测，不能依赖 set_global_family 的返回值。
+    fn ui_font_family() -> &'static str {
+        static FAMILY: OnceLock<&'static str> = OnceLock::new();
+        *FAMILY.get_or_init(|| {
+            // 组内是同一字体的别名，组间按优先级回落
+            const CANDIDATES: [&[&str]; 3] = [
+                &["Microsoft YaHei UI"],
+                &["Microsoft YaHei", "微软雅黑"],
+                &["SimSun", "宋体"],
+            ];
+            let installed = nwg::Font::families();
+            for aliases in CANDIDATES {
+                if aliases
+                    .iter()
+                    .any(|name| installed.iter().any(|f| f.as_str() == *name))
+                {
+                    return aliases[0];
+                }
             }
-        }
+            "SimSun"
+        })
     }
 
     struct AppUi {
@@ -1527,8 +1547,7 @@ mod windows_app {
                 .parent(&window)
                 .build(&mut tabs)?;
             nwg::Font::builder()
-                .family("Segoe UI")
-                .size(9)
+                .family(ui_font_family())
                 .weight(700)
                 .build(&mut bold_font)?;
             nwg::Tab::builder()
