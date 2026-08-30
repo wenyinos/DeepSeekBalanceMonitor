@@ -141,4 +141,5 @@ dsmon opencode-go set-key <api_key>   # 加密保存 API Key
 - 修改 API 客户端时需**同步检查 Python 与 Rust 实现**
 - Python 版 tkinter + pystray 双事件循环，改动时注意避免死锁
 - Rust 双端统一使用 rustls + webpki-roots，根证书内嵌二进制、不依赖系统证书库；根证书数据靠升级 webpki-roots 依赖维护（原 Win7/8.1 根证书脚本已移除，Python 版仅支持 Win10+）
+- Rust Windows 版声明系统 DPI 感知（app.manifest）并启用 nwg `high-dpi` feature：控件坐标一律按 96 DPI 逻辑像素书写、运行时自动缩放；字体必须用显式 `size_absolute`，`lfHeight=0` 的映射器默认高度不会随 DPI 缩放
 - macOS 构建脚本在 `src/mac` 下运行；改动 macOS 相关文件时遵循现有目录约束

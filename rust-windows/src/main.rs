@@ -495,7 +495,15 @@ mod windows_app {
     }
 
     fn set_ui_font() {
-        let _ = nwg::Font::set_global_family(ui_font_family());
+        let mut font = nwg::Font::default();
+        if nwg::Font::builder()
+            .family(ui_font_family())
+            .size_absolute(12)
+            .build(&mut font)
+            .is_ok()
+        {
+            let _ = nwg::Font::set_global_default(Some(font));
+        }
     }
 
     /// UI 统一使用雅黑，系统缺失时回落宋体。CreateFontW 对不存在的字体名会静默替换，
@@ -1548,6 +1556,7 @@ mod windows_app {
                 .build(&mut tabs)?;
             nwg::Font::builder()
                 .family(ui_font_family())
+                .size_absolute(12)
                 .weight(700)
                 .build(&mut bold_font)?;
             nwg::Tab::builder()
