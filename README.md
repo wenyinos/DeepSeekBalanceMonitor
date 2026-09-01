@@ -30,13 +30,15 @@ Rainmeter widget preview
 - Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
 - Rainmeter `/widget-status` now includes OpenCode Go quota fields (`og_*`), refreshed every 10 minutes in the background; interface contract documented with Python-port guidance.
 - OpenCode Go quota display (Rust builds): fetches the official OpenCode Go API (`opencode.ai/zen/go/v1/usage`, Bearer API key) for rolling (5h), weekly, and monthly usage; credentials stored encrypted in SQLite, never in config.json.
+- Command Code quota display (Rust builds): fetches `api.commandcode.ai` billing endpoints (Bearer API key) for 5h, weekly, and monthly usage (GOAT plans get a derived monthly window from 70 credits); the Windows settings dialog and Plasma widget each gain a "Subscriptions" page showing OpenCode Go and Command Code quota side by side, with all API keys entered on the Account page. Linux CLI: `dsmon command-code` / `dsmon command-code set-key` / `dsmon command-code json`.
 - Rust builds use rustls with embedded webpki-roots: no OS certificate store is consulted, so the Windows build works out of the box on Windows 7/8.1 and supports TLS 1.3.
 
 Rust Linux-specific:
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
 - `dsmon opencode-go` prints OpenCode Go quota; `dsmon opencode-go set-key <api_key>` stores the API key encrypted; `dsmon opencode-go json` emits machine-readable output.
-- The Plasma 6 widget adds an "Account" settings page holding both API keys (DeepSeek and OpenCode Go) plus the OpenCode quota bars; the General page is organised into Query / General / Proxy / Icon Appearance groups.
-- Plasma 6 widget main view: the DeepSeek balance is shown as a large number with last check, API status, and estimated availability in a four-line layout; the OpenCode section shows three usage progress bars (5h/Weekly/Monthly), all refreshed together from the top-right button.
+- `dsmon command-code` prints Command Code quota; `dsmon command-code set-key <api_key>` stores the API key encrypted; `dsmon command-code json` emits machine-readable output.
+- The Plasma 6 widget settings are split by purpose: the Account page holds all API keys (DeepSeek, OpenCode Go, Command Code); a new Subscriptions page shows both OpenCode Go and Command Code quota bars; the General page is organised into Query / General / Proxy / Icon Appearance groups.
+- Plasma 6 widget main view: the DeepSeek balance is shown as a large number with last check, API status, and estimated availability in a four-line layout; the OpenCode and Command Code sections each show three usage progress bars (5h/Weekly/Monthly), all refreshed together from the top-right button.
 - Refreshing the Linux Plasma widget model: balance, relative last check, API service status, and estimated availability now match the Rainmeter widget layout.
 - Plasma widget language changes now sync `cfg_language` to `dsmon`'s `ui_language`, persisting the Chinese/English selection across Plasma restarts.
 - Linux releases now provide both a complete `.tar.gz` package and a standalone `.plasmoid` widget package for direct download.
@@ -48,7 +50,7 @@ Rust Linux-specific:
 - **Balance details** — Left-click the icon to see balance (emoji-prefixed), consumption rate, API service status, and relative last-check time.
 - **History viewer** — Paginated table of all balance records with interactive trend chart and consumption rate analysis. CSV export.
 - **Settings** — API key (Fernet + SQLite encrypted storage), check interval, alert threshold, alert mode, icon theme, proxy, and more.
-- **OpenCode Go quota** (Rust builds) — A dedicated Settings tab (Windows) or `dsmon opencode-go` (Linux) shows rolling 5h/weekly/monthly usage from the opencode.ai dashboard, with encrypted credential storage.
+- **OpenCode Go & Command Code quota** (Rust builds) — A "Subscriptions" settings page (Windows) or `dsmon opencode-go` / `dsmon command-code` (Linux) shows rolling 5h/weekly/monthly usage from the opencode.ai and commandcode.ai dashboards, with encrypted credential storage.
 - **Demo mode** — `--demo` flag for testing without an API key, with a developer tools panel.
 - **Optional desktop widgets** — KDE Plasma 6 on Linux, and Rainmeter on Windows (Rust and Python builds both supported).
 - **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (Keychain-secured, WebView settings UI).
@@ -182,6 +184,7 @@ Useful Linux CLI commands:
 | `dsmon history export [days] [currency\|all] [path\|-]` | Export history as CSV; `-` writes CSV to stdout |
 | `dsmon widget-status` | Print JSON status consumed by the Plasma widget |
 | `dsmon opencode-go` | Print OpenCode Go quota (5h/weekly/monthly usage); store the API key with `dsmon opencode-go set-key <api_key>` (or pipe it via stdin; get a key at https://opencode.ai/auth) |
+| `dsmon command-code` | Print Command Code quota (5h/weekly/monthly usage); store the API key with `dsmon command-code set-key <api_key>` (or pipe it via stdin; get a key at https://commandcode.ai) |
 
 **MacOS (`src/mac/`):**
 

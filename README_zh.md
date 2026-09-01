@@ -30,13 +30,15 @@ Rainmeter 小组件预览图
 - Rainmeter 桌面小工具：仅本地可访问的状态接口；`.rmskin` 发布打包。Rust/Python Windows 双版均已支持。
 - Rainmeter `/widget-status` 现包含 OpenCode Go 额度字段（`og_*`），后台每 10 分钟刷新；接口约定与 Python 版实施建议见 `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`。
 - OpenCode Go 额度显示（Rust 版）：改用官方 OpenCode Go API（`opencode.ai/zen/go/v1/usage`，Bearer API Key 认证），展示 5 小时滚动 / 每周 / 每月三档用量；凭据加密存于 SQLite，绝不写入 config.json。
+- Command Code 额度显示（Rust 版）：调用 `api.commandcode.ai` 计费接口（Bearer API Key 认证），展示 5 小时 / 每周 / 每月三档用量（GOAT 套餐按 70 credits 推算月度窗口）；Windows 设置窗口与 Plasma 小组件各新增「订阅」页，并排展示 OpenCode Go 与 Command Code 额度，全部 API Key 在「账户」页输入。Linux CLI：`dsmon command-code` / `dsmon command-code set-key` / `dsmon command-code json`。
 - Rust 双端统一 TLS 栈（rustls + 内嵌 webpki-roots）：不依赖系统证书库，Windows 版在 Windows 7/8.1 上开箱即用并支持 TLS 1.3。
 
 Rust Linux 版本限定：
 - Rust Linux：`dsmon set-key` 和 `dsmon set <field> <value>`；daemon 每轮轮询重新读取配置；CLI 固定英文输出。
 - `dsmon opencode-go` 输出 OpenCode Go 额度；`dsmon opencode-go set-key <api_key>` 加密保存 API Key；`dsmon opencode-go json` 输出机器可读 JSON。
-- Plasma 6 小组件新增「账户」设置页，集中管理 DeepSeek 与 OpenCode Go 两个 API Key 及 OpenCode 额度进度条；「常规」页按「查询 / 通用 / 代理 / 图标外观」分组。
-- Plasma 6 小组件主视图：DeepSeek 余额以大数字展示，配合上次查询、API 服务状态与预计可用的四行布局；OpenCode 区展示三档用量进度条（5h/每周/每月），右上角按钮一键同时刷新。
+- `dsmon command-code` 输出 Command Code 额度；`dsmon command-code set-key <api_key>` 加密保存 API Key；`dsmon command-code json` 输出机器可读 JSON。
+- Plasma 6 小组件设置页按用途拆分：「账户」页集中管理全部 API Key（DeepSeek、OpenCode Go、Command Code）；新增「订阅」页并排展示 OpenCode Go 与 Command Code 额度进度条；「常规」页按「查询 / 通用 / 代理 / 图标外观」分组。
+- Plasma 6 小组件主视图：DeepSeek 余额以大数字展示，配合上次查询、API 服务状态与预计可用的四行布局；OpenCode 与 Command Code 区各展示三档用量进度条（5h/每周/每月），右上角按钮一键同时刷新。
 - 刷新 Linux Plasma 小组件显示模型：余额、相对上次查询、API 服务状态和预计可用时间现在与 Rainmeter 小工具布局一致。
 - Plasma 小组件语言修改现在会同步 `cfg_language` 到 `dsmon` 的 `ui_language`，重启 Plasma 后仍能保持中英文选择。
 - Linux 发布现在同时提供完整 `.tar.gz` 包和可直接下载的独立 `.plasmoid` 小组件包。
@@ -49,7 +51,7 @@ Rust Linux 版本限定：
 - **余额详情** — 左键单击图标查看余额（emoji 前缀）、消耗速率、API 服务状态和相对时间
 - **历史记录页** — 分页表格展示所有余额记录，附带折线图和消耗分析，支持 CSV 导出
 - **设置** — API Key（Fernet + SQLite加密存储）、查询间隔、预警阈值、提醒模式、图标主题、代理等
-- **OpenCode Go 额度**（Rust 版）— Windows 设置标签页或 Linux `dsmon opencode-go` 展示 opencode.ai 仪表板的 5h/每周/每月用量，凭据加密存储
+- **OpenCode Go 与 Command Code 额度**（Rust 版）— Windows 设置「订阅」页或 Linux `dsmon opencode-go` / `dsmon command-code` 展示 opencode.ai 与 commandcode.ai 仪表板的 5h/每周/每月用量，凭据加密存储
 - **Demo 模式** — `--demo` 免 Key 体验，开发者面板可调参数
 - **可选桌面小工具** — Linux 支持 KDE Plasma 6，Windows 支持 Rainmeter（Rust/Python 双版均已适配）
 - **社区移植** — Rust-Win（Win7+）、Rust-Linux（CLI + Plasma 6 小组件）、Py-Mac（Keychain 加密，WebView 设置界面）
@@ -183,6 +185,7 @@ CLI 目前仅 Rust Linux 版提供。Windows 和 MacOS 版使用图形界面 / �
 | `dsmon history export [days] [currency\|all] [path\|-]` | 导出历史 CSV；`-` 表示输出到 stdout |
 | `dsmon widget-status` | 输出 Plasma 小组件读取的 JSON 状态 |
 | `dsmon opencode-go` | 输出 OpenCode Go 额度（5h/每周/每月用量）；API Key 用 `dsmon opencode-go set-key <api_key>` 保存（或经 stdin 管道输入；Key 在 https://opencode.ai/auth 获取） |
+| `dsmon command-code` | 输出 Command Code 额度（5h/每周/每月用量）；API Key 用 `dsmon command-code set-key <api_key>` 保存（或经 stdin 管道输入；Key 在 https://commandcode.ai 获取） |
 
 **MacOS（`src/mac/`）：**
 

@@ -36,6 +36,9 @@ mod windows_app {
     const API_KEY_PLACEHOLDER: &str = "Stored securely. Leave blank to keep the existing API key.";
     const OPENCODE_GO_API_URL: &str = "https://opencode.ai/zen/go/v1/usage";
     const OPENCODE_GO_API_KEY: &str = "opencode_go_api_key";
+    const COMMAND_CODE_API_BASE: &str = "https://api.commandcode.ai/";
+    const COMMAND_CODE_API_KEY: &str = "command_code_api_key";
+    const GOAT_MONTHLY_CREDITS: f64 = 70.0;
     const CSIDL_STARTUP: i32 = 0x0007;
     const CSIDL_FLAG_CREATE: i32 = 0x8000;
     const COINIT_APARTMENTTHREADED: u32 = 0x2;
@@ -395,6 +398,105 @@ mod windows_app {
         resets_at: Option<String>,
     }
 
+    #[derive(Clone, Debug, Default)]
+    struct CommandCodeQuota {
+        five_hour: Option<CommandCodeWindow>,
+        weekly: Option<CommandCodeWindow>,
+        monthly: Option<CommandCodeWindow>,
+    }
+
+    #[derive(Clone, Debug)]
+    struct CommandCodeWindow {
+        used: f64,
+        cap: f64,
+        reset_in_sec: i64,
+    }
+
+    #[derive(Deserialize)]
+    struct CommandCodeApiResponse {
+        credits: CommandCodeApiCredits,
+        #[serde(rename = "windowLimits")]
+        window_limits: CommandCodeApiLimits,
+    }
+
+    #[derive(Deserialize)]
+    struct CommandCodeApiCredits {
+        #[serde(rename = "planId", default)]
+        plan_id: Option<String>,
+        #[serde(rename = "monthlyCredits", default)]
+        monthly_credits: Option<f64>,
+    }
+
+    #[derive(Deserialize)]
+    struct CommandCodeApiLimits {
+        #[serde(rename = "fiveHour", default)]
+        five_hour: Option<CommandCodeApiWindow>,
+        #[serde(default)]
+        weekly: Option<CommandCodeApiWindow>,
+    }
+
+    #[derive(Deserialize)]
+    struct CommandCodeApiWindow {
+        #[serde(default, deserialize_with = "deserialize_number")]
+        used: f64,
+        #[serde(default, deserialize_with = "deserialize_number")]
+        cap: f64,
+        #[serde(
+            rename = "resetAt",
+            default,
+            deserialize_with = "deserialize_optional_number"
+        )]
+        reset_at: Option<f64>,
+    }
+
+    fn deserialize_number<'de, D>(deserializer: D) -> Result<f64, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let value = serde_json::Value::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::Number(number) => number
+                .as_f64()
+                .ok_or_else(|| D::Error::custom("expected numeric value")),
+            serde_json::Value::String(text) => text
+                .parse::<f64>()
+                .map_err(|_| D::Error::custom("expected numeric string")),
+            _ => Err(D::Error::custom("expected number or numeric string")),
+        }
+    }
+
+    fn deserialize_optional_number<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let value = serde_json::Value::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::Null => Ok(None),
+            serde_json::Value::Number(number) => number
+                .as_f64()
+                .ok_or_else(|| D::Error::custom("expected numeric value"))
+                .map(Some),
+            serde_json::Value::String(text) => text
+                .parse::<f64>()
+                .map(Some)
+                .map_err(|_| D::Error::custom("expected numeric string")),
+            _ => Err(D::Error::custom("expected number or numeric string")),
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct CommandCodeApiWhoami {
+        org: Option<CommandCodeApiOrg>,
+    }
+
+    #[derive(Deserialize)]
+    struct CommandCodeApiOrg {
+        #[serde(default)]
+        id: Option<String>,
+    }
+
     struct HistorySummary {
         currency: String,
         records: usize,
@@ -429,6 +531,9 @@ mod windows_app {
         opencode_configured: bool,
         opencode: Option<OpenCodeGoQuota>,
         opencode_error: Option<String>,
+        command_code_configured: bool,
+        command_code: Option<CommandCodeQuota>,
+        command_code_error: Option<String>,
     }
 
     struct CheckResult {
@@ -489,6 +594,7 @@ mod windows_app {
 
         ui.start_check();
         spawn_opencode_refresh(ui.state.clone());
+        spawn_command_code_refresh(ui.state.clone());
         nwg::dispatch_thread_events();
         log_line("Rust Windows app exited");
         Ok(())
@@ -1033,6 +1139,9 @@ mod windows_app {
         opencode_configured: bool,
         opencode: Option<OpenCodeGoQuota>,
         opencode_error: Option<String>,
+        command_code_configured: bool,
+        command_code: Option<CommandCodeQuota>,
+        command_code_error: Option<String>,
     }
 
     fn spawn_opencode_refresh(state: Arc<Mutex<RuntimeState>>) {
@@ -1062,6 +1171,40 @@ mod windows_app {
                     }
                     Err(error) => {
                         state.opencode_error = Some(error);
+                    }
+                }
+            }
+            thread::sleep(Duration::from_secs(600));
+        });
+    }
+
+    fn spawn_command_code_refresh(state: Arc<Mutex<RuntimeState>>) {
+        thread::spawn(move || loop {
+            let api_key = read_secure_value(COMMAND_CODE_API_KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let configured = !api_key.is_empty();
+            let config = state.lock().unwrap().config.clone();
+            let result = if configured {
+                fetch_command_code_quota(&api_key, effective_http_proxy(&config)).map(Some)
+            } else {
+                Ok(None)
+            };
+            {
+                let mut state = state.lock().unwrap();
+                state.command_code_configured = configured;
+                match result {
+                    Ok(Some(quota)) => {
+                        state.command_code = Some(quota);
+                        state.command_code_error = None;
+                    }
+                    Ok(None) => {
+                        state.command_code = None;
+                        state.command_code_error = None;
+                    }
+                    Err(error) => {
+                        state.command_code_error = Some(error);
                     }
                 }
             }
@@ -1193,6 +1336,9 @@ mod windows_app {
                 opencode_configured: state.opencode_configured,
                 opencode: state.opencode.clone(),
                 opencode_error: state.opencode_error.clone(),
+                command_code_configured: state.command_code_configured,
+                command_code: state.command_code.clone(),
+                command_code_error: state.command_code_error.clone(),
             }
         };
         let lang = request_language(target, &snapshot.config.ui_language);
@@ -1309,8 +1455,36 @@ mod windows_app {
                 "--".to_string(),
             ),
         };
+        let (
+            cc_error,
+            cc_5h_percent,
+            cc_5h_line,
+            cc_weekly_percent,
+            cc_weekly_line,
+            cc_monthly_percent,
+            cc_monthly_line,
+        ) = match &snapshot.command_code {
+            Some(quota) => (
+                snapshot.command_code_error.clone().unwrap_or_default(),
+                cc_window_percent(quota.five_hour.as_ref()),
+                cc_window_line(lang, quota.five_hour.as_ref()),
+                cc_window_percent(quota.weekly.as_ref()),
+                cc_window_line(lang, quota.weekly.as_ref()),
+                cc_window_percent(quota.monthly.as_ref()),
+                cc_window_line(lang, quota.monthly.as_ref()),
+            ),
+            None => (
+                snapshot.command_code_error.clone().unwrap_or_default(),
+                0,
+                "--".to_string(),
+                0,
+                "--".to_string(),
+                0,
+                "--".to_string(),
+            ),
+        };
         format!(
-            "{{\"accent_color\":{},\"balance_line\":{},\"status_line\":{},\"last_check\":{},\"service_status_line\":{},\"estimated_line\":{},\"og_configured\":{},\"og_error\":{},\"og_rolling_percent\":{},\"og_rolling_line\":{},\"og_weekly_percent\":{},\"og_weekly_line\":{},\"og_monthly_percent\":{},\"og_monthly_line\":{}}}",
+            "{{\"accent_color\":{},\"balance_line\":{},\"status_line\":{},\"last_check\":{},\"service_status_line\":{},\"estimated_line\":{},\"og_configured\":{},\"og_error\":{},\"og_rolling_percent\":{},\"og_rolling_line\":{},\"og_weekly_percent\":{},\"og_weekly_line\":{},\"og_monthly_percent\":{},\"og_monthly_line\":{},\"cc_configured\":{},\"cc_error\":{},\"cc_5h_percent\":{},\"cc_5h_line\":{},\"cc_weekly_percent\":{},\"cc_weekly_line\":{},\"cc_monthly_percent\":{},\"cc_monthly_line\":{}}}",
             json_string(&rainmeter_accent_color(snapshot)),
             json_string(&balance_line),
             json_string(&status_line),
@@ -1325,6 +1499,14 @@ mod windows_app {
             json_string(&og_weekly_line),
             og_monthly_percent,
             json_string(&og_monthly_line),
+            if snapshot.command_code_configured { "true" } else { "false" },
+            json_string(&cc_error),
+            cc_5h_percent,
+            json_string(&cc_5h_line),
+            cc_weekly_percent,
+            json_string(&cc_weekly_line),
+            cc_monthly_percent,
+            json_string(&cc_monthly_line),
         )
     }
 
@@ -1342,6 +1524,25 @@ mod windows_app {
                 format_reset_seconds(usage.reset_in_sec)
             ),
             None => tr(lang, "og_unavailable").to_string(),
+        }
+    }
+
+    fn cc_window_percent(window: Option<&CommandCodeWindow>) -> i64 {
+        window
+            .filter(|window| window.cap > 0.0)
+            .map(|window| ((window.used / window.cap) * 100.0).clamp(0.0, 100.0) as i64)
+            .unwrap_or(0)
+    }
+
+    fn cc_window_line(lang: &str, window: Option<&CommandCodeWindow>) -> String {
+        match window {
+            Some(window) if window.cap > 0.0 => format!(
+                "{:.1}/{:.1} · {}",
+                window.used,
+                window.cap,
+                format_reset_seconds(window.reset_in_sec)
+            ),
+            _ => tr(lang, "cc_unavailable").to_string(),
         }
     }
 
@@ -1393,7 +1594,7 @@ mod windows_app {
         _account_tab: nwg::Tab,
         _general_tab: nwg::Tab,
         _history_tab: nwg::Tab,
-        _opencode_go_tab: nwg::Tab,
+        _subscription_tab: nwg::Tab,
         bold_font: nwg::Font,
         _group_credentials_label: nwg::Label,
         _credentials_sep: nwg::Frame,
@@ -1405,8 +1606,8 @@ mod windows_app {
         _proxy_sep: nwg::Frame,
         _group_appearance_label: nwg::Label,
         _appearance_sep: nwg::Frame,
-        _group_quota_label: nwg::Label,
-        _quota_sep: nwg::Frame,
+        _group_og_label: nwg::Label,
+        _og_sep: nwg::Frame,
         _og_api_key_label: nwg::Label,
         og_api_key_input: nwg::TextInput,
         og_show_api_key: nwg::CheckBox,
@@ -1422,6 +1623,23 @@ mod windows_app {
         _og_monthly_value: nwg::Label,
         og_box: nwg::TextBox,
         refresh_og_button: nwg::Button,
+        _group_cc_label: nwg::Label,
+        _cc_sep: nwg::Frame,
+        _cc_api_key_label: nwg::Label,
+        cc_api_key_input: nwg::TextInput,
+        cc_show_api_key: nwg::CheckBox,
+        _cc_hint_box: nwg::TextBox,
+        _cc_5h_label: nwg::Label,
+        cc_5h_bar: nwg::ProgressBar,
+        _cc_5h_value: nwg::Label,
+        _cc_weekly_label: nwg::Label,
+        cc_weekly_bar: nwg::ProgressBar,
+        _cc_weekly_value: nwg::Label,
+        _cc_monthly_label: nwg::Label,
+        cc_monthly_bar: nwg::ProgressBar,
+        _cc_monthly_value: nwg::Label,
+        cc_box: nwg::TextBox,
+        refresh_cc_button: nwg::Button,
         _api_label: nwg::Label,
         api_input: nwg::TextInput,
         show_key: nwg::CheckBox,
@@ -1475,7 +1693,7 @@ mod windows_app {
             let mut account_tab = Default::default();
             let mut general_tab = Default::default();
             let mut history_tab = Default::default();
-            let mut opencode_go_tab = Default::default();
+            let mut subscription_tab = Default::default();
             let mut bold_font = Default::default();
             let mut group_credentials_label = Default::default();
             let mut credentials_sep = Default::default();
@@ -1487,8 +1705,8 @@ mod windows_app {
             let mut proxy_sep = Default::default();
             let mut group_appearance_label = Default::default();
             let mut appearance_sep = Default::default();
-            let mut group_quota_label = Default::default();
-            let mut quota_sep = Default::default();
+            let mut group_og_label = Default::default();
+            let mut og_sep = Default::default();
             let mut og_api_key_label = Default::default();
             let mut og_api_key_input = Default::default();
             let mut og_show_api_key = Default::default();
@@ -1504,6 +1722,23 @@ mod windows_app {
             let mut og_monthly_value = Default::default();
             let mut og_box = Default::default();
             let mut refresh_og_button = Default::default();
+            let mut group_cc_label = Default::default();
+            let mut cc_sep = Default::default();
+            let mut cc_api_key_label = Default::default();
+            let mut cc_api_key_input = Default::default();
+            let mut cc_show_api_key = Default::default();
+            let mut cc_hint_box = Default::default();
+            let mut cc_5h_label = Default::default();
+            let mut cc_5h_bar = Default::default();
+            let mut cc_5h_value = Default::default();
+            let mut cc_weekly_label = Default::default();
+            let mut cc_weekly_bar = Default::default();
+            let mut cc_weekly_value = Default::default();
+            let mut cc_monthly_label = Default::default();
+            let mut cc_monthly_bar = Default::default();
+            let mut cc_monthly_value = Default::default();
+            let mut cc_box = Default::default();
+            let mut refresh_cc_button = Default::default();
             let mut api_label = Default::default();
             let mut api_input = Default::default();
             let mut show_key = Default::default();
@@ -1572,10 +1807,14 @@ mod windows_app {
                 .parent(&tabs)
                 .build(&mut history_tab)?;
             nwg::Tab::builder()
-                .text(tr(lang, "og_tab"))
+                .text(tr(lang, "subscription_tab"))
                 .parent(&tabs)
-                .build(&mut opencode_go_tab)?;
+                .build(&mut subscription_tab)?;
             let og_api_key = read_secure_value(OPENCODE_GO_API_KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let cc_api_key = read_secure_value(COMMAND_CODE_API_KEY)
                 .ok()
                 .flatten()
                 .unwrap_or_default();
@@ -1647,9 +1886,42 @@ mod windows_app {
                 )
                 .readonly(true)
                 .position((20, 246))
-                .size((460, 56))
+                .size((460, 40))
                 .parent(&account_tab)
                 .build(&mut og_hint_box)?;
+            nwg::Label::builder()
+                .text(tr(lang, "cc_api_key_label"))
+                .position((20, 296))
+                .size((220, 20))
+                .parent(&account_tab)
+                .build(&mut cc_api_key_label)?;
+            nwg::TextInput::builder()
+                .text(&cc_api_key)
+                .placeholder_text((!cc_api_key.is_empty()).then_some(tr(lang, "cc_api_key_hint")))
+                .position((20, 320))
+                .size((460, 28))
+                .parent(&account_tab)
+                .build(&mut cc_api_key_input)?;
+            cc_api_key_input.set_password_char(Some('*'));
+            nwg::CheckBox::builder()
+                .text(tr(lang, "cc_show_api_key"))
+                .position((20, 354))
+                .size((200, 24))
+                .parent(&account_tab)
+                .check_state(unchecked)
+                .build(&mut cc_show_api_key)?;
+            nwg::TextBox::builder()
+                .text(tr(lang, "cc_hint"))
+                .flags(
+                    nwg::TextBoxFlags::VISIBLE
+                        | nwg::TextBoxFlags::VSCROLL
+                        | nwg::TextBoxFlags::TAB_STOP,
+                )
+                .readonly(true)
+                .position((20, 384))
+                .size((460, 48))
+                .parent(&account_tab)
+                .build(&mut cc_hint_box)?;
 
             // ===== 常规页：查询组 =====
             nwg::Label::builder()
@@ -1982,81 +2254,92 @@ mod windows_app {
             } else {
                 String::new()
             };
+            let cc_box_text = if read_secure_value(COMMAND_CODE_API_KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+                .is_empty()
+            {
+                tr(lang, "cc_not_configured").to_string()
+            } else {
+                String::new()
+            };
+            // ===== 订阅页：OpenCode Go 组 =====
             nwg::Label::builder()
-                .text(tr(lang, "group_quota"))
-                .position((20, 20))
+                .text(tr(lang, "group_og"))
+                .position((20, 17))
                 .size((200, 20))
-                .parent(&opencode_go_tab)
-                .build(&mut group_quota_label)?;
-            group_quota_label.set_font(Some(&bold_font));
+                .parent(&subscription_tab)
+                .build(&mut group_og_label)?;
+            group_og_label.set_font(Some(&bold_font));
             nwg::Frame::builder()
-                .position((20, 44))
+                .position((20, 41))
                 .size((460, 1))
                 .flags(nwg::FrameFlags::VISIBLE | nwg::FrameFlags::BORDER)
-                .parent(&opencode_go_tab)
-                .build(&mut quota_sep)?;
+                .parent(&subscription_tab)
+                .build(&mut og_sep)?;
             nwg::Button::builder()
                 .text(tr(lang, "og_refresh"))
-                .position((20, 60))
+                .position((20, 52))
                 .size((86, 30))
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut refresh_og_button)?;
             nwg::Label::builder()
                 .text(tr(lang, "og_window_5h"))
-                .position((20, 100))
+                .position((20, 92))
                 .size((70, 22))
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut og_rolling_label)?;
             nwg::ProgressBar::builder()
-                .position((95, 98))
+                .position((95, 90))
                 .size((270, 14))
                 .range(0..100)
                 .pos(0)
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut og_rolling_bar)?;
             nwg::Label::builder()
                 .text("--")
-                .position((370, 100))
+                .position((370, 92))
                 .size((90, 22))
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut og_rolling_value)?;
             nwg::Label::builder()
                 .text(tr(lang, "og_window_weekly"))
-                .position((20, 138))
+                .position((20, 130))
                 .size((70, 22))
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut og_weekly_label)?;
             nwg::ProgressBar::builder()
-                .position((95, 136))
+                .position((95, 128))
                 .size((270, 14))
                 .range(0..100)
                 .pos(0)
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut og_weekly_bar)?;
             nwg::Label::builder()
                 .text("--")
-                .position((370, 138))
+                .position((370, 130))
                 .size((90, 22))
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut og_weekly_value)?;
             nwg::Label::builder()
                 .text(tr(lang, "og_window_monthly"))
-                .position((20, 176))
+                .position((20, 168))
                 .size((70, 22))
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut og_monthly_label)?;
             nwg::ProgressBar::builder()
-                .position((95, 174))
+                .position((95, 166))
                 .size((270, 14))
                 .range(0..100)
                 .pos(0)
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut og_monthly_bar)?;
             nwg::Label::builder()
                 .text("--")
-                .position((370, 176))
+                .position((370, 168))
                 .size((90, 22))
-                .parent(&opencode_go_tab)
+                .parent(&subscription_tab)
                 .build(&mut og_monthly_value)?;
             nwg::TextBox::builder()
                 .text(&og_box_text)
@@ -2067,10 +2350,100 @@ mod windows_app {
                         | nwg::TextBoxFlags::TAB_STOP,
                 )
                 .readonly(true)
-                .position((20, 214))
-                .size((440, 80))
-                .parent(&opencode_go_tab)
+                .position((20, 200))
+                .size((440, 62))
+                .parent(&subscription_tab)
                 .build(&mut og_box)?;
+            // ===== 订阅页：Command Code 组 =====
+            nwg::Label::builder()
+                .text(tr(lang, "group_cc"))
+                .position((20, 272))
+                .size((200, 20))
+                .parent(&subscription_tab)
+                .build(&mut group_cc_label)?;
+            group_cc_label.set_font(Some(&bold_font));
+            nwg::Frame::builder()
+                .position((20, 296))
+                .size((460, 1))
+                .flags(nwg::FrameFlags::VISIBLE | nwg::FrameFlags::BORDER)
+                .parent(&subscription_tab)
+                .build(&mut cc_sep)?;
+            nwg::Button::builder()
+                .text(tr(lang, "cc_refresh"))
+                .position((20, 307))
+                .size((86, 30))
+                .parent(&subscription_tab)
+                .build(&mut refresh_cc_button)?;
+            nwg::Label::builder()
+                .text(tr(lang, "cc_window_5h"))
+                .position((20, 347))
+                .size((70, 22))
+                .parent(&subscription_tab)
+                .build(&mut cc_5h_label)?;
+            nwg::ProgressBar::builder()
+                .position((95, 345))
+                .size((270, 14))
+                .range(0..100)
+                .pos(0)
+                .parent(&subscription_tab)
+                .build(&mut cc_5h_bar)?;
+            nwg::Label::builder()
+                .text("--")
+                .position((370, 347))
+                .size((90, 22))
+                .parent(&subscription_tab)
+                .build(&mut cc_5h_value)?;
+            nwg::Label::builder()
+                .text(tr(lang, "cc_window_weekly"))
+                .position((20, 385))
+                .size((70, 22))
+                .parent(&subscription_tab)
+                .build(&mut cc_weekly_label)?;
+            nwg::ProgressBar::builder()
+                .position((95, 383))
+                .size((270, 14))
+                .range(0..100)
+                .pos(0)
+                .parent(&subscription_tab)
+                .build(&mut cc_weekly_bar)?;
+            nwg::Label::builder()
+                .text("--")
+                .position((370, 385))
+                .size((90, 22))
+                .parent(&subscription_tab)
+                .build(&mut cc_weekly_value)?;
+            nwg::Label::builder()
+                .text(tr(lang, "cc_window_monthly"))
+                .position((20, 423))
+                .size((70, 22))
+                .parent(&subscription_tab)
+                .build(&mut cc_monthly_label)?;
+            nwg::ProgressBar::builder()
+                .position((95, 421))
+                .size((270, 14))
+                .range(0..100)
+                .pos(0)
+                .parent(&subscription_tab)
+                .build(&mut cc_monthly_bar)?;
+            nwg::Label::builder()
+                .text("--")
+                .position((370, 423))
+                .size((90, 22))
+                .parent(&subscription_tab)
+                .build(&mut cc_monthly_value)?;
+            nwg::TextBox::builder()
+                .text(&cc_box_text)
+                .flags(
+                    nwg::TextBoxFlags::VISIBLE
+                        | nwg::TextBoxFlags::VSCROLL
+                        | nwg::TextBoxFlags::AUTOVSCROLL
+                        | nwg::TextBoxFlags::TAB_STOP,
+                )
+                .readonly(true)
+                .position((20, 455))
+                .size((440, 62))
+                .parent(&subscription_tab)
+                .build(&mut cc_box)?;
             nwg::Button::builder()
                 .text(tr(lang, "save"))
                 .position((300, 660))
@@ -2091,7 +2464,7 @@ mod windows_app {
                 _account_tab: account_tab,
                 _general_tab: general_tab,
                 _history_tab: history_tab,
-                _opencode_go_tab: opencode_go_tab,
+                _subscription_tab: subscription_tab,
                 bold_font,
                 _group_credentials_label: group_credentials_label,
                 _credentials_sep: credentials_sep,
@@ -2103,8 +2476,8 @@ mod windows_app {
                 _proxy_sep: proxy_sep,
                 _group_appearance_label: group_appearance_label,
                 _appearance_sep: appearance_sep,
-                _group_quota_label: group_quota_label,
-                _quota_sep: quota_sep,
+                _group_og_label: group_og_label,
+                _og_sep: og_sep,
                 _og_api_key_label: og_api_key_label,
                 og_api_key_input,
                 og_show_api_key,
@@ -2120,6 +2493,23 @@ mod windows_app {
                 _og_monthly_value: og_monthly_value,
                 og_box,
                 refresh_og_button,
+                _group_cc_label: group_cc_label,
+                _cc_sep: cc_sep,
+                _cc_api_key_label: cc_api_key_label,
+                cc_api_key_input,
+                cc_show_api_key,
+                _cc_hint_box: cc_hint_box,
+                _cc_5h_label: cc_5h_label,
+                cc_5h_bar,
+                _cc_5h_value: cc_5h_value,
+                _cc_weekly_label: cc_weekly_label,
+                cc_weekly_bar,
+                _cc_weekly_value: cc_weekly_value,
+                _cc_monthly_label: cc_monthly_label,
+                cc_monthly_bar,
+                _cc_monthly_value: cc_monthly_value,
+                cc_box,
+                refresh_cc_button,
                 _api_label: api_label,
                 api_input,
                 show_key,
@@ -2196,6 +2586,17 @@ mod windows_app {
                         nwg::Event::OnButtonClick if &handle == &settings.refresh_og_button => {
                             settings.refresh_opencode_go();
                         }
+                        nwg::Event::OnButtonClick if &handle == &settings.cc_show_api_key => {
+                            if settings.cc_show_api_key.check_state() == nwg::CheckBoxState::Checked
+                            {
+                                settings.cc_api_key_input.set_password_char(None);
+                            } else {
+                                settings.cc_api_key_input.set_password_char(Some('*'));
+                            }
+                        }
+                        nwg::Event::OnButtonClick if &handle == &settings.refresh_cc_button => {
+                            settings.refresh_command_code();
+                        }
                         nwg::Event::OnButtonClick
                             if &handle == &settings.refresh_history_button =>
                         {
@@ -2229,7 +2630,10 @@ mod windows_app {
 
         fn refresh_opencode_go(&self) {
             let lang = self.current_language();
-            let api_key = self.og_api_key_input.text().trim().to_string();
+            let api_key = read_secure_value(OPENCODE_GO_API_KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
             if api_key.is_empty() {
                 self.og_box.set_text(tr(&lang, "og_not_configured"));
                 self.reset_opencode_go_bars();
@@ -2321,6 +2725,105 @@ mod windows_app {
             }
         }
 
+        fn refresh_command_code(&self) {
+            let lang = self.current_language();
+            let api_key = read_secure_value(COMMAND_CODE_API_KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            if api_key.is_empty() {
+                self.cc_box.set_text(tr(&lang, "cc_not_configured"));
+                self.reset_command_code_bars();
+                return;
+            }
+            let proxy = if self.proxy_enabled.check_state() == nwg::CheckBoxState::Checked {
+                self.proxy_input.text().trim().to_string()
+            } else {
+                String::new()
+            };
+            self.cc_box.set_text(tr(&lang, "cc_checking"));
+            self.reset_command_code_bars();
+            match fetch_command_code_quota(&api_key, &proxy) {
+                Ok(quota) => {
+                    self.update_command_code_bars(&quota, &lang);
+                    self.cc_box.set_text(tr(&lang, "cc_loaded"));
+                }
+                Err(error) => self
+                    .cc_box
+                    .set_text(&format!("{} {error}", tr(&lang, "cc_refresh_failed"))),
+            }
+        }
+
+        fn update_command_code_bars(&self, quota: &CommandCodeQuota, lang: &str) {
+            self.set_command_code_bar(
+                &self.cc_5h_bar,
+                &self._cc_5h_value,
+                quota.five_hour.as_ref(),
+                lang,
+            );
+            self.set_command_code_bar(
+                &self.cc_weekly_bar,
+                &self._cc_weekly_value,
+                quota.weekly.as_ref(),
+                lang,
+            );
+            self.set_command_code_bar(
+                &self.cc_monthly_bar,
+                &self._cc_monthly_value,
+                quota.monthly.as_ref(),
+                lang,
+            );
+        }
+
+        fn set_command_code_bar(
+            &self,
+            bar: &nwg::ProgressBar,
+            value: &nwg::Label,
+            window: Option<&CommandCodeWindow>,
+            lang: &str,
+        ) {
+            match window {
+                Some(window) => {
+                    let percent = if window.cap > 0.0 {
+                        (window.used / window.cap * 100.0).clamp(0.0, 100.0)
+                    } else {
+                        0.0
+                    };
+                    bar.set_pos(percent as u32);
+                    bar.set_state(match percent {
+                        percent if percent >= 80.0 => nwg::ProgressBarState::Error,
+                        percent if percent >= 60.0 => nwg::ProgressBarState::Paused,
+                        _ => nwg::ProgressBarState::Normal,
+                    });
+                    value.set_text(&format!(
+                        "{:.1}/{:.1} · {}",
+                        window.used,
+                        window.cap,
+                        format_reset_seconds(window.reset_in_sec)
+                    ));
+                }
+                None => {
+                    bar.set_pos(0);
+                    bar.set_state(nwg::ProgressBarState::Normal);
+                    value.set_text(tr(lang, "cc_unavailable"));
+                }
+            }
+        }
+
+        fn reset_command_code_bars(&self) {
+            for bar in [&self.cc_5h_bar, &self.cc_weekly_bar, &self.cc_monthly_bar] {
+                bar.set_pos(0);
+                bar.set_state(nwg::ProgressBarState::Normal);
+            }
+            for value in [
+                &self._cc_5h_value,
+                &self._cc_weekly_value,
+                &self._cc_monthly_value,
+            ] {
+                value.set_text("--");
+            }
+        }
+
         fn refresh_history(&self) {
             let (days, currency) = self.history_filters();
             let text = format_history_view(&self.current_language(), days, currency.as_deref());
@@ -2384,6 +2887,10 @@ mod windows_app {
             let og_api_key = self.og_api_key_input.text().trim().to_string();
             if !og_api_key.is_empty() {
                 store_secure_value(OPENCODE_GO_API_KEY, &og_api_key)?;
+            }
+            let cc_api_key = self.cc_api_key_input.text().trim().to_string();
+            if !cc_api_key.is_empty() {
+                store_secure_value(COMMAND_CODE_API_KEY, &cc_api_key)?;
             }
             let interval_minutes = self
                 .interval_input
@@ -2554,6 +3061,145 @@ mod windows_app {
             usage_percent,
             percent_remaining: (100.0 - usage_percent).max(0.0),
             reset_in_sec,
+        }
+    }
+
+    fn fetch_command_code_quota(
+        api_key: &str,
+        http_proxy: &str,
+    ) -> Result<CommandCodeQuota, String> {
+        let client = http_client(Duration::from_secs(10), http_proxy)?;
+        let organization_id = fetch_command_code_org_id(&client, api_key)?;
+        let org_query = organization_id
+            .map(|id| format!("?orgId={}", urlencode(&id)))
+            .unwrap_or_default();
+        let response = client
+            .get(format!(
+                "{COMMAND_CODE_API_BASE}alpha/billing/credits{org_query}"
+            ))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", api_key.trim()))
+            .send()
+            .map_err(|e| format!("Command Code request failed: {e}"))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().unwrap_or_default();
+            let message = sanitize_command_code_message(&text);
+            return Err(format!("Command Code API error {status}: {message}"));
+        }
+        let payload: CommandCodeApiResponse = response
+            .error_for_status()
+            .map_err(|e| e.to_string())?
+            .json()
+            .map_err(|e| format!("Command Code JSON parse failed: {e}"))?;
+        let now = Local::now().timestamp();
+        let monthly = command_code_monthly_window(
+            payload.credits.plan_id.as_deref(),
+            payload.credits.monthly_credits,
+        );
+        let quota = CommandCodeQuota {
+            five_hour: payload
+                .window_limits
+                .five_hour
+                .map(|window| api_cc_window_to_window(window, now)),
+            weekly: payload
+                .window_limits
+                .weekly
+                .map(|window| api_cc_window_to_window(window, now)),
+            monthly,
+        };
+        if quota.five_hour.is_none() && quota.weekly.is_none() && quota.monthly.is_none() {
+            return Err("Command Code API returned no usage windows.".to_string());
+        }
+        Ok(quota)
+    }
+
+    fn fetch_command_code_org_id(
+        client: &reqwest::blocking::Client,
+        api_key: &str,
+    ) -> Result<Option<String>, String> {
+        let response = client
+            .get(format!("{COMMAND_CODE_API_BASE}alpha/whoami"))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", api_key.trim()))
+            .send()
+            .map_err(|e| format!("Command Code request failed: {e}"))?;
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        let payload: CommandCodeApiWhoami = response
+            .error_for_status()
+            .map_err(|e| e.to_string())?
+            .json()
+            .map_err(|e| format!("Command Code JSON parse failed: {e}"))?;
+        Ok(payload.org.and_then(|org| org.id))
+    }
+
+    fn api_cc_window_to_window(window: CommandCodeApiWindow, now: i64) -> CommandCodeWindow {
+        CommandCodeWindow {
+            used: window.used.max(0.0),
+            cap: window.cap.max(0.0),
+            reset_in_sec: epoch_to_reset_seconds(window.reset_at, now),
+        }
+    }
+
+    fn epoch_to_reset_seconds(epoch: Option<f64>, now: i64) -> i64 {
+        epoch
+            .map(|value| {
+                let seconds = if value >= 100_000_000_000.0 {
+                    (value / 1000.0) as i64
+                } else {
+                    value as i64
+                };
+                (seconds - now).max(0)
+            })
+            .unwrap_or(0)
+    }
+
+    fn command_code_monthly_window(
+        plan_id: Option<&str>,
+        monthly_credits: Option<f64>,
+    ) -> Option<CommandCodeWindow> {
+        let is_goat = plan_id
+            .map(|plan| {
+                plan.replace('_', "-")
+                    .to_ascii_lowercase()
+                    .starts_with("individual-goat")
+            })
+            .unwrap_or(false);
+        if is_goat {
+            monthly_credits.map(|remaining| {
+                let used = (GOAT_MONTHLY_CREDITS - remaining).clamp(0.0, GOAT_MONTHLY_CREDITS);
+                CommandCodeWindow {
+                    used,
+                    cap: GOAT_MONTHLY_CREDITS,
+                    reset_in_sec: 0,
+                }
+            })
+        } else {
+            // 非 GOAT 套餐：月度窗口不可靠，交给 UI 显示「不可用」
+            None
+        }
+    }
+
+    fn urlencode(value: &str) -> String {
+        value
+            .bytes()
+            .map(|byte| match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (byte as char).to_string()
+                }
+                _ => format!("%{:02X}", byte),
+            })
+            .collect()
+    }
+
+    fn sanitize_command_code_message(text: &str) -> String {
+        let cleaned: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if cleaned.is_empty() {
+            "unknown".to_string()
+        } else {
+            cleaned.chars().take(120).collect()
         }
     }
 
@@ -4117,7 +4763,6 @@ mod windows_app {
             ("en", "group_general") => "General",
             ("en", "group_proxy") => "Proxy",
             ("en", "group_appearance") => "Icon Appearance",
-            ("en", "group_quota") => "Quota",
             ("en", "api_key_label") => "DeepSeek API Key:",
             ("en", "show_key") => "Show API Key",
             ("en", "interval_label") => "Check interval (minutes, 1-1440):",
@@ -4212,7 +4857,7 @@ mod windows_app {
             ("en", "api_degraded_msg") => "API service status has changed: ",
             ("en", "api_recovered_title") => "✅ DeepSeek API Recovered",
             ("en", "api_recovered_msg") => "API service is back to normal.",
-            ("en", "og_tab") => "OpenCode Go",
+            ("en", "subscription_tab") => "Subscriptions",
             ("en", "og_title") => "OpenCode Go",
             ("en", "og_api_key_label") => "OpenCode Go API key:",
             ("en", "og_show_api_key") => "Show API key",
@@ -4228,6 +4873,21 @@ mod windows_app {
             ("en", "og_refresh_failed") => "Refresh failed:",
             ("en", "og_loaded") => "Loaded.",
             ("en", "og_api_key_hint") => "Leave blank to keep the existing API key.",
+            ("en", "group_og") => "OpenCode Go",
+            ("en", "group_cc") => "Command Code",
+            ("en", "cc_api_key_label") => "Command Code API key:",
+            ("en", "cc_show_api_key") => "Show API key",
+            ("en", "cc_hint") => "Get an API key from https://commandcode.ai and enter it above. The key is encrypted and stored locally.",
+            ("en", "cc_refresh") => "Refresh",
+            ("en", "cc_window_5h") => "5h",
+            ("en", "cc_window_weekly") => "Weekly",
+            ("en", "cc_window_monthly") => "Monthly",
+            ("en", "cc_unavailable") => "unavailable",
+            ("en", "cc_checking") => "Checking...",
+            ("en", "cc_not_configured") => "Command Code API key is not configured. Add it on the Account tab.",
+            ("en", "cc_refresh_failed") => "Refresh failed:",
+            ("en", "cc_loaded") => "Loaded.",
+            ("en", "cc_api_key_hint") => "Leave blank to keep the existing API key.",
             ("en", "warn_title") => "Warning",
             (_, "checking") => "查询中...",
             (_, "error") => "错误",
@@ -4245,7 +4905,6 @@ mod windows_app {
             (_, "group_general") => "通用",
             (_, "group_proxy") => "代理",
             (_, "group_appearance") => "图标外观",
-            (_, "group_quota") => "额度",
             (_, "api_key_label") => "DeepSeek API Key:",
             (_, "show_key") => "显示 API Key",
             (_, "interval_label") => "查询间隔（分钟，1-1440）：",
@@ -4338,7 +4997,7 @@ mod windows_app {
             (_, "api_degraded_msg") => "检测到 API 服务状态异常：",
             (_, "api_recovered_title") => "✅ DeepSeek API 服务恢复",
             (_, "api_recovered_msg") => "API 服务已恢复正常。",
-            (_, "og_tab") => "OpenCode Go",
+            (_, "subscription_tab") => "订阅",
             (_, "og_title") => "OpenCode Go",
             (_, "og_api_key_label") => "OpenCode Go API Key：",
             (_, "og_show_api_key") => "显示 API Key",
@@ -4354,6 +5013,21 @@ mod windows_app {
             (_, "og_refresh_failed") => "刷新失败：",
             (_, "og_loaded") => "已加载。",
             (_, "og_api_key_hint") => "留空则保留现有 API Key。",
+            (_, "group_og") => "OpenCode Go",
+            (_, "group_cc") => "Command Code",
+            (_, "cc_api_key_label") => "Command Code API Key：",
+            (_, "cc_show_api_key") => "显示 API Key",
+            (_, "cc_hint") => "API Key 可在 https://commandcode.ai 获取并填入上方。密钥将加密存储在本机。",
+            (_, "cc_refresh") => "刷新",
+            (_, "cc_window_5h") => "5h",
+            (_, "cc_window_weekly") => "每周",
+            (_, "cc_window_monthly") => "每月",
+            (_, "cc_unavailable") => "不可用",
+            (_, "cc_checking") => "查询中...",
+            (_, "cc_not_configured") => "尚未配置 Command Code API Key。请在「账户」标签页配置。",
+            (_, "cc_refresh_failed") => "刷新失败：",
+            (_, "cc_loaded") => "已加载。",
+            (_, "cc_api_key_hint") => "留空则保留现有 API Key。",
             (_, "warn_title") => "警告",
             _ => "",
         }
@@ -4447,6 +5121,21 @@ mod windows_app {
                     }),
                 }),
                 opencode_error: None,
+                command_code_configured: true,
+                command_code: Some(CommandCodeQuota {
+                    five_hour: Some(CommandCodeWindow {
+                        used: 4.2,
+                        cap: 14.0,
+                        reset_in_sec: 6960,
+                    }),
+                    weekly: None,
+                    monthly: Some(CommandCodeWindow {
+                        used: 22.0,
+                        cap: GOAT_MONTHLY_CREDITS,
+                        reset_in_sec: 1_548_000,
+                    }),
+                }),
+                command_code_error: None,
             };
             let rainmeter_json = rainmeter_status_json(&snapshot, Some(&rate), "zh", now);
             let rainmeter: serde_json::Value =
@@ -4468,6 +5157,15 @@ mod windows_app {
             assert_eq!(rainmeter["og_weekly_line"].as_str(), Some("不可用"));
             assert_eq!(rainmeter["og_monthly_percent"].as_i64(), Some(30));
             assert_eq!(rainmeter["og_monthly_line"].as_str(), Some("30% · 17d 22h"));
+            assert_eq!(rainmeter["cc_configured"].as_bool(), Some(true));
+            assert_eq!(rainmeter["cc_5h_percent"].as_i64(), Some(30));
+            assert_eq!(rainmeter["cc_5h_line"].as_str(), Some("4.2/14.0 · 1h 56m"));
+            assert_eq!(rainmeter["cc_weekly_line"].as_str(), Some("不可用"));
+            assert_eq!(rainmeter["cc_monthly_percent"].as_i64(), Some(31));
+            assert_eq!(
+                rainmeter["cc_monthly_line"].as_str(),
+                Some("22.0/70.0 · 17d 22h")
+            );
             assert_eq!(request_language("/widget-status?lang=en", "zh"), "en");
             assert!(is_low_balance(&state));
             assert!(should_low_balance_alert(&mut state, true));
@@ -4615,6 +5313,79 @@ mod windows_app {
             // 显示格式保留
             assert_eq!(format_reset_seconds(0), "now");
             assert_eq!(format_reset_seconds(6960), "1h 56m");
+        }
+
+        #[test]
+        fn parses_command_code_api_json() {
+            // 模拟 /alpha/billing/credits 的真实响应
+            let payload = r#"{
+                "credits": {
+                    "planId": "individual-goat-monthly",
+                    "monthlyCredits": 48,
+                    "purchasedCredits": 2.5,
+                    "freeCredits": 1.5
+                },
+                "windowLimits": {
+                    "limited": true,
+                    "fiveHour": {"used": 4.2, "cap": 14, "resetAt": 1798761600000},
+                    "weekly": {"used": "17.5", "cap": 35, "resetAt": 1799020800}
+                }
+            }"#;
+            let parsed: CommandCodeApiResponse =
+                serde_json::from_str(payload).expect("API response parses");
+            let now = 1_767_225_600; // 2026-01-01T00:00:00Z
+            let quota = CommandCodeQuota {
+                five_hour: parsed
+                    .window_limits
+                    .five_hour
+                    .map(|window| api_cc_window_to_window(window, now)),
+                weekly: parsed
+                    .window_limits
+                    .weekly
+                    .map(|window| api_cc_window_to_window(window, now)),
+                monthly: command_code_monthly_window(
+                    parsed.credits.plan_id.as_deref(),
+                    parsed.credits.monthly_credits,
+                ),
+            };
+            let five_hour = quota.five_hour.expect("five hour window");
+            assert_eq!(five_hour.used, 4.2);
+            assert_eq!(five_hour.cap, 14.0);
+            assert!(five_hour.reset_in_sec > 0);
+            let weekly = quota.weekly.expect("weekly window");
+            assert_eq!(weekly.used, 17.5);
+            assert_eq!(weekly.cap, 35.0);
+            let monthly = quota.monthly.expect("goat monthly window");
+            assert_eq!(monthly.cap, GOAT_MONTHLY_CREDITS);
+            assert!((monthly.used - 22.0).abs() < 1e-9);
+            assert_eq!(monthly.reset_in_sec, 0);
+
+            // 非 GOAT 套餐不推算月度上限
+            let non_goat = r#"{
+                "credits": {"planId": "individual-pro-monthly", "monthlyCredits": 12},
+                "windowLimits": {"fiveHour": {"used": 1.0, "cap": 10, "resetAt": 0}}
+            }"#;
+            let parsed: CommandCodeApiResponse =
+                serde_json::from_str(non_goat).expect("non-goat API response parses");
+            let monthly = command_code_monthly_window(
+                parsed.credits.plan_id.as_deref(),
+                parsed.credits.monthly_credits,
+            );
+            assert!(monthly.is_none());
+
+            // 毫秒/秒时间戳归一化
+            assert_eq!(
+                epoch_to_reset_seconds(Some(1_767_225_600.0), 1_767_225_600),
+                0
+            );
+            assert_eq!(
+                epoch_to_reset_seconds(Some(1_767_225_600_000.0), 1_767_225_600),
+                0
+            );
+            assert_eq!(
+                epoch_to_reset_seconds(Some(1_767_225_600.0 + 3600.0), 1_767_225_600),
+                3600
+            );
         }
     }
 }

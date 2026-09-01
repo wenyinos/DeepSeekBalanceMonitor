@@ -41,6 +41,13 @@ PlasmoidItem {
     property string ogWeeklyText: "--"
     property string ogMonthlyText: "--"
     property string ogStatusText: ""
+    property real cc5hPercent: 0
+    property real ccWeeklyPercent: 0
+    property real ccMonthlyPercent: 0
+    property string cc5hText: "--"
+    property string ccWeeklyText: "--"
+    property string ccMonthlyText: "--"
+    property string ccStatusText: ""
     readonly property string notificationIconPath: "/usr/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
     readonly property color warmGray: "#8a8078"
     readonly property color glassTextColor: "#ffffff"
@@ -188,7 +195,13 @@ PlasmoidItem {
             ogWeekly: "每周",
             ogMonthly: "每月",
             ogUnavailable: "不可用",
-            ogNotConfigured: "未配置 OpenCode API Key"
+            ogNotConfigured: "未配置 OpenCode API Key",
+            ccTitle: "Command Code",
+            cc5h: "5h",
+            ccWeekly: "每周",
+            ccMonthly: "每月",
+            ccUnavailable: "不可用",
+            ccNotConfigured: "未配置 Command Code API Key"
         }
         var en = {
             title: "DeepSeek Balance Monitor",
@@ -242,7 +255,13 @@ PlasmoidItem {
             ogWeekly: "Weekly",
             ogMonthly: "Monthly",
             ogUnavailable: "unavailable",
-            ogNotConfigured: "OpenCode API key not configured"
+            ogNotConfigured: "OpenCode API key not configured",
+            ccTitle: "Command Code",
+            cc5h: "5h",
+            ccWeekly: "Weekly",
+            ccMonthly: "Monthly",
+            ccUnavailable: "unavailable",
+            ccNotConfigured: "Command Code API key not configured"
         }
         var table = language === "zh" ? zh : en
         return table[key] || key
@@ -253,6 +272,7 @@ PlasmoidItem {
         runCommand("systemctl --user is-active dsmon.service")
         runCommand("/usr/local/bin/dsmon widget-status")
         runCommand("/usr/local/bin/dsmon opencode-go json")
+        runCommand("/usr/local/bin/dsmon command-code json")
     }
 
     function barColor(percent) {
@@ -270,6 +290,14 @@ PlasmoidItem {
             return tr("ogUnavailable")
         }
         return Math.round(usage.usage_percent) + "% · " + formatResetSeconds(usage.reset_in_sec)
+    }
+
+    function formatCcValue(window) {
+        if (!window) {
+            return tr("ccUnavailable")
+        }
+        return Number(window.used).toFixed(1) + "/" + Number(window.cap).toFixed(1) + " · "
+            + formatResetSeconds(window.reset_in_sec)
     }
 
     function formatResetSeconds(secs) {
@@ -590,6 +618,45 @@ PlasmoidItem {
         }
     }
 
+    function applyCommandCode(stdout, stderr) {
+        if (!stdout || stdout.trim().length === 0) {
+            ccStatusText = stderr && stderr.length > 0 ? stderr.trim() : ""
+            return
+        }
+        try {
+            var status = JSON.parse(stdout)
+            if (!status.configured) {
+                cc5hPercent = 0
+                ccWeeklyPercent = 0
+                ccMonthlyPercent = 0
+                cc5hText = "--"
+                ccWeeklyText = "--"
+                ccMonthlyText = "--"
+                ccStatusText = tr("ccNotConfigured")
+                return
+            }
+            if (status.error && status.error.length > 0) {
+                ccStatusText = status.error
+                return
+            }
+            cc5hPercent = status.five_hour && status.five_hour.cap > 0
+                ? Math.min(100, Number(status.five_hour.used) / Number(status.five_hour.cap) * 100)
+                : 0
+            ccWeeklyPercent = status.weekly && status.weekly.cap > 0
+                ? Math.min(100, Number(status.weekly.used) / Number(status.weekly.cap) * 100)
+                : 0
+            ccMonthlyPercent = status.monthly && status.monthly.cap > 0
+                ? Math.min(100, Number(status.monthly.used) / Number(status.monthly.cap) * 100)
+                : 0
+            cc5hText = formatCcValue(status.five_hour)
+            ccWeeklyText = formatCcValue(status.weekly)
+            ccMonthlyText = formatCcValue(status.monthly)
+            ccStatusText = ""
+        } catch (error) {
+            ccStatusText = String(error)
+        }
+    }
+
     Timer {
         interval: Math.max(1, intervalMinutes) * 60 * 1000
         repeat: true
@@ -609,6 +676,8 @@ PlasmoidItem {
                 root.applyStatus(stdout, stderr)
             } else if (String(sourceName).indexOf("opencode-go json") !== -1) {
                 root.applyOpencodeGo(stdout, stderr)
+            } else if (String(sourceName).indexOf("command-code json") !== -1) {
+                root.applyCommandCode(stdout, stderr)
             } else if (String(sourceName).indexOf("is-active dsmon.service") !== -1) {
                 root.daemonChecked = true
                 root.daemonRunning = stdout.trim() === "active"
@@ -983,6 +1052,135 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 visible: root.ogStatusText.length > 0
                 text: root.ogStatusText
+                color: root.glassTextColor
+                font.pointSize: 11
+                wrapMode: Text.WordWrap
+                elide: Text.ElideRight
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                height: 1
+                radius: 1
+                color: Qt.rgba(1, 1, 1, 0.6)
+            }
+
+            PlasmaExtras.ShadowedLabel {
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                text: tr("ccTitle")
+                color: root.glassTextColor
+                font.bold: true
+                font.pointSize: 13
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: tr("cc5h")
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 16
+                    radius: 8
+                    color: Qt.rgba(0, 0, 0, 0.35)
+                    border.color: Qt.rgba(1, 1, 1, 0.3)
+                    border.width: 1
+                    Rectangle {
+                        width: parent.width * Math.min(1, root.cc5hPercent / 100)
+                        height: parent.height
+                        radius: 8
+                        color: root.barColor(root.cc5hPercent)
+                    }
+                }
+                PlasmaComponents.Label {
+                    text: root.cc5hText
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: tr("ccWeekly")
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 16
+                    radius: 8
+                    color: Qt.rgba(0, 0, 0, 0.35)
+                    border.color: Qt.rgba(1, 1, 1, 0.3)
+                    border.width: 1
+                    Rectangle {
+                        width: parent.width * Math.min(1, root.ccWeeklyPercent / 100)
+                        height: parent.height
+                        radius: 8
+                        color: root.barColor(root.ccWeeklyPercent)
+                    }
+                }
+                PlasmaComponents.Label {
+                    text: root.ccWeeklyText
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: tr("ccMonthly")
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 16
+                    radius: 8
+                    color: Qt.rgba(0, 0, 0, 0.35)
+                    border.color: Qt.rgba(1, 1, 1, 0.3)
+                    border.width: 1
+                    Rectangle {
+                        width: parent.width * Math.min(1, root.ccMonthlyPercent / 100)
+                        height: parent.height
+                        radius: 8
+                        color: root.barColor(root.ccMonthlyPercent)
+                    }
+                }
+                PlasmaComponents.Label {
+                    text: root.ccMonthlyText
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+                    color: root.glassTextColor
+                    font.pointSize: 11
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                }
+            }
+
+            PlasmaComponents.Label {
+                Layout.fillWidth: true
+                visible: root.ccStatusText.length > 0
+                text: root.ccStatusText
                 color: root.glassTextColor
                 font.pointSize: 11
                 wrapMode: Text.WordWrap

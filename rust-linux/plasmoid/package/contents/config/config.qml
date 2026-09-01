@@ -10,8 +10,8 @@ ConfigModel {
     }
 
     function tr(key) {
-        var zh = { account: "账户", general: "常规", history: "历史" }
-        var en = { account: "Account", general: "General", history: "History" }
+        var zh = { account: "账户", general: "常规", history: "历史", subscription: "订阅" }
+        var en = { account: "Account", general: "General", history: "History", subscription: "Subscriptions" }
         var table = systemLanguage() === "zh" ? zh : en
         return table[key] || key
     }
@@ -20,6 +20,11 @@ ConfigModel {
         name: tr("account")
         icon: "preferences-system-users"
         source: "configAccount.qml"
+    }
+    ConfigCategory {
+        name: tr("subscription")
+        icon: "preferences-system-network"
+        source: "configSubscription.qml"
     }
     ConfigCategory {
         name: tr("general")

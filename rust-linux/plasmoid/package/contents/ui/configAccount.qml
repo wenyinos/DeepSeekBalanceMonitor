@@ -14,13 +14,8 @@ KCM.SimpleKCM {
     property string loadedApiKey: ""
     property bool hasOgApiKey: false
     property string loadedOgApiKey: ""
-    property string opencodeGoText: ""
-    property real rollingPercent: 0
-    property real weeklyPercent: 0
-    property real monthlyPercent: 0
-    property string rollingText: "--"
-    property string weeklyText: "--"
-    property string monthlyText: "--"
+    property bool hasCcApiKey: false
+    property string loadedCcApiKey: ""
     property var saveCommands: []
     property bool savingBatch: false
     property string pageLanguage: systemLanguage()
@@ -41,7 +36,6 @@ KCM.SimpleKCM {
     function tr(key) {
         var zh = {
             groupCredentials: "凭据",
-            groupQuota: "额度",
             apiKey: "DeepSeek API Key：",
             apiKeyStored: "********",
             apiKeyUpdateHint: "API Key 已加密保存。修改真实 Key 时请在终端运行 dsmon set-key；如需演示模式，可直接输入 demo 后保存。",
@@ -49,25 +43,18 @@ KCM.SimpleKCM {
             ogApiKeyLabel: "OpenCode Go API Key：",
             ogApiKeyHint: "留空则保留现有 API Key。",
             ogHint: "API Key 可在 https://opencode.ai/auth 获取并填入上方。密钥将加密存储在本机。",
+            ccApiKeyLabel: "Command Code API Key：",
+            ccApiKeyHint: "留空则保留现有 API Key。",
+            ccHint: "API Key 可在 https://commandcode.ai 获取并填入上方。密钥将加密存储在本机。",
             save: "保存凭据",
             saving: "正在保存...",
             saved: "已保存。",
             saveFailed: "保存失败：",
             loading: "正在加载...",
-            loaded: "已加载。",
-            loadFailed: "加载失败：",
-            refresh: "刷新",
-            og5h: "5h",
-            ogWeekly: "每周",
-            ogMonthly: "每月",
-            ogUnavailable: "不可用",
-            ogChecking: "查询 OpenCode Go 额度中...",
-            ogError: "OpenCode Go 额度查询失败：",
-            ogNotConfigured: "尚未配置 OpenCode Go API Key。请在下方输入并保存。"
+            loaded: "已加载。"
         }
         var en = {
             groupCredentials: "Credentials",
-            groupQuota: "Quota",
             apiKey: "DeepSeek API key:",
             apiKeyStored: "********",
             apiKeyUpdateHint: "API key is stored encrypted. To update a real key, run dsmon set-key in a terminal. For demo mode, enter demo here and save.",
@@ -75,21 +62,15 @@ KCM.SimpleKCM {
             ogApiKeyLabel: "OpenCode Go API key:",
             ogApiKeyHint: "Leave blank to keep the existing API key.",
             ogHint: "Get an API key from https://opencode.ai/auth and enter it above. The key is encrypted and stored locally.",
+            ccApiKeyLabel: "Command Code API key:",
+            ccApiKeyHint: "Leave blank to keep the existing API key.",
+            ccHint: "Get an API key from https://commandcode.ai and enter it above. The key is encrypted and stored locally.",
             save: "Save credentials",
             saving: "Saving...",
             saved: "Saved.",
             saveFailed: "Failed to save: ",
             loading: "Loading...",
-            loaded: "Loaded.",
-            loadFailed: "Failed to load: ",
-            refresh: "Refresh",
-            og5h: "5h",
-            ogWeekly: "Weekly",
-            ogMonthly: "Monthly",
-            ogUnavailable: "unavailable",
-            ogChecking: "Checking OpenCode Go quota...",
-            ogError: "Failed to fetch OpenCode Go quota: ",
-            ogNotConfigured: "OpenCode Go API key is not configured. Enter it below and save."
+            loaded: "Loaded."
         }
         var table = uiLanguage === "zh" ? zh : en
         return table[key] || key
@@ -99,67 +80,10 @@ KCM.SimpleKCM {
         return "'" + String(value).replace(/'/g, "'\\''") + "'"
     }
 
-    function barColor(percent) {
-        if (percent >= 80) {
-            return "#e53935"
-        }
-        if (percent >= 60) {
-            return "#ffb300"
-        }
-        return "#4caf50"
-    }
-
-    function formatOgValue(usage) {
-        if (!usage) {
-            return tr("ogUnavailable")
-        }
-        return Math.round(usage.usage_percent) + "% · " + formatResetSeconds(usage.reset_in_sec)
-    }
-
-    function formatResetSeconds(secs) {
-        if (secs <= 0) {
-            return "now"
-        }
-        var days = Math.floor(secs / 86400)
-        var hours = Math.floor((secs % 86400) / 3600)
-        var minutes = Math.floor((secs % 3600) / 60)
-        var parts = []
-        if (days > 0) {
-            parts.push(days + "d")
-        }
-        if (hours > 0) {
-            parts.push(hours + "h")
-        }
-        if (minutes > 0) {
-            parts.push(minutes + "m")
-        }
-        if (parts.length === 0) {
-            parts.push((secs % 60) + "s")
-        }
-        return parts.join(" ")
-    }
-
     function loadConfig() {
         busy = true
         statusText = tr("loading")
         loader.connectSource("/usr/local/bin/dsmon config-json")
-    }
-
-    function loadOpencodeGo() {
-        busy = true
-        statusText = tr("loading")
-        opencodeGoText = tr("ogChecking")
-        rollingPercent = 0
-        weeklyPercent = 0
-        monthlyPercent = 0
-        rollingText = "--"
-        weeklyText = "--"
-        monthlyText = "--"
-        loader.connectSource("/usr/local/bin/dsmon opencode-go json")
-    }
-
-    function refresh() {
-        loadOpencodeGo()
     }
 
     function runNextSaveCommand() {
@@ -188,6 +112,10 @@ KCM.SimpleKCM {
         var ogKey = ogApiKeyField.text.trim()
         if (ogKey.length > 0 && ogKey !== tr("apiKeyStored")) {
             commands.push("/usr/local/bin/dsmon opencode-go set-key " + shellQuote(ogKey))
+        }
+        var ccKey = ccApiKeyField.text.trim()
+        if (ccKey.length > 0 && ccKey !== tr("apiKeyStored")) {
+            commands.push("/usr/local/bin/dsmon command-code set-key " + shellQuote(ccKey))
         }
         if (commands.length === 0) {
             return
@@ -223,11 +151,9 @@ KCM.SimpleKCM {
                     pageLanguage = systemLanguage()
                 }
                 disconnectSource(sourceName)
-                loadOpencodeGo()
                 return
             }
-            if (String(sourceName).indexOf("opencode-go set-key") !== -1
-                    || String(sourceName).indexOf("set-key") !== -1) {
+            if (String(sourceName).indexOf("set-key") !== -1) {
                 if (savingBatch) {
                     if (stderr.trim().length > 0) {
                         saveCommands = []
@@ -242,45 +168,12 @@ KCM.SimpleKCM {
                 return
             }
             busy = false
-            if (stderr.trim().length > 0 && stdout.trim().length === 0) {
-                statusText = tr("ogError") + stderr.trim()
-            } else {
-                try {
-                    var status = JSON.parse(stdout)
-                    if (!status.configured) {
-                        hasOgApiKey = false
-                        ogApiKeyField.text = ""
-                        ogApiKeyField.placeholderText = tr("ogApiKeyHint")
-                        opencodeGoText = tr("ogNotConfigured")
-                    } else {
-                        hasOgApiKey = true
-                        loadedOgApiKey = tr("apiKeyStored")
-                        ogApiKeyField.text = loadedOgApiKey
-                        ogApiKeyField.placeholderText = tr("apiKeyStored")
-                        if (status.error && status.error.length > 0) {
-                            opencodeGoText = tr("ogError") + status.error
-                        } else {
-                            rollingPercent = status.rolling ? status.rolling.usage_percent : 0
-                            weeklyPercent = status.weekly ? status.weekly.usage_percent : 0
-                            monthlyPercent = status.monthly ? status.monthly.usage_percent : 0
-                            rollingText = formatOgValue(status.rolling)
-                            weeklyText = formatOgValue(status.weekly)
-                            monthlyText = formatOgValue(status.monthly)
-                            opencodeGoText = tr("groupQuota")
-                        }
-                    }
-                    statusText = tr("loaded")
-                } catch (error) {
-                    opencodeGoText = tr("ogError") + error
-                    statusText = tr("loadFailed") + error
-                }
-            }
             disconnectSource(sourceName)
         }
     }
 
     Kirigami.FormLayout {
-                QtControls.Label {
+        QtControls.Label {
             text: tr("groupCredentials")
             font.bold: true
             Layout.fillWidth: true
@@ -329,144 +222,29 @@ KCM.SimpleKCM {
             wrapMode: Text.WordWrap
         }
 
-        QtControls.Button {
-            text: tr("save")
-            enabled: !busy
-            onClicked: saveKeys()
-        }
-
-                QtControls.Label {
-            text: tr("groupQuota")
-            font.bold: true
+        QtControls.TextField {
+            id: ccApiKeyField
+            Kirigami.FormData.label: tr("ccApiKeyLabel")
             Layout.fillWidth: true
-        }
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 1
-            color: Kirigami.Theme.disabledTextColor
+            echoMode: TextInput.Password
         }
 
-        QtControls.Button {
-            text: tr("refresh")
-            enabled: !busy
-            onClicked: refresh()
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
-
-            QtControls.Label {
-                text: tr("og5h")
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 4
-            }
-            QtControls.ProgressBar {
-                id: rollingBar
-                Layout.fillWidth: true
-                Layout.preferredHeight: 14
-                from: 0
-                to: 100
-                value: page.rollingPercent
-                background: Rectangle {
-                    radius: 7
-                    color: Kirigami.Theme.backgroundColor
-                    border.color: Kirigami.Theme.disabledTextColor
-                    border.width: 1
-                }
-                contentItem: Item {
-                    Rectangle {
-                        width: rollingBar.visualPosition * parent.width
-                        height: parent.height
-                        radius: 7
-                        color: page.barColor(rollingBar.value)
-                    }
-                }
-            }
-            QtControls.Label {
-                text: page.rollingText
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 7
-                horizontalAlignment: Text.AlignRight
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
-
-            QtControls.Label {
-                text: tr("ogWeekly")
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 4
-            }
-            QtControls.ProgressBar {
-                id: weeklyBar
-                Layout.fillWidth: true
-                Layout.preferredHeight: 14
-                from: 0
-                to: 100
-                value: page.weeklyPercent
-                background: Rectangle {
-                    radius: 7
-                    color: Kirigami.Theme.backgroundColor
-                    border.color: Kirigami.Theme.disabledTextColor
-                    border.width: 1
-                }
-                contentItem: Item {
-                    Rectangle {
-                        width: weeklyBar.visualPosition * parent.width
-                        height: parent.height
-                        radius: 7
-                        color: page.barColor(weeklyBar.value)
-                    }
-                }
-            }
-            QtControls.Label {
-                text: page.weeklyText
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 7
-                horizontalAlignment: Text.AlignRight
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
-
-            QtControls.Label {
-                text: tr("ogMonthly")
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 4
-            }
-            QtControls.ProgressBar {
-                id: monthlyBar
-                Layout.fillWidth: true
-                Layout.preferredHeight: 14
-                from: 0
-                to: 100
-                value: page.monthlyPercent
-                background: Rectangle {
-                    radius: 7
-                    color: Kirigami.Theme.backgroundColor
-                    border.color: Kirigami.Theme.disabledTextColor
-                    border.width: 1
-                }
-                contentItem: Item {
-                    Rectangle {
-                        width: monthlyBar.visualPosition * parent.width
-                        height: parent.height
-                        radius: 7
-                        color: page.barColor(monthlyBar.value)
-                    }
-                }
-            }
-            QtControls.Label {
-                text: page.monthlyText
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 7
-                horizontalAlignment: Text.AlignRight
-            }
+        QtControls.CheckBox {
+            id: showCcKeyCheck
+            text: tr("showApiKey")
+            onToggled: ccApiKeyField.echoMode = checked ? TextInput.Normal : TextInput.Password
         }
 
         QtControls.Label {
             Layout.fillWidth: true
-            text: opencodeGoText
+            text: tr("ccHint")
             wrapMode: Text.WordWrap
+        }
+
+        QtControls.Button {
+            text: tr("save")
+            enabled: !busy
+            onClicked: saveKeys()
         }
 
         QtControls.Label {

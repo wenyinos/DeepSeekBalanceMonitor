@@ -2,6 +2,17 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v1.4.0 (2026-09-01)
+
+### Added
+
+- Command Code quota display (Rust Windows and Rust Linux): queries `api.commandcode.ai/alpha/billing/credits` (with `orgId` from `alpha/whoami`) and reports 5h / weekly / monthly usage. Monthly is derived for GOAT plans (70 credits) and left unavailable for other plans
+- Windows: the settings dialog gains a "Subscriptions" tab holding both OpenCode Go and Command Code quota groups (each with three usage progress bars and a refresh button); all API keys (DeepSeek, OpenCode Go, Command Code) are entered on the Account tab
+- Linux: new `dsmon command-code` (query quota), `dsmon command-code set-key <api_key>` (store the API key), and `dsmon command-code json` (JSON output) CLI commands
+- Linux: the Plasma 6 widget gains a "Subscriptions" settings page showing OpenCode Go and Command Code quota, with credentials kept on the Account page; the widget main view adds a Command Code section with three usage progress bars
+- Command Code API key is stored encrypted in the `secure_settings` table under the `command_code_api_key` key, never written to config.json
+- Rust Windows: the local Rainmeter `/widget-status` interface now also exposes Command Code quota fields (`cc_configured`, `cc_error`, `cc_5h/weekly/monthly_percent` and `_line`), refreshed every 10 minutes by a background thread with last-good retention on failure — an interface reserve for the upcoming Rainmeter skin integration; the contract is documented in `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`
+
 ## Rust v1.3.3 (2026-08-30)
 
 ### Changed
