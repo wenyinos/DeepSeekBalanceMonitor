@@ -2,6 +2,16 @@
 
 所有值得记录的变更均记录于此。
 
+## Rust v1.4.1 (2026-09-01)
+
+### 变更
+
+- Linux 安装改为纯用户级：安装脚本将 `dsmon` 写入 `~/.local/bin`，systemd 服务写入 `~/.config/systemd/user/`，Plasma 小组件及其图标写入 `~/.local/share/` 下——无需 sudo，也不再强制 root
+- Plasma 小组件改为通过 `$PATH` 解析 `dsmon`（不再硬编码 `/usr/local/bin/dsmon`），适配用户级二进制；安装脚本在 `~/.local/bin` 不在 PATH 时自动写入 shell 配置文件
+- 安装时检测旧版本遗留的系统级文件（`/usr/local/bin/dsmon`、`/etc/systemd/user/dsmon.service`、`/usr/share/plasma/plasmoids/…`、`/usr/share/icons/…`），询问确认后通过 `sudo` 自动删除（可能要求输入密码）；卸载脚本同样改为用户级
+- 安装完毕后自动执行 `systemctl --user enable --now dsmon.service`，守护进程设为登录自启动并立即启动
+- 非 systemd 发行版（如 OpenRC）：安装脚本跳过 systemd 服务文件，改为写入桌面自启动项（`~/.config/autostart/deepseek-balance-monitor.desktop`），在桌面登录时启动守护进程
+
 ## Rust v1.4.0 (2026-09-01)
 
 ### 新增

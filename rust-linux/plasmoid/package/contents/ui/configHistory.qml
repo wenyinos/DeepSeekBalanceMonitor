@@ -104,19 +104,19 @@ KCM.SimpleKCM {
     function loadHistory() {
         busy = true
         statusText = tr("loading")
-        loader.connectSource("/usr/local/bin/dsmon history json " + daysValue() + " " + selectedCurrency())
+        loader.connectSource("dsmon history json " + daysValue() + " " + selectedCurrency())
     }
 
     function loadConfig() {
         busy = true
         statusText = tr("loading")
-        loader.connectSource("/usr/local/bin/dsmon config-json")
+        loader.connectSource("dsmon config-json")
     }
 
     function exportHistory() {
         exporting = true
         statusText = tr("loading")
-        exporter.connectSource("/usr/local/bin/dsmon history export " + daysValue() + " " + selectedCurrency())
+        exporter.connectSource("dsmon history export " + daysValue() + " " + selectedCurrency())
     }
 
     function updateCurrencyOptions(values) {

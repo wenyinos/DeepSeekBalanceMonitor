@@ -270,9 +270,9 @@ PlasmoidItem {
     function refresh() {
         checking = true
         runCommand("systemctl --user is-active dsmon.service")
-        runCommand("/usr/local/bin/dsmon widget-status")
-        runCommand("/usr/local/bin/dsmon opencode-go json")
-        runCommand("/usr/local/bin/dsmon command-code json")
+        runCommand("dsmon widget-status")
+        runCommand("dsmon opencode-go json")
+        runCommand("dsmon command-code json")
     }
 
     function barColor(percent) {

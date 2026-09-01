@@ -88,9 +88,10 @@ Plasma 小组件是可选功能，需要 KDE Plasma 6。它从本机 `dsmon` 读
    ```bash
    tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
    cd deepseek-balance-monitor-*-linux-x86_64
-   sudo ./install.sh
-   systemctl --user enable --now dsmon.service
+   ./install.sh
    ```
+
+   安装脚本会自动启用并启动守护进程（`systemctl --user enable --now dsmon.service`）。
 
 3. 在 Plasma 小组件选择器中添加 **DeepSeek Balance Monitor**。
 4. 打开小组件设置，输入 DeepSeek API Key，或使用 `dsmon set-key` 设置，然后点击 **保存**。
@@ -162,13 +163,16 @@ cd rust-linux
 cargo +1.77.2 build --release --locked
 ```
 
-Linux 发布包会安装 `/usr/local/bin/dsmon`、`/etc/systemd/user/dsmon.service`，并在 Plasma 6 环境中安装可选小组件：
+Linux 发布包会安装 `~/.local/bin/dsmon`，以及 systemd 用户服务（`~/.config/systemd/user/dsmon.service`）或在非 systemd 发行版上写入桌面自启动项——全部位于用户目录下，无需 sudo：
 
 ```bash
 tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
 cd deepseek-balance-monitor-*-linux-x86_64
-sudo ./install.sh
+./install.sh
 ```
+
+安装脚本会在 `~/.local/bin` 不在 PATH 时自动将其写入 shell 配置文件。systemd 发行版下执行
+`systemctl --user enable --now dsmon.service`，守护进程登录自启动并立即运行；非 systemd 发行版则改为写入桌面自启动项。
 
 CLI 目前仅 Rust Linux 版提供。Windows 和 MacOS 版使用图形界面 / 托盘操作。
 

@@ -87,9 +87,10 @@ The Plasma widget is optional and requires KDE Plasma 6. It reads status from a 
    ```bash
    tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
    cd deepseek-balance-monitor-*-linux-x86_64
-   sudo ./install.sh
-   systemctl --user enable --now dsmon.service
+   ./install.sh
    ```
+
+   The installer auto-enables and starts the daemon (`systemctl --user enable --now dsmon.service`).
 
 3. Add **DeepSeek Balance Monitor** from the Plasma widget chooser.
 4. Open the widget settings, enter your DeepSeek API key (or use `dsmon set-key`), then click **Save**.
@@ -161,13 +162,15 @@ cd rust-linux
 cargo +1.77.2 build --release --locked
 ```
 
-Linux release tarballs install `/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`, and, on Plasma 6 systems, the optional Plasma widget:
+Linux release tarballs install `~/.local/bin/dsmon` plus a systemd user service (`~/.config/systemd/user/dsmon.service`) or, on non-systemd distributions, a desktop autostart entry — all under your user directory, no sudo required:
 
 ```bash
 tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
 cd deepseek-balance-monitor-*-linux-x86_64
-sudo ./install.sh
+./install.sh
 ```
+
+The installer adds `~/.local/bin` to your PATH via your shell profile if it is not already there. On systemd systems it runs `systemctl --user enable --now dsmon.service` so the daemon auto-starts on login and runs immediately; on non-systemd systems it writes a desktop autostart entry instead.
 
 The CLI is currently available only in the Rust Linux build. Windows and MacOS builds use GUI/tray controls.
 

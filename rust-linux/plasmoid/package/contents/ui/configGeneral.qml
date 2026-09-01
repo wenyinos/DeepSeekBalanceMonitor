@@ -28,7 +28,7 @@ KCM.SimpleKCM {
     }
 
     function queueSetCommand(field, values) {
-        var command = "/usr/local/bin/dsmon set " + shellQuote(field)
+        var command = "dsmon set " + shellQuote(field)
         for (var index = 0; index < values.length; index++) {
             command += " " + shellQuote(values[index])
         }
@@ -60,7 +60,7 @@ KCM.SimpleKCM {
 
     onCfg_languageChanged: {
         if (!loadingConfig && (cfg_language === "zh" || cfg_language === "en")) {
-            runCommand("/usr/local/bin/dsmon set " + shellQuote("ui-language") + " " + shellQuote(cfg_language))
+            runCommand("dsmon set " + shellQuote("ui-language") + " " + shellQuote(cfg_language))
         }
     }
 
@@ -168,7 +168,7 @@ KCM.SimpleKCM {
     function loadConfig() {
         busy = true
         statusText = tr("loading")
-        runCommand("/usr/local/bin/dsmon config-json")
+        runCommand("dsmon config-json")
     }
 
     function saveConfig() {

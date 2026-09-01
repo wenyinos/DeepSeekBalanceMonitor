@@ -141,7 +141,7 @@ KCM.SimpleKCM {
     function loadConfig() {
         busy = true
         statusText = tr("loading")
-        loader.connectSource("/usr/local/bin/dsmon config-json")
+        loader.connectSource("dsmon config-json")
     }
 
     function refresh() {
@@ -159,8 +159,8 @@ KCM.SimpleKCM {
         cc5hText = "--"
         ccWeeklyText = "--"
         ccMonthlyText = "--"
-        loader.connectSource("/usr/local/bin/dsmon opencode-go json")
-        loader.connectSource("/usr/local/bin/dsmon command-code json")
+        loader.connectSource("dsmon opencode-go json")
+        loader.connectSource("dsmon command-code json")
     }
 
     Component.onCompleted: loadConfig()

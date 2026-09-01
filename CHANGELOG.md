@@ -2,6 +2,16 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v1.4.1 (2026-09-01)
+
+### Changed
+
+- Linux installation is now fully user-level: the installer writes `dsmon` to `~/.local/bin`, the systemd service to `~/.config/systemd/user/`, and the Plasma widget plus its icon under `~/.local/share/` — no sudo is required, and root is no longer enforced
+- The Plasma widget now resolves `dsmon` through `$PATH` instead of a hard-coded `/usr/local/bin/dsmon`, so it works with the user-level binary; the installer auto-adds `~/.local/bin` to the shell profile when missing
+- On install, the script detects leftover system-level files from older versions (`/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`, `/usr/share/plasma/plasmoids/…`, `/usr/share/icons/…`) and offers to remove them via `sudo` (asking for confirmation first); the uninstaller is likewise user-level
+- The installer now runs `systemctl --user enable --now dsmon.service` after installation, so the daemon is set to auto-start on login and starts immediately
+- On non-systemd distributions (e.g. OpenRC), the installer skips the systemd service file and instead writes a desktop autostart entry (`~/.config/autostart/deepseek-balance-monitor.desktop`) that starts the daemon at desktop login
+
 ## Rust v1.4.0 (2026-09-01)
 
 ### Added

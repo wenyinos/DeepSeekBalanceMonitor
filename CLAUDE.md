@@ -26,7 +26,7 @@ cd src/mac && bash ../scripts/build_mac.sh   # macOS 应用
 
 ```bash
 cd rust-linux && cargo +1.77.2 build --release --locked
-sudo ./install.sh                        # 安装 dsmon 到系统
+./install.sh                            # 纯用户级安装（~/.local/bin，无需 sudo）
 
 cd rust-windows && cargo +1.77.2 build --release --target x86_64-pc-windows-msvc --locked
 
