@@ -98,6 +98,45 @@ HTTP 状态码成功时返回 `200 OK`，`Content-Type` 使用
 Rainmeter 当前使用正则按字段名解析，字段名必须保持一致；为降低兼容风险，
 建议按上方顺序输出字段。
 
+## Command Code 额度字段（v1.4.0 接口预留）
+
+Rust v1.4.0 已为 Rust Windows / Rust Linux 新增 Command Code 额度显示（设置窗口
+「订阅」页、`dsmon command-code` CLI、Plasma 小组件）。Rust Windows 版
+`/widget-status` 接口**已预留 Command Code 额度字段**（后台线程每 10 分钟刷新缓存、
+查询失败保留上次成功数据），字段设计与 OpenCode Go 的 `og_*` 一致：
+
+```json
+{
+  "cc_configured": true,
+  "cc_error": "",
+  "cc_5h_percent": 30,
+  "cc_5h_line": "4.2/14.0 · 3h 8m",
+  "cc_weekly_percent": 50,
+  "cc_weekly_line": "17.5/35.0 · 2d 15h",
+  "cc_monthly_percent": 31,
+  "cc_monthly_line": "22.0/70.0 · 17d"
+}
+```
+
+字段说明：
+
+- `cc_configured`：布尔值，是否已配置 Command Code API Key。
+- `cc_error`：最近一次查询的错误消息，正常为空字符串。
+- `cc_5h_percent` / `cc_weekly_percent` / `cc_monthly_percent`：数值（0–100），
+  供进度条仪表使用；无数据时为 `0`。
+- `cc_5h_line` / `cc_weekly_line` / `cc_monthly_line`：预格式化显示文本
+  （`已用/上限 · 重置剩余时间`），无数据时为 `--`，窗口缺失时为本地化占位文案。
+
+数据语义：
+
+- 后台按 OpenCode Go 相同的节奏（每 10 分钟）查询 Command Code 官方接口，
+  查询失败时保留上次成功数据，仅在 `cc_error` 中体现。
+- 未配置 API Key 时 `cc_configured` 为 `false`，额度字段为占位值。
+- Rainmeter 皮肤正则按字段名解析，新增字段不影响旧皮肤兼容。
+
+Python 版对接 Rainmeter 时，可暂不实现 `cc_*` 字段；待 Python 版需要展示
+Command Code 额度时，按本约定补齐即可。
+
 ## 状态映射
 
 Python 版可按当前托盘状态生成 Rainmeter JSON：

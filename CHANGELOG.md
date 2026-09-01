@@ -2,6 +2,38 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v1.4.1 (2026-09-01)
+
+### Changed
+
+- Linux install split by scope: the `dsmon` binary and systemd user service stay system-level (`/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`, installed with sudo), while the Plasma widget and its icon install under the user directory (`~/.local/share/`) so widget updates never need sudo
+- The Plasma widget calls `dsmon` by its absolute path `/usr/local/bin/dsmon` so it works from the Plasma `executable` engine regardless of the session PATH
+- The installer runs `systemctl --user enable --now dsmon.service` after installation (for the sudo user), so the daemon is set to auto-start on login and starts immediately
+- On non-systemd distributions (e.g. OpenRC), the installer skips the systemd service file and instead writes a desktop autostart entry (`~/.config/autostart/deepseek-balance-monitor.desktop`) that starts the daemon at desktop login
+- The installer detects leftover user-level files from the earlier user-only install (1.4.1-rc: `~/.local/bin/dsmon`, `~/.config/systemd/user/dsmon.service`) and offers to remove them
+
+## Rust v1.4.0 (2026-09-01)
+
+### Added
+
+- Command Code quota display (Rust Windows and Rust Linux): queries `api.commandcode.ai/alpha/billing/credits` (with `orgId` from `alpha/whoami`) and reports 5h / weekly / monthly usage. Monthly is derived for GOAT plans (70 credits) and left unavailable for other plans
+- Windows: the settings dialog gains a "Subscriptions" tab holding both OpenCode Go and Command Code quota groups (each with three usage progress bars and a refresh button); all API keys (DeepSeek, OpenCode Go, Command Code) are entered on the Account tab
+- Linux: new `dsmon command-code` (query quota), `dsmon command-code set-key <api_key>` (store the API key), and `dsmon command-code json` (JSON output) CLI commands
+- Linux: the Plasma 6 widget gains a "Subscriptions" settings page showing OpenCode Go and Command Code quota, with credentials kept on the Account page; the widget main view adds a Command Code section with three usage progress bars
+- Command Code API key is stored encrypted in the `secure_settings` table under the `command_code_api_key` key, never written to config.json
+- Rust Windows: the local Rainmeter `/widget-status` interface now also exposes Command Code quota fields (`cc_configured`, `cc_error`, `cc_5h/weekly/monthly_percent` and `_line`), refreshed every 10 minutes by a background thread with last-good retention on failure — an interface reserve for the upcoming Rainmeter skin integration; the contract is documented in `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`
+
+## Rust v1.3.3 (2026-08-30)
+
+### Changed
+
+- Rust Windows migrated from native-tls (Schannel) to rustls with embedded webpki-roots, matching rust-linux: no OS certificate store is consulted, Windows 7/8.1 installs validate out of the box, and TLS 1.3 is now available on old systems; TLS-inspecting proxies or security software will fail certificate validation since only the embedded root store is trusted
+- Removed `scripts/update_windows_root_certs.bat`, unnecessary after the embedded-root migration (Py-Win requires Windows 10+ anyway); README TLS sections and directory trees updated accordingly
+
+### Fixed
+
+- Settings window font rendering: bold group titles no longer hardcode Segoe UI, whose missing CJK glyphs caused font fallback or tofu on the Chinese UI — the heading font now follows the unified UI family with real font enumeration (Microsoft YaHei UI, falling back to Microsoft YaHei / SimSun), and a stray 9-pixel size that rendered titles smaller than body text was dropped
+
 ## Rust v1.3.2 (2026-08-14)
 
 ### Changed

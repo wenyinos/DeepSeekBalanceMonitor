@@ -23,6 +23,9 @@ const NONCE_LEN: usize = 12;
 const API_KEY_MASK: &str = "masked";
 const OPENCODE_GO_API_URL: &str = "https://opencode.ai/zen/go/v1/usage";
 const OPENCODE_GO_API_KEY: &str = "opencode_go_api_key";
+const COMMAND_CODE_API_BASE: &str = "https://api.commandcode.ai/";
+const COMMAND_CODE_API_KEY: &str = "command_code_api_key";
+const GOAT_MONTHLY_CREDITS: f64 = 70.0;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct AppConfig {
@@ -170,6 +173,105 @@ struct OpenCodeGoApiWindow {
     resets_at: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+struct CommandCodeQuota {
+    five_hour: Option<CommandCodeWindow>,
+    weekly: Option<CommandCodeWindow>,
+    monthly: Option<CommandCodeWindow>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct CommandCodeWindow {
+    used: f64,
+    cap: f64,
+    reset_in_sec: i64,
+}
+
+#[derive(Deserialize)]
+struct CommandCodeApiResponse {
+    credits: CommandCodeApiCredits,
+    #[serde(rename = "windowLimits")]
+    window_limits: CommandCodeApiLimits,
+}
+
+#[derive(Deserialize)]
+struct CommandCodeApiCredits {
+    #[serde(rename = "planId", default)]
+    plan_id: Option<String>,
+    #[serde(rename = "monthlyCredits", default)]
+    monthly_credits: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct CommandCodeApiLimits {
+    #[serde(rename = "fiveHour", default)]
+    five_hour: Option<CommandCodeApiWindow>,
+    #[serde(default)]
+    weekly: Option<CommandCodeApiWindow>,
+}
+
+#[derive(Deserialize)]
+struct CommandCodeApiWindow {
+    #[serde(default, deserialize_with = "deserialize_number")]
+    used: f64,
+    #[serde(default, deserialize_with = "deserialize_number")]
+    cap: f64,
+    #[serde(
+        rename = "resetAt",
+        default,
+        deserialize_with = "deserialize_optional_number"
+    )]
+    reset_at: Option<f64>,
+}
+
+fn deserialize_number<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Number(number) => number
+            .as_f64()
+            .ok_or_else(|| D::Error::custom("expected numeric value")),
+        serde_json::Value::String(text) => text
+            .parse::<f64>()
+            .map_err(|_| D::Error::custom("expected numeric string")),
+        _ => Err(D::Error::custom("expected number or numeric string")),
+    }
+}
+
+fn deserialize_optional_number<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::Number(number) => number
+            .as_f64()
+            .ok_or_else(|| D::Error::custom("expected numeric value"))
+            .map(Some),
+        serde_json::Value::String(text) => text
+            .parse::<f64>()
+            .map(Some)
+            .map_err(|_| D::Error::custom("expected numeric string")),
+        _ => Err(D::Error::custom("expected number or numeric string")),
+    }
+}
+
+#[derive(Deserialize)]
+struct CommandCodeApiWhoami {
+    org: Option<CommandCodeApiOrg>,
+}
+
+#[derive(Deserialize)]
+struct CommandCodeApiOrg {
+    #[serde(default)]
+    id: Option<String>,
+}
+
 #[derive(Serialize)]
 struct WidgetStatus {
     ok: bool,
@@ -250,6 +352,7 @@ fn run() -> Result<(), (i32, String)> {
         "set" => set_config_field(&args[2..]),
         "set-config" => set_config(&args[2..]),
         "opencode-go" => opencode_go(&args[2..]),
+        "command-code" => command_code(&args[2..]),
         "-V" | "--version" => {
             println!("dsmon {}", env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -422,7 +525,7 @@ fn clean_logs() -> Result<(), (i32, String)> {
 
 fn print_help() {
     println!(
-        "Usage: dsmon [check|daemon|init-config|config-path|log-path|clean-logs|history|widget-status|config-json|set-key|set|set-config|opencode-go]\nHistory: dsmon history [days] | dsmon history export [days] [currency|all] [path|-]\nSet: dsmon set <field> <value>\nOpenCode Go: dsmon opencode-go | dsmon opencode-go set-key <api_key> | dsmon opencode-go json"
+        "Usage: dsmon [check|daemon|init-config|config-path|log-path|clean-logs|history|widget-status|config-json|set-key|set|set-config|opencode-go|command-code]\nHistory: dsmon history [days] | dsmon history export [days] [currency|all] [path|-]\nSet: dsmon set <field> <value>\nOpenCode Go: dsmon opencode-go | dsmon opencode-go set-key <api_key> | dsmon opencode-go json\nCommand Code: dsmon command-code | dsmon command-code set-key <api_key> | dsmon command-code json"
     );
 }
 
@@ -1419,6 +1522,240 @@ fn api_window_to_usage(window: OpenCodeGoApiWindow, now: i64) -> OpenCodeGoUsage
         usage_percent,
         percent_remaining: (100.0 - usage_percent).max(0.0),
         reset_in_sec,
+    }
+}
+
+fn command_code(args: &[String]) -> Result<(), (i32, String)> {
+    match args.first().map(String::as_str) {
+        Some("set") | Some("set-key") => command_code_set_key(&args[1..]),
+        Some("json") => command_code_json(),
+        Some(other) => Err(fail(format!(
+            "Unknown command-code subcommand: {other}\nRun: dsmon command-code set-key <api_key>"
+        ))),
+        None => command_code_check(),
+    }
+}
+
+fn command_code_set_key(args: &[String]) -> Result<(), (i32, String)> {
+    let api_key = if let Some(value) = args.first() {
+        value.trim().to_string()
+    } else {
+        let mut value = String::new();
+        std::io::stdin().read_line(&mut value).map_err(fail)?;
+        value.trim().to_string()
+    };
+    if api_key.is_empty() {
+        return Err((2, "Command Code API key is required.".to_string()));
+    }
+    store_secure_value(COMMAND_CODE_API_KEY, &api_key).map_err(fail)?;
+    println!("Command Code API key saved.");
+    Ok(())
+}
+
+fn command_code_check() -> Result<(), (i32, String)> {
+    let config = load_config().map_err(fail)?;
+    let api_key = read_secure_value(COMMAND_CODE_API_KEY)
+        .map_err(fail)?
+        .unwrap_or_default();
+    if api_key.is_empty() {
+        return Err((
+            2,
+            "Command Code API key is not configured.\nRun: dsmon command-code set-key <api_key>"
+                .to_string(),
+        ));
+    }
+    match fetch_command_code_quota(&api_key, effective_http_proxy(&config)) {
+        Ok(quota) => {
+            print_command_code_quota(&quota);
+            Ok(())
+        }
+        Err(error) => Err((1, error)),
+    }
+}
+
+fn command_code_json() -> Result<(), (i32, String)> {
+    let config = load_config().map_err(fail)?;
+    let api_key = read_secure_value(COMMAND_CODE_API_KEY)
+        .map_err(fail)?
+        .unwrap_or_default();
+    let payload = if api_key.is_empty() {
+        serde_json::json!({
+            "configured": false,
+            "error": "Command Code API key is not configured.\nRun: dsmon command-code set-key <api_key>"
+        })
+    } else {
+        match fetch_command_code_quota(&api_key, effective_http_proxy(&config)) {
+            Ok(quota) => serde_json::json!({
+                "configured": true,
+                "error": null,
+                "five_hour": quota.five_hour,
+                "weekly": quota.weekly,
+                "monthly": quota.monthly
+            }),
+            Err(error) => serde_json::json!({
+                "configured": true,
+                "error": error,
+                "five_hour": null,
+                "weekly": null,
+                "monthly": null
+            }),
+        }
+    };
+    println!("{payload}");
+    Ok(())
+}
+
+fn print_command_code_quota(quota: &CommandCodeQuota) {
+    println!("Command Code:");
+    print_command_code_window("5h", quota.five_hour.as_ref());
+    print_command_code_window("Weekly", quota.weekly.as_ref());
+    print_command_code_window("Monthly", quota.monthly.as_ref());
+}
+
+fn print_command_code_window(label: &str, window: Option<&CommandCodeWindow>) {
+    match window {
+        Some(window) => println!(
+            "  {label:<8} {:.1}/{:.1} used | resets in {}",
+            window.used,
+            window.cap,
+            format_reset_seconds(window.reset_in_sec)
+        ),
+        None => println!("  {label:<8} (unavailable)"),
+    }
+}
+
+fn fetch_command_code_quota(api_key: &str, http_proxy: &str) -> Result<CommandCodeQuota, String> {
+    let client = http_client(Duration::from_secs(10), http_proxy)?;
+    let organization_id = fetch_command_code_org_id(&client, api_key)?;
+    let org_query = organization_id
+        .map(|id| format!("?orgId={}", urlencode(&id)))
+        .unwrap_or_default();
+    let response = client
+        .get(format!(
+            "{COMMAND_CODE_API_BASE}alpha/billing/credits{org_query}"
+        ))
+        .header("Accept", "application/json")
+        .header("Authorization", format!("Bearer {}", api_key.trim()))
+        .send()
+        .map_err(|e| format!("Command Code request failed: {e}"))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().unwrap_or_default();
+        let message = sanitize_command_code_message(&text);
+        return Err(format!("Command Code API error {status}: {message}"));
+    }
+    let payload: CommandCodeApiResponse = response
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| format!("Command Code JSON parse failed: {e}"))?;
+    let now = Local::now().timestamp();
+    let monthly = command_code_monthly_window(
+        payload.credits.plan_id.as_deref(),
+        payload.credits.monthly_credits,
+    );
+    let quota = CommandCodeQuota {
+        five_hour: payload
+            .window_limits
+            .five_hour
+            .map(|window| api_cc_window_to_window(window, now)),
+        weekly: payload
+            .window_limits
+            .weekly
+            .map(|window| api_cc_window_to_window(window, now)),
+        monthly,
+    };
+    if quota.five_hour.is_none() && quota.weekly.is_none() && quota.monthly.is_none() {
+        return Err("Command Code API returned no usage windows.".to_string());
+    }
+    Ok(quota)
+}
+
+fn fetch_command_code_org_id(
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+) -> Result<Option<String>, String> {
+    let response = client
+        .get(format!("{COMMAND_CODE_API_BASE}alpha/whoami"))
+        .header("Accept", "application/json")
+        .header("Authorization", format!("Bearer {}", api_key.trim()))
+        .send()
+        .map_err(|e| format!("Command Code request failed: {e}"))?;
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+    let payload: CommandCodeApiWhoami = response
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| format!("Command Code JSON parse failed: {e}"))?;
+    Ok(payload.org.and_then(|org| org.id))
+}
+
+fn api_cc_window_to_window(window: CommandCodeApiWindow, now: i64) -> CommandCodeWindow {
+    CommandCodeWindow {
+        used: window.used.max(0.0),
+        cap: window.cap.max(0.0),
+        reset_in_sec: epoch_to_reset_seconds(window.reset_at, now),
+    }
+}
+
+fn epoch_to_reset_seconds(epoch: Option<f64>, now: i64) -> i64 {
+    epoch
+        .map(|value| {
+            let seconds = if value >= 100_000_000_000.0 {
+                (value / 1000.0) as i64
+            } else {
+                value as i64
+            };
+            (seconds - now).max(0)
+        })
+        .unwrap_or(0)
+}
+
+fn command_code_monthly_window(
+    plan_id: Option<&str>,
+    monthly_credits: Option<f64>,
+) -> Option<CommandCodeWindow> {
+    let is_goat = plan_id
+        .map(|plan| {
+            plan.replace('_', "-")
+                .to_ascii_lowercase()
+                .starts_with("individual-goat")
+        })
+        .unwrap_or(false);
+    if is_goat {
+        monthly_credits.map(|remaining| {
+            let used = (GOAT_MONTHLY_CREDITS - remaining).clamp(0.0, GOAT_MONTHLY_CREDITS);
+            CommandCodeWindow {
+                used,
+                cap: GOAT_MONTHLY_CREDITS,
+                reset_in_sec: 0,
+            }
+        })
+    } else {
+        None
+    }
+}
+
+fn urlencode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{:02X}", byte),
+        })
+        .collect()
+}
+
+fn sanitize_command_code_message(text: &str) -> String {
+    let cleaned: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.is_empty() {
+        "unknown".to_string()
+    } else {
+        cleaned.chars().take(120).collect()
     }
 }
 
@@ -2450,11 +2787,16 @@ mod tests {
         assert!(qml.contains("lines.push(\"💰 \""));
         assert!(qml.contains("lines.push(\"📡 \""));
         assert!(qml.contains("/usr/local/bin/dsmon opencode-go json"));
+        assert!(qml.contains("/usr/local/bin/dsmon command-code json"));
         assert!(qml.contains("function applyOpencodeGo"));
+        assert!(qml.contains("function applyCommandCode"));
+        assert!(qml.contains("function formatCcValue"));
         assert!(qml.contains("function barColor"));
         assert!(qml.contains("function formatOgValue"));
         assert!(qml.contains("ogRollingPercent"));
+        assert!(qml.contains("cc5hPercent"));
         assert!(qml.contains("text: \"OpenCode\""));
+        assert!(qml.contains("tr(\"ccTitle\")"));
         assert!(!qml.contains("text: tr(\"balances\")"));
         assert!(!qml.contains("model: Object.keys(root.balances)"));
 
@@ -2464,22 +2806,29 @@ mod tests {
         assert!(config_qml.contains("/usr/local/bin/dsmon set "));
         assert!(!config_qml.contains("set-config"));
         let account_qml = include_str!("../plasmoid/package/contents/ui/configAccount.qml");
-        assert!(account_qml.contains("/usr/local/bin/dsmon opencode-go json"));
+        assert!(account_qml.contains("/usr/local/bin/dsmon command-code set-key"));
         assert!(account_qml.contains("/usr/local/bin/dsmon opencode-go set-key"));
         assert!(account_qml.contains("/usr/local/bin/dsmon set-key"));
         assert!(account_qml.contains("ogApiKeyField"));
+        assert!(account_qml.contains("ccApiKeyField"));
         assert!(account_qml.contains("groupCredentials"));
-        assert!(account_qml.contains("groupQuota"));
-        assert!(account_qml.contains("QtControls.ProgressBar"));
-        assert!(account_qml.contains("visualPosition"));
-        assert!(account_qml.contains("barColor"));
-        assert!(account_qml.contains("rollingPercent"));
-        assert!(account_qml.contains("formatOgValue"));
-        assert!(account_qml.contains("ogNotConfigured"));
+        assert!(!account_qml.contains("groupQuota"));
+        assert!(!account_qml.contains("QtControls.ProgressBar"));
+        assert!(!account_qml.contains("/usr/local/bin/dsmon opencode-go json"));
+        let sub_qml = include_str!("../plasmoid/package/contents/ui/configSubscription.qml");
+        assert!(sub_qml.contains("/usr/local/bin/dsmon opencode-go json"));
+        assert!(sub_qml.contains("/usr/local/bin/dsmon command-code json"));
+        assert!(sub_qml.contains("groupOg"));
+        assert!(sub_qml.contains("groupCc"));
+        assert!(sub_qml.contains("QtControls.ProgressBar"));
+        assert!(sub_qml.contains("barColor"));
+        assert!(sub_qml.contains("formatOgValue"));
+        assert!(sub_qml.contains("formatCcValue"));
         let config_model = include_str!("../plasmoid/package/contents/config/config.qml");
         assert!(config_model.contains("configAccount.qml"));
         assert!(config_model.contains("account"));
-        assert!(!config_model.contains("configOpencodeGo.qml"));
+        assert!(config_model.contains("configSubscription.qml"));
+        assert!(config_model.contains("subscription"));
     }
 
     #[test]
@@ -2645,5 +2994,79 @@ mod tests {
         assert_eq!(format_reset_seconds(0), "now");
         assert_eq!(format_reset_seconds(6960), "1h 56m");
         assert_eq!(format_reset_seconds(2_307_600), "26d 17h");
+    }
+
+    #[test]
+    fn parses_command_code_api_json() {
+        // 模拟 /alpha/billing/credits 的真实响应
+        let payload = r#"{
+            "credits": {
+                "planId": "individual-goat-monthly",
+                "monthlyCredits": 48,
+                "purchasedCredits": 2.5,
+                "freeCredits": 1.5
+            },
+            "windowLimits": {
+                "limited": true,
+                "fiveHour": {"used": 4.2, "cap": 14, "resetAt": 1798761600000},
+                "weekly": {"used": "17.5", "cap": 35, "resetAt": 1799020800}
+            }
+        }"#;
+        let parsed: CommandCodeApiResponse =
+            serde_json::from_str(payload).expect("API response parses");
+        let now = 1_767_225_600; // 2026-01-01T00:00:00Z
+        let quota = CommandCodeQuota {
+            five_hour: parsed
+                .window_limits
+                .five_hour
+                .map(|window| api_cc_window_to_window(window, now)),
+            weekly: parsed
+                .window_limits
+                .weekly
+                .map(|window| api_cc_window_to_window(window, now)),
+            monthly: command_code_monthly_window(
+                parsed.credits.plan_id.as_deref(),
+                parsed.credits.monthly_credits,
+            ),
+        };
+        let five_hour = quota.five_hour.expect("five hour window");
+        assert_eq!(five_hour.used, 4.2);
+        assert_eq!(five_hour.cap, 14.0);
+        // 1798761600000 是毫秒时间戳，对应未来某个时间
+        assert!(five_hour.reset_in_sec > 0);
+        let weekly = quota.weekly.expect("weekly window");
+        assert_eq!(weekly.used, 17.5);
+        assert_eq!(weekly.cap, 35.0);
+        let monthly = quota.monthly.expect("goat monthly window");
+        assert_eq!(monthly.cap, GOAT_MONTHLY_CREDITS);
+        assert!((monthly.used - 22.0).abs() < 1e-9);
+        assert_eq!(monthly.reset_in_sec, 0);
+
+        // 非 GOAT 套餐不推算月度上限
+        let non_goat = r#"{
+            "credits": {"planId": "individual-pro-monthly", "monthlyCredits": 12},
+            "windowLimits": {"fiveHour": {"used": 1.0, "cap": 10, "resetAt": 0}}
+        }"#;
+        let parsed: CommandCodeApiResponse =
+            serde_json::from_str(non_goat).expect("non-goat API response parses");
+        let monthly = command_code_monthly_window(
+            parsed.credits.plan_id.as_deref(),
+            parsed.credits.monthly_credits,
+        );
+        assert!(monthly.is_none());
+
+        // 毫秒/秒时间戳归一化
+        assert_eq!(
+            epoch_to_reset_seconds(Some(1_767_225_600.0), 1_767_225_600),
+            0
+        );
+        assert_eq!(
+            epoch_to_reset_seconds(Some(1_767_225_600_000.0), 1_767_225_600),
+            0
+        );
+        assert_eq!(
+            epoch_to_reset_seconds(Some(1_767_225_600.0 + 3600.0), 1_767_225_600),
+            3600
+        );
     }
 }

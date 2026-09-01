@@ -2,23 +2,42 @@
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo "This uninstaller must run as root. Use: sudo ./uninstall.sh" >&2
+    echo "This uninstaller must run as root for the system-level binary/service. Use: sudo ./uninstall.sh" >&2
     exit 1
 fi
 
 SERVICE_NAME="dsmon.service"
 BIN_DST="/usr/local/bin/dsmon"
 SERVICE_DST="/etc/systemd/user/$SERVICE_NAME"
-PLASMOID_DST="/usr/share/plasma/plasmoids/com.github.wenyinos.deepseek-balance-monitor"
-ICON_DST="/usr/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
+
+INSTALL_USER="${SUDO_USER:-$(id -un)}"
+if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+    USER_HOME="$(getent passwd "$INSTALL_USER" | cut -d: -f6)"
+else
+    USER_HOME=""
+fi
+# 小组件与图标安装在用户级目录
+PLASMOID_DST=""
+ICON_DST=""
+ICON_CACHE_DIR=""
+if [ -n "$USER_HOME" ]; then
+    PLASMOID_DST="$USER_HOME/.local/share/plasma/plasmoids/com.github.wenyinos.deepseek-balance-monitor"
+    ICON_DST="$USER_HOME/.local/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
+    ICON_CACHE_DIR="$USER_HOME/.local/share/icons/hicolor"
+fi
+# 旧版本残留：用户级二进制（1.4.1 纯用户级安装）与旧系统级小组件
+OLD_USER_BIN="$USER_HOME/.local/bin/dsmon"
+OLD_USER_SERVICE="$USER_HOME/.config/systemd/user/dsmon.service"
+OLD_SYSTEM_PLASMOID="/usr/share/plasma/plasmoids/com.github.wenyinos.deepseek-balance-monitor"
+OLD_SYSTEM_ICON="/usr/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
 
 CORE_INSTALLED=0
-if [ -e "$BIN_DST" ] || [ -e "$SERVICE_DST" ]; then
+if [ -e "$BIN_DST" ] || [ -e "$SERVICE_DST" ] || [ -e "$OLD_USER_BIN" ] || [ -e "$OLD_USER_SERVICE" ]; then
     CORE_INSTALLED=1
 fi
 
 PLASMA_FILES_FOUND=0
-if [ -d "$PLASMOID_DST" ] || [ -f "$ICON_DST" ]; then
+if { [ -n "$PLASMOID_DST" ] && [ -d "$PLASMOID_DST" ]; } || { [ -n "$ICON_DST" ] && [ -f "$ICON_DST" ]; } || [ -d "$OLD_SYSTEM_PLASMOID" ] || [ -f "$OLD_SYSTEM_ICON" ]; then
     PLASMA_FILES_FOUND=1
 fi
 
@@ -45,14 +64,10 @@ run_user_systemctl() {
     fi
 }
 
-INSTALL_USER="${SUDO_USER:-}"
 if [ "$CORE_INSTALLED" -eq 1 ]; then
     if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
         echo "Stopping and disabling $SERVICE_NAME for user $INSTALL_USER..."
         run_user_systemctl "$INSTALL_USER" disable --now "$SERVICE_NAME"
-    else
-        echo "No non-root sudo user detected. If the service is running, stop it as your normal user:"
-        echo "  systemctl --user disable --now $SERVICE_NAME"
     fi
 fi
 
@@ -71,6 +86,15 @@ if [ -e "$BIN_DST" ]; then
 else
     echo "Not found: $BIN_DST"
 fi
+# 清理旧用户级残留
+if [ -e "$OLD_USER_SERVICE" ]; then
+    rm -f "$OLD_USER_SERVICE"
+    echo "Removed $OLD_USER_SERVICE"
+fi
+if [ -e "$OLD_USER_BIN" ]; then
+    rm -f "$OLD_USER_BIN"
+    echo "Removed $OLD_USER_BIN"
+fi
 
 if [ "$CORE_INSTALLED" -eq 1 ] && [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
     run_user_systemctl "$INSTALL_USER" daemon-reload
@@ -86,9 +110,19 @@ if [ "$PLASMA_FILES_FOUND" -eq 1 ]; then
     echo "  1. In Plasma, remove every DeepSeek Balance Monitor widget from panels/desktops."
     echo "  2. Log out and log back in, or restart plasmashell."
     echo "  3. After no widget instance is active, remove the package files manually:"
-    echo "     sudo rm -rf $PLASMOID_DST"
-    echo "     sudo rm -f $ICON_DST"
-    echo "     sudo gtk-update-icon-cache -q /usr/share/icons/hicolor"
+    if [ -n "$PLASMOID_DST" ]; then
+        echo "     rm -rf $PLASMOID_DST"
+    fi
+    if [ -n "$ICON_DST" ]; then
+        echo "     rm -f $ICON_DST"
+    fi
+    if [ -d "$OLD_SYSTEM_PLASMOID" ]; then
+        echo "     sudo rm -rf $OLD_SYSTEM_PLASMOID"
+    fi
+    if [ -f "$OLD_SYSTEM_ICON" ]; then
+        echo "     sudo rm -f $OLD_SYSTEM_ICON"
+    fi
+    [ -n "$ICON_CACHE_DIR" ] && echo "     gtk-update-icon-cache -q $ICON_CACHE_DIR 2>/dev/null || true"
 else
     echo "No Plasma widget package files were detected."
 fi

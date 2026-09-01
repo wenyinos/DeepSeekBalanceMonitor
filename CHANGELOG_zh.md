@@ -2,6 +2,38 @@
 
 所有值得记录的变更均记录于此。
 
+## Rust v1.4.1 (2026-09-01)
+
+### 变更
+
+- Linux 安装按职责拆分：`dsmon` 二进制与 systemd 用户服务保持系统级安装（`/usr/local/bin/dsmon`、`/etc/systemd/user/dsmon.service`，需 sudo）；Plasma 小组件及其图标安装到用户目录（`~/.local/share/`），后续更新小组件无需 sudo
+- Plasma 小组件改用绝对路径 `/usr/local/bin/dsmon` 调用 dsmon，确保 Plasma `executable` 引擎无论会话 PATH 如何都能找到
+- 安装完毕后对 sudo 用户自动执行 `systemctl --user enable --now dsmon.service`，守护进程设为登录自启动并立即启动
+- 非 systemd 发行版（如 OpenRC）：安装脚本跳过 systemd 服务文件，改为写入桌面自启动项（`~/.config/autostart/deepseek-balance-monitor.desktop`），在桌面登录时启动守护进程
+- 安装时检测早期纯用户级安装（1.4.1 预览版：`~/.local/bin/dsmon`、`~/.config/systemd/user/dsmon.service`）遗留的用户级文件，并询问是否清理
+
+## Rust v1.4.0 (2026-09-01)
+
+### 新增
+
+- Command Code 额度显示（Rust Windows 与 Rust Linux）：调用 `api.commandcode.ai/alpha/billing/credits`（经 `alpha/whoami` 获取 `orgId`），报告 5 小时 / 每周 / 每月三档用量；GOAT 套餐按 70 credits 推算月度用量，其他套餐显示为不可用
+- Windows：设置窗口新增「订阅」标签页，同时展示 OpenCode Go 与 Command Code 两组额度（各含三档进度条与刷新按钮）；DeepSeek、OpenCode Go、Command Code 三个 API Key 统一在「账户」标签页输入
+- Linux：新增 `dsmon command-code`（查询额度）、`dsmon command-code set-key <api_key>`（保存 API Key）与 `dsmon command-code json`（JSON 输出）CLI 命令
+- Linux：Plasma 6 小组件新增「订阅」设置页展示 OpenCode Go 与 Command Code 额度，凭据集中在「账户」页；主视图新增 Command Code 区（三档用量进度条）
+- Command Code API Key 加密存储于 `secure_settings` 表（独立 key：`command_code_api_key`），绝不写入 config.json
+- Rust Windows：本地 Rainmeter `/widget-status` 接口新增 Command Code 额度字段（`cc_configured`、`cc_error`、`cc_5h|weekly|monthly_percent` 与 `_line`），后台线程每 10 分钟刷新缓存、查询失败保留上次成功数据——为后续 Rainmeter 皮肤接入预留接口；约定见 `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`
+
+## Rust v1.3.3 (2026-08-30)
+
+### 变更
+
+- Rust Windows 从 native-tls（Schannel）迁移到 rustls + 内嵌 webpki-roots，与 rust-linux 统一：不再依赖系统证书库，Windows 7/8.1 开箱即用并获得 TLS 1.3；企业代理 / 安全软件做 HTTPS 检查时将无法通过证书校验（仅信任内嵌根证书）
+- 移除 `scripts/update_windows_root_certs.bat`：内嵌根证书后不再需要（Python 版本本就仅支持 Windows 10+）；README 的 TLS 章节与目录树已同步更新
+
+### 修复
+
+- 设置窗口分组标题字体渲染错误：加粗标题不再硬编码 Segoe UI（其缺少 CJK 字形，中文 UI 下走字体回退或显示豆腐块），改用统一 UI 字体族并经真实字体枚举回落（Microsoft YaHei UI → Microsoft YaHei / SimSun）；同时去掉误传的 9 像素字号，标题不再小于正文
+
 ## Rust v1.3.2 (2026-08-14)
 
 ### 变更

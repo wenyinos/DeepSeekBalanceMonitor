@@ -29,13 +29,16 @@ Rainmeter widget preview
 - Encrypted API key storage: Fernet + SQLite on Py-Win, SQLite `secure_settings` on Rust, Keychain on Py-Mac.
 - Rainmeter desktop widget: local-only status interface; `.rmskin` release packaging. Supported on both Rust and Python Windows builds.
 - Rainmeter `/widget-status` now includes OpenCode Go quota fields (`og_*`), refreshed every 10 minutes in the background; interface contract documented with Python-port guidance.
-- OpenCode Go quota display (Rust builds): scrapes the opencode.ai workspace dashboard for rolling (5h), weekly, and monthly usage; credentials stored encrypted in SQLite, never in config.json.
+- OpenCode Go quota display (Rust builds): fetches the official OpenCode Go API (`opencode.ai/zen/go/v1/usage`, Bearer API key) for rolling (5h), weekly, and monthly usage; credentials stored encrypted in SQLite, never in config.json.
+- Command Code quota display (Rust builds): fetches `api.commandcode.ai` billing endpoints (Bearer API key) for 5h, weekly, and monthly usage (GOAT plans get a derived monthly window from 70 credits); the Windows settings dialog and Plasma widget each gain a "Subscriptions" page showing OpenCode Go and Command Code quota side by side, with all API keys entered on the Account page. Linux CLI: `dsmon command-code` / `dsmon command-code set-key` / `dsmon command-code json`.
+- Rust builds use rustls with embedded webpki-roots: no OS certificate store is consulted, so the Windows build works out of the box on Windows 7/8.1 and supports TLS 1.3.
 
 Rust Linux-specific:
 - Rust Linux: `dsmon set-key` and `dsmon set <field> <value>`; daemon reloads config on each poll cycle; CLI stays English-only.
 - `dsmon opencode-go` prints OpenCode Go quota; `dsmon opencode-go set-key <api_key>` stores the API key encrypted; `dsmon opencode-go json` emits machine-readable output.
-- The Plasma 6 widget adds an "Account" settings page holding both API keys (DeepSeek and OpenCode Go) plus the OpenCode quota bars; the General page is organised into Query / General / Proxy / Icon Appearance groups.
-- Plasma 6 widget main view: the DeepSeek balance is shown as a large number with last check, API status, and estimated availability in a four-line layout; the OpenCode section shows three usage progress bars (5h/Weekly/Monthly), all refreshed together from the top-right button.
+- `dsmon command-code` prints Command Code quota; `dsmon command-code set-key <api_key>` stores the API key encrypted; `dsmon command-code json` emits machine-readable output.
+- The Plasma 6 widget settings are split by purpose: the Account page holds all API keys (DeepSeek, OpenCode Go, Command Code); a new Subscriptions page shows both OpenCode Go and Command Code quota bars; the General page is organised into Query / General / Proxy / Icon Appearance groups.
+- Plasma 6 widget main view: the DeepSeek balance is shown as a large number with last check, API status, and estimated availability in a four-line layout; the OpenCode and Command Code sections each show three usage progress bars (5h/Weekly/Monthly), all refreshed together from the top-right button.
 - Refreshing the Linux Plasma widget model: balance, relative last check, API service status, and estimated availability now match the Rainmeter widget layout.
 - Plasma widget language changes now sync `cfg_language` to `dsmon`'s `ui_language`, persisting the Chinese/English selection across Plasma restarts.
 - Linux releases now provide both a complete `.tar.gz` package and a standalone `.plasmoid` widget package for direct download.
@@ -47,7 +50,7 @@ Rust Linux-specific:
 - **Balance details** — Left-click the icon to see balance (emoji-prefixed), consumption rate, API service status, and relative last-check time.
 - **History viewer** — Paginated table of all balance records with interactive trend chart and consumption rate analysis. CSV export.
 - **Settings** — API key (Fernet + SQLite encrypted storage), check interval, alert threshold, alert mode, icon theme, proxy, and more.
-- **OpenCode Go quota** (Rust builds) — A dedicated Settings tab (Windows) or `dsmon opencode-go` (Linux) shows rolling 5h/weekly/monthly usage from the opencode.ai dashboard, with encrypted credential storage.
+- **OpenCode Go & Command Code quota** (Rust builds) — A "Subscriptions" settings page (Windows) or `dsmon opencode-go` / `dsmon command-code` (Linux) shows rolling 5h/weekly/monthly usage from the opencode.ai and commandcode.ai dashboards, with encrypted credential storage.
 - **Demo mode** — `--demo` flag for testing without an API key, with a developer tools panel.
 - **Optional desktop widgets** — KDE Plasma 6 on Linux, and Rainmeter on Windows (Rust and Python builds both supported).
 - **Community ports** — Rust-Win (Win7+), Rust-Linux (CLI + Plasma 6 widget), Py-Mac (Keychain-secured, WebView settings UI).
@@ -85,8 +88,9 @@ The Plasma widget is optional and requires KDE Plasma 6. It reads status from a 
    tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
    cd deepseek-balance-monitor-*-linux-x86_64
    sudo ./install.sh
-   systemctl --user enable --now dsmon.service
    ```
+
+   The installer auto-enables and starts the daemon (`systemctl --user enable --now dsmon.service`).
 
 3. Add **DeepSeek Balance Monitor** from the Plasma widget chooser.
 4. Open the widget settings, enter your DeepSeek API key (or use `dsmon set-key`), then click **Save**.
@@ -117,11 +121,11 @@ Direct downloads (`.exe`, `.tar.gz`, `.dmg`) require no additional runtimes.
 
 Building from source additionally requires Python 3.10+ (Py-Win, Py-Mac) or Rust 1.77.2 (Rust-Win, Rust-Linux).
 
-### Windows 7/8.1 Root Certificates
+### TLS Certificates
 
-For Windows 7/8.1 systems that cannot query `status.deepseek.com`, run `scripts\update_windows_root_certs.bat` as administrator to update the Windows root certificate store from Windows Update. The script does not bundle certificates and does not change the app TLS backend.
+Both Rust builds use rustls with embedded webpki-roots: the Mozilla root store is compiled into the binary and no operating system certificate store is consulted. The Windows build therefore works on Windows 7/8.1 with stale trust stores out of the box (TLS 1.3 included), and the former `update_windows_root_certs.bat` helper script has been removed as unnecessary — Py-Win requires Windows 10+ anyway.
 
-Even after updating root certificates, old Windows systems may still fail to fetch the API service status because DeepSeek's status page uses a different TLS endpoint from the balance API. Common causes include missing TLS 1.2 or Windows Update patches, outdated Schannel cipher support, stale system trust settings, incorrect system time, or HTTPS inspection by a proxy/security product. Balance checks may still work when service-status checks fail. This project treats API service-status checks on Windows 7/8.1 as best-effort and does not plan a program-side workaround.
+Note that TLS inspection by a corporate proxy or security software will fail certificate validation, because only the embedded root store is trusted.
 
 ### Run from Source (Python)
 
@@ -158,13 +162,15 @@ cd rust-linux
 cargo +1.77.2 build --release --locked
 ```
 
-Linux release tarballs install `/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`, and, on Plasma 6 systems, the optional Plasma widget:
+Linux release tarballs install the `dsmon` binary and systemd user service at system level (`/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`) with sudo, and the Plasma widget plus its icon under your user directory (`~/.local/share/`) so widget updates never need sudo:
 
 ```bash
 tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
 cd deepseek-balance-monitor-*-linux-x86_64
 sudo ./install.sh
 ```
+
+On systemd systems the installer runs `systemctl --user enable --now dsmon.service` (for the sudo user) so the daemon auto-starts on login and runs immediately; on non-systemd systems it writes a desktop autostart entry instead.
 
 The CLI is currently available only in the Rust Linux build. Windows and MacOS builds use GUI/tray controls.
 
@@ -181,6 +187,7 @@ Useful Linux CLI commands:
 | `dsmon history export [days] [currency\|all] [path\|-]` | Export history as CSV; `-` writes CSV to stdout |
 | `dsmon widget-status` | Print JSON status consumed by the Plasma widget |
 | `dsmon opencode-go` | Print OpenCode Go quota (5h/weekly/monthly usage); store the API key with `dsmon opencode-go set-key <api_key>` (or pipe it via stdin; get a key at https://opencode.ai/auth) |
+| `dsmon command-code` | Print Command Code quota (5h/weekly/monthly usage); store the API key with `dsmon command-code set-key <api_key>` (or pipe it via stdin; get a key at https://commandcode.ai) |
 
 **MacOS (`src/mac/`):**
 
@@ -223,7 +230,6 @@ DeepSeekBalance/
 │   ├── build_exe.bat
 │   ├── build_mac.sh
 │   ├── setup.bat
-│   ├── update_windows_root_certs.bat
 │   ├── run_silent.vbs
 │   └── demo.vbs
 ├── assets/                     # Icons, previews, fonts
