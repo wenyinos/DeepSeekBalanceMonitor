@@ -6,11 +6,11 @@
 
 ### 变更
 
-- Linux 安装改为纯用户级：安装脚本将 `dsmon` 写入 `~/.local/bin`，systemd 服务写入 `~/.config/systemd/user/`，Plasma 小组件及其图标写入 `~/.local/share/` 下——无需 sudo，也不再强制 root
-- Plasma 小组件改为通过 `$PATH` 解析 `dsmon`（不再硬编码 `/usr/local/bin/dsmon`），适配用户级二进制；安装脚本在 `~/.local/bin` 不在 PATH 时自动写入 shell 配置文件
-- 安装时检测旧版本遗留的系统级文件（`/usr/local/bin/dsmon`、`/etc/systemd/user/dsmon.service`、`/usr/share/plasma/plasmoids/…`、`/usr/share/icons/…`），询问确认后通过 `sudo` 自动删除（可能要求输入密码）；卸载脚本同样改为用户级
-- 安装完毕后自动执行 `systemctl --user enable --now dsmon.service`，守护进程设为登录自启动并立即启动
+- Linux 安装按职责拆分：`dsmon` 二进制与 systemd 用户服务保持系统级安装（`/usr/local/bin/dsmon`、`/etc/systemd/user/dsmon.service`，需 sudo）；Plasma 小组件及其图标安装到用户目录（`~/.local/share/`），后续更新小组件无需 sudo
+- Plasma 小组件改用绝对路径 `/usr/local/bin/dsmon` 调用 dsmon，确保 Plasma `executable` 引擎无论会话 PATH 如何都能找到
+- 安装完毕后对 sudo 用户自动执行 `systemctl --user enable --now dsmon.service`，守护进程设为登录自启动并立即启动
 - 非 systemd 发行版（如 OpenRC）：安装脚本跳过 systemd 服务文件，改为写入桌面自启动项（`~/.config/autostart/deepseek-balance-monitor.desktop`），在桌面登录时启动守护进程
+- 安装时检测早期纯用户级安装（1.4.1 预览版：`~/.local/bin/dsmon`、`~/.config/systemd/user/dsmon.service`）遗留的用户级文件，并询问是否清理
 
 ## Rust v1.4.0 (2026-09-01)
 

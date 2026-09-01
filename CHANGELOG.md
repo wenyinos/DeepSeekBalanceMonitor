@@ -6,11 +6,11 @@ All notable changes to DeepSeek Balance Monitor are documented here.
 
 ### Changed
 
-- Linux installation is now fully user-level: the installer writes `dsmon` to `~/.local/bin`, the systemd service to `~/.config/systemd/user/`, and the Plasma widget plus its icon under `~/.local/share/` — no sudo is required, and root is no longer enforced
-- The Plasma widget now resolves `dsmon` through `$PATH` instead of a hard-coded `/usr/local/bin/dsmon`, so it works with the user-level binary; the installer auto-adds `~/.local/bin` to the shell profile when missing
-- On install, the script detects leftover system-level files from older versions (`/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`, `/usr/share/plasma/plasmoids/…`, `/usr/share/icons/…`) and offers to remove them via `sudo` (asking for confirmation first); the uninstaller is likewise user-level
-- The installer now runs `systemctl --user enable --now dsmon.service` after installation, so the daemon is set to auto-start on login and starts immediately
+- Linux install split by scope: the `dsmon` binary and systemd user service stay system-level (`/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`, installed with sudo), while the Plasma widget and its icon install under the user directory (`~/.local/share/`) so widget updates never need sudo
+- The Plasma widget calls `dsmon` by its absolute path `/usr/local/bin/dsmon` so it works from the Plasma `executable` engine regardless of the session PATH
+- The installer runs `systemctl --user enable --now dsmon.service` after installation (for the sudo user), so the daemon is set to auto-start on login and starts immediately
 - On non-systemd distributions (e.g. OpenRC), the installer skips the systemd service file and instead writes a desktop autostart entry (`~/.config/autostart/deepseek-balance-monitor.desktop`) that starts the daemon at desktop login
+- The installer detects leftover user-level files from the earlier user-only install (1.4.1-rc: `~/.local/bin/dsmon`, `~/.config/systemd/user/dsmon.service`) and offers to remove them
 
 ## Rust v1.4.0 (2026-09-01)
 

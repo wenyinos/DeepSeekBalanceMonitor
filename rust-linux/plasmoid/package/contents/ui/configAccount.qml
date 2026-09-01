@@ -83,7 +83,7 @@ KCM.SimpleKCM {
     function loadConfig() {
         busy = true
         statusText = tr("loading")
-        loader.connectSource("dsmon config-json")
+        loader.connectSource("/usr/local/bin/dsmon config-json")
     }
 
     function runNextSaveCommand() {
@@ -102,7 +102,7 @@ KCM.SimpleKCM {
         var dsKey = apiKeyField.text.trim()
         if (dsKey.length > 0 && dsKey !== tr("apiKeyStored")) {
             if (dsKey.toLowerCase() === "demo") {
-                commands.push("dsmon set-key " + shellQuote("demo"))
+                commands.push("/usr/local/bin/dsmon set-key " + shellQuote("demo"))
             } else {
                 statusText = tr("apiKeyUpdateHint")
                 busy = false
@@ -111,11 +111,11 @@ KCM.SimpleKCM {
         }
         var ogKey = ogApiKeyField.text.trim()
         if (ogKey.length > 0 && ogKey !== tr("apiKeyStored")) {
-            commands.push("dsmon opencode-go set-key " + shellQuote(ogKey))
+            commands.push("/usr/local/bin/dsmon opencode-go set-key " + shellQuote(ogKey))
         }
         var ccKey = ccApiKeyField.text.trim()
         if (ccKey.length > 0 && ccKey !== tr("apiKeyStored")) {
-            commands.push("dsmon command-code set-key " + shellQuote(ccKey))
+            commands.push("/usr/local/bin/dsmon command-code set-key " + shellQuote(ccKey))
         }
         if (commands.length === 0) {
             return

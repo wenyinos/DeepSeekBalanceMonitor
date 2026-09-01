@@ -48,7 +48,7 @@ PlasmoidItem {
     property string ccWeeklyText: "--"
     property string ccMonthlyText: "--"
     property string ccStatusText: ""
-    readonly property string notificationIconPath: "/usr/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
+    readonly property string notificationIcon: "deepseek-balance-monitor"
     readonly property color warmGray: "#8a8078"
     readonly property color glassTextColor: "#ffffff"
     readonly property int balanceTextPointSize: 15
@@ -270,9 +270,9 @@ PlasmoidItem {
     function refresh() {
         checking = true
         runCommand("systemctl --user is-active dsmon.service")
-        runCommand("dsmon widget-status")
-        runCommand("dsmon opencode-go json")
-        runCommand("dsmon command-code json")
+        runCommand("/usr/local/bin/dsmon widget-status")
+        runCommand("/usr/local/bin/dsmon opencode-go json")
+        runCommand("/usr/local/bin/dsmon command-code json")
     }
 
     function barColor(percent) {
@@ -359,7 +359,7 @@ PlasmoidItem {
     function notifyDaemonError(action, stdout, stderr) {
         var title = action === "start" ? tr("daemonStartFailed") : tr("daemonStopFailed")
         runCommand("/usr/bin/notify-send --app-name " + shellQuote(tr("title"))
-            + " --icon " + shellQuote(notificationIconPath)
+            + " --icon " + shellQuote(notificationIcon)
             + " " + shellQuote(title)
             + " " + shellQuote(consoleMessage(stdout, stderr)))
     }
@@ -368,7 +368,7 @@ PlasmoidItem {
         var title = degraded ? tr("apiDegradedTitle") : tr("apiRecoveredTitle")
         var message = (degraded ? tr("apiDegradedMsg") : tr("apiRecoveredMsg") + " ") + serviceStatusMarkup()
         runCommand("/usr/bin/notify-send --app-name " + shellQuote(tr("title"))
-            + " --icon " + shellQuote(notificationIconPath)
+            + " --icon " + shellQuote(notificationIcon)
             + " " + shellQuote(title)
             + " " + shellQuote(message))
     }
@@ -529,7 +529,7 @@ PlasmoidItem {
 
     function showBalanceNotification() {
         runCommand("/usr/bin/notify-send --app-name " + shellQuote(tr("title"))
-            + " --icon " + shellQuote(notificationIconPath)
+            + " --icon " + shellQuote(notificationIcon)
             + " " + shellQuote(notificationTitle())
             + " " + shellQuote(balanceMessage()))
     }

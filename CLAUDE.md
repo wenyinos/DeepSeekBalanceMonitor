@@ -26,7 +26,7 @@ cd src/mac && bash ../scripts/build_mac.sh   # macOS 应用
 
 ```bash
 cd rust-linux && cargo +1.77.2 build --release --locked
-./install.sh                            # 纯用户级安装（~/.local/bin，无需 sudo）
+sudo ./install.sh                       # 系统级二进制 + 用户级 Plasma 小组件
 
 cd rust-windows && cargo +1.77.2 build --release --target x86_64-pc-windows-msvc --locked
 

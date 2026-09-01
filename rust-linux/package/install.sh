@@ -1,92 +1,110 @@
 #!/usr/bin/env sh
 set -eu
 
+if [ "$(id -u)" -ne 0 ]; then
+    echo "This installer must run as root for the system-level binary/service. Use: sudo ./install.sh" >&2
+    exit 1
+fi
+
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 BIN_SRC="$SCRIPT_DIR/dsmon"
 SERVICE_SRC="$SCRIPT_DIR/dsmon.service"
 PLASMOID_SRC="$SCRIPT_DIR/plasmoid"
 SERVICE_NAME="dsmon.service"
 
-# 纯用户级安装：不写任何系统目录，无需 sudo
-INSTALL_USER="$(id -un)"
-USER_HOME="${HOME:-}"
-if [ -z "$USER_HOME" ]; then
-    USER_HOME="$(getent passwd "$INSTALL_USER" | cut -d: -f6)"
+INSTALL_USER="${SUDO_USER:-$(id -un)}"
+if [ "$INSTALL_USER" = "root" ] || [ -z "$INSTALL_USER" ]; then
+    echo "Unable to determine the target user (SUDO_USER empty and current user is root)." >&2
+    echo "Run the installer via sudo as a normal user, e.g.: sudo ./install.sh" >&2
+    exit 1
 fi
+USER_HOME="$(getent passwd "$INSTALL_USER" | cut -d: -f6)"
 if [ -z "$USER_HOME" ]; then
     echo "Unable to determine home directory for user $INSTALL_USER." >&2
     exit 1
 fi
 
-BIN_DST="$USER_HOME/.local/bin/dsmon"
-SERVICE_DST="$USER_HOME/.config/systemd/user/dsmon.service"
+# 二进制与服务安装到系统级（需要 root）；Plasma 小组件与图标安装到用户级
+BIN_DST="/usr/local/bin/dsmon"
+SERVICE_DST="/etc/systemd/user/dsmon.service"
 PLASMOID_DST="$USER_HOME/.local/share/plasma/plasmoids/com.github.wenyinos.deepseek-balance-monitor"
 ICON_DST="$USER_HOME/.local/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
 ICON_CACHE_DIR="$USER_HOME/.local/share/icons/hicolor"
 
-# 旧版本安装到系统目录的残留（检测并提示，不自动删除）
-OLD_SYSTEM_BIN="/usr/local/bin/dsmon"
-OLD_SYSTEM_SERVICE="/etc/systemd/user/dsmon.service"
+# 旧版本安装到用户级的 dsmon 残留（1.4.1 曾纯用户级安装，二进制在 ~/.local/bin）
+OLD_USER_BIN="$USER_HOME/.local/bin/dsmon"
+OLD_USER_SERVICE="$USER_HOME/.config/systemd/user/dsmon.service"
+# 1.4.0 及更早安装到系统级的小组件/图标残留（会遮蔽用户级小组件）
 OLD_SYSTEM_PLASMOID="/usr/share/plasma/plasmoids/com.github.wenyinos.deepseek-balance-monitor"
 OLD_SYSTEM_ICON="/usr/share/icons/hicolor/256x256/apps/deepseek-balance-monitor.png"
 
-echo "This installer installs everything under your user directory ($USER_HOME)."
-echo "No sudo is required."
+echo "Installs dsmon binary + systemd service to system-level (/usr/local/bin, /etc/systemd/user)."
+echo "Plasma widget + icon are installed to your user directory ($USER_HOME)."
 
-if [ "$(id -u)" -eq 0 ]; then
+# 检测旧用户级残留：如存在则询问是否清理
+if [ -e "$OLD_USER_BIN" ] || [ -e "$OLD_USER_SERVICE" ]; then
     echo ""
-    echo "WARNING: you are running this installer as root (e.g. via sudo)."
-    echo "This installer is user-level only and should be run as your normal user."
-    printf "Continue as root anyway? [y/N] "
+    echo "NOTE: leftover user-level files from the previous user-only install were detected:"
+    [ -e "$OLD_USER_BIN" ] && echo "  - $OLD_USER_BIN"
+    [ -e "$OLD_USER_SERVICE" ] && echo "  - $OLD_USER_SERVICE"
+    printf "Remove them now? [y/N] "
     IFS= read -r answer || answer=""
     case "$answer" in
-        y|Y|yes|YES|Yes) ;;
-        *) echo "Aborted. Run without sudo: ./install.sh"; exit 1 ;;
+        y|Y|yes|YES|Yes)
+            if [ -e "$OLD_USER_SERVICE" ] && command -v runuser >/dev/null 2>&1; then
+                install_uid="$(id -u "$INSTALL_USER" 2>/dev/null || true)"
+                if [ -n "$install_uid" ] && [ -d "/run/user/$install_uid" ]; then
+                    runuser -u "$INSTALL_USER" -- env XDG_RUNTIME_DIR="/run/user/$install_uid" systemctl --user disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
+                fi
+            fi
+            [ -e "$OLD_USER_SERVICE" ] && rm -f "$OLD_USER_SERVICE"
+            [ -e "$OLD_USER_BIN" ] && rm -f "$OLD_USER_BIN"
+            echo "Old user-level files removed."
+            ;;
+        *)
+            echo "Skipped. They will not interfere with the system-level install."
+            ;;
     esac
 fi
 
-# 检测旧系统级残留：如存在则询问是否用 sudo 自动删除（可能要求输入密码）
+# 检测 1.4.0 及更早安装到系统级的小组件/图标残留：会遮蔽用户级小组件
 OLD_SYSTEM_FOUND=0
-[ -e "$OLD_SYSTEM_BIN" ] && OLD_SYSTEM_FOUND=1
-[ -e "$OLD_SYSTEM_SERVICE" ] && OLD_SYSTEM_FOUND=1
 [ -d "$OLD_SYSTEM_PLASMOID" ] && OLD_SYSTEM_FOUND=1
 [ -f "$OLD_SYSTEM_ICON" ] && OLD_SYSTEM_FOUND=1
 if [ "$OLD_SYSTEM_FOUND" -eq 1 ]; then
     echo ""
-    echo "NOTE: older system-level files from a previous version were detected:"
-    [ -e "$OLD_SYSTEM_BIN" ] && echo "  - $OLD_SYSTEM_BIN"
-    [ -e "$OLD_SYSTEM_SERVICE" ] && echo "  - $OLD_SYSTEM_SERVICE"
+    echo "NOTE: older system-level widget/icon files from v1.4.0 and earlier were detected:"
     [ -d "$OLD_SYSTEM_PLASMOID" ] && echo "  - $OLD_SYSTEM_PLASMOID"
     [ -f "$OLD_SYSTEM_ICON" ] && echo "  - $OLD_SYSTEM_ICON"
-    echo "They can shadow or conflict with the user-level install."
-    printf "Remove them now with sudo (may ask for your password)? [y/N] "
+    echo "They can shadow the user-level widget installed below. Remove them?"
+    printf "Remove now? [y/N] "
     IFS= read -r answer || answer=""
     case "$answer" in
         y|Y|yes|YES|Yes)
-            if command -v sudo >/dev/null 2>&1; then
-                echo "Removing old system-level files with sudo..."
-                [ -e "$OLD_SYSTEM_BIN" ] && sudo rm -f "$OLD_SYSTEM_BIN" || true
-                [ -e "$OLD_SYSTEM_SERVICE" ] && sudo rm -f "$OLD_SYSTEM_SERVICE" || true
-                [ -d "$OLD_SYSTEM_PLASMOID" ] && sudo rm -rf "$OLD_SYSTEM_PLASMOID" || true
-                [ -f "$OLD_SYSTEM_ICON" ] && sudo rm -f "$OLD_SYSTEM_ICON" || true
-                echo "Old system-level files removed."
-            else
-                echo "sudo is not available. Remove them manually:"
-                [ -e "$OLD_SYSTEM_BIN" ] && echo "  sudo rm -f $OLD_SYSTEM_BIN"
-                [ -e "$OLD_SYSTEM_SERVICE" ] && echo "  sudo rm -f $OLD_SYSTEM_SERVICE"
-                [ -d "$OLD_SYSTEM_PLASMOID" ] && echo "  sudo rm -rf $OLD_SYSTEM_PLASMOID"
-                [ -f "$OLD_SYSTEM_ICON" ] && echo "  sudo rm -f $OLD_SYSTEM_ICON"
-            fi
+            [ -d "$OLD_SYSTEM_PLASMOID" ] && rm -rf "$OLD_SYSTEM_PLASMOID"
+            [ -f "$OLD_SYSTEM_ICON" ] && rm -f "$OLD_SYSTEM_ICON"
+            echo "Old system-level widget/icon files removed."
             ;;
         *)
-            echo "Skipped removal. They will not interfere with the user-level install,"
-            echo "but may shadow it. Remove them later with:"
-            echo "  sudo rm -f $OLD_SYSTEM_BIN"
-            echo "  sudo rm -f $OLD_SYSTEM_SERVICE"
+            echo "Skipped. If the widget shows stale UI, remove them later with:"
             echo "  sudo rm -rf $OLD_SYSTEM_PLASMOID"
             echo "  sudo rm -f $OLD_SYSTEM_ICON"
             ;;
     esac
+fi
+
+# 检测旧系统级服务是否在运行（当前方案目标位置；覆盖前先停旧服务避免冲突）
+if [ -e "$SERVICE_DST" ] && command -v systemctl >/dev/null 2>&1; then
+    if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ] && command -v runuser >/dev/null 2>&1; then
+        install_uid="$(id -u "$INSTALL_USER" 2>/dev/null || true)"
+        if [ -n "$install_uid" ] && [ -d "/run/user/$install_uid" ]; then
+            if runuser -u "$INSTALL_USER" -- env XDG_RUNTIME_DIR="/run/user/$install_uid" systemctl --user is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+                echo ""
+                echo "An existing $SERVICE_NAME is active. Stopping it before reinstall..."
+                runuser -u "$INSTALL_USER" -- env XDG_RUNTIME_DIR="/run/user/$install_uid" systemctl --user stop "$SERVICE_NAME" >/dev/null 2>&1 || true
+            fi
+        fi
+    fi
 fi
 
 is_plasma6_session() {
@@ -142,47 +160,23 @@ if should_install_plasmoid; then
     fi
 fi
 
-# 安装二进制
-install -d -m 755 "$USER_HOME/.local/bin"
-install -m 755 "$BIN_SRC" "$BIN_DST"
+# 安装二进制（系统级）
+install -D -m 755 "$BIN_SRC" "$BIN_DST"
 
-# 检测 init 系统：有 systemctl 则用 systemd 用户服务，否则用桌面 autostart
-if command -v systemctl >/dev/null 2>&1; then
-    USE_SYSTEMD=1
-else
-    USE_SYSTEMD=0
-fi
-
-if [ "$USE_SYSTEMD" -eq 1 ]; then
-    # 安装 systemd 用户服务（ExecStart 指向用户级二进制）
-    install -d -m 755 "$USER_HOME/.config/systemd/user"
-    sed -e "s|/usr/local/bin/dsmon|%h/.local/bin/dsmon|g" "$SERVICE_SRC" > "$SERVICE_DST"
-    chmod 644 "$SERVICE_DST"
-else
-    # 非 systemd 发行版：不安装 service 文件，写入桌面 autostart 条目
-    AUTOSTART_DST="$USER_HOME/.config/autostart/deepseek-balance-monitor.desktop"
-    install -d -m 755 "$(dirname "$AUTOSTART_DST")"
-    cat > "$AUTOSTART_DST" <<EOF
-[Desktop Entry]
-Type=Application
-Name=DeepSeek Balance Monitor daemon
-Comment=Start the dsmon daemon at login
-Exec=$BIN_DST daemon
-Terminal=false
-X-GNOME-Autostart-enabled=true
-EOF
-    echo "Wrote desktop autostart entry: $AUTOSTART_DST"
-fi
+# 安装 systemd 用户服务（系统级，ExecStart 用 /usr/local/bin/dsmon）
+install -D -m 644 "$SERVICE_SRC" "$SERVICE_DST"
 
 if [ "$INSTALL_PLASMOID" -eq 1 ]; then
     # 安装 plasmoid（用户级）
     install -d -m 755 "$(dirname "$PLASMOID_DST")"
     rm -rf "$PLASMOID_DST"
     cp -R "$PLASMOID_SRC" "$PLASMOID_DST"
+    chown -R "$INSTALL_USER:" "$PLASMOID_DST"
 
     # 安装图标（用户级）
     install -d -m 755 "$(dirname "$ICON_DST")"
     install -m 644 "$PLASMOID_SRC/contents/images/deepseek-balance-monitor.png" "$ICON_DST"
+    chown "$INSTALL_USER:" "$ICON_DST"
 
     if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d "$ICON_CACHE_DIR" ]; then
         gtk-update-icon-cache -q "$ICON_CACHE_DIR" 2>/dev/null || true
@@ -200,40 +194,30 @@ else
 fi
 echo ""
 
-# 确保 ~/.local/bin 在 PATH：不在时自动写入 shell 配置（带标记，可重复运行）
-PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
-PATH_MARKER="# >>> deepseek-balance-monitor: ~/.local/bin PATH >>>"
-if ! case ":$PATH:" in *":$USER_HOME/.local/bin:"*) ;; *) false ;; esac; then
-    for PROFILE in "$USER_HOME/.profile" "$USER_HOME/.bashrc"; do
-        if [ -f "$PROFILE" ] || { [ "$PROFILE" = "$USER_HOME/.profile" ] && [ ! -e "$USER_HOME/.bashrc" ]; }; then
-            touch "$PROFILE" 2>/dev/null || continue
-            if ! grep -qF "$PATH_MARKER" "$PROFILE" 2>/dev/null; then
-                printf '\n%s\n%s\n%s\n' "$PATH_MARKER" "$PATH_LINE" "# <<< deepseek-balance-monitor >>>" >> "$PROFILE"
-                echo "Added $PATH_LINE to $PROFILE"
-            fi
-        fi
-    done
-    echo ""
-    echo "NOTE: $USER_HOME/.local/bin was not on your PATH; it has been added to your shell profile."
-    echo "Open a new terminal or run:  source ~/.profile  (or  source ~/.bashrc)"
-    echo ""
-fi
-
-# 自动设为自启动：systemd 下 enable --now；非 systemd 下已写桌面 autostart
-if [ "$USE_SYSTEMD" -eq 1 ]; then
+# 自动设为自启动：systemd 下 enable --now（用户级）
+if command -v systemctl >/dev/null 2>&1; then
     echo "Reloading user systemd manager..."
-    systemctl --user daemon-reload || true
-    echo "Enabling and starting $SERVICE_NAME..."
-    if systemctl --user enable --now "$SERVICE_NAME" 2>/dev/null; then
-        echo "$SERVICE_NAME enabled (auto-start on login) and started."
+    if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ] && command -v runuser >/dev/null 2>&1; then
+        install_uid="$(id -u "$INSTALL_USER" 2>/dev/null || true)"
+        if [ -n "$install_uid" ] && [ -d "/run/user/$install_uid" ]; then
+            echo "Enabling and starting $SERVICE_NAME for $INSTALL_USER..."
+            if runuser -u "$INSTALL_USER" -- env XDG_RUNTIME_DIR="/run/user/$install_uid" systemctl --user daemon-reload; then
+                if runuser -u "$INSTALL_USER" -- env XDG_RUNTIME_DIR="/run/user/$install_uid" systemctl --user enable --now "$SERVICE_NAME" 2>/dev/null; then
+                    echo "$SERVICE_NAME enabled (auto-start on login) and started."
+                else
+                    echo "Failed to enable/start $SERVICE_NAME automatically."
+                    echo "Do it manually as $INSTALL_USER: systemctl --user enable --now $SERVICE_NAME"
+                fi
+            fi
+        else
+            echo "No active user session found; reload manually as $INSTALL_USER:"
+            echo "  systemctl --user daemon-reload"
+        fi
     else
-        echo "Failed to enable/start $SERVICE_NAME automatically."
-        echo "Do it manually with: systemctl --user enable --now $SERVICE_NAME"
+        echo "Reload user systemd manually if needed: systemctl --user daemon-reload"
     fi
 else
-    echo "No systemd detected. The daemon will auto-start at desktop login"
-    echo "via $USER_HOME/.config/autostart/deepseek-balance-monitor.desktop."
-    echo "For non-desktop sessions, start it manually with: $BIN_DST daemon"
+    echo "No systemd detected. Start the daemon manually with: $BIN_DST daemon"
 fi
 
 # 首次查询并提示设置 API key
@@ -256,18 +240,25 @@ prompt_api_key() {
         echo "Skipped API key setup. Set it later with: dsmon set-key <api_key>"
         return
     fi
-    if printf "%s\n" "$API_KEY" | "$BIN_DST" set-key; then
+    if printf "%s\n" "$API_KEY" | run_dsmon_for_user set-key; then
         echo "Running check after saving API key..."
-        if ! "$BIN_DST" check; then
+        if ! run_dsmon_for_user check; then
             echo "API key was saved, but the check still failed. Please review the output above."
         fi
     else
         echo "Failed to save API key. Set it later with: dsmon set-key <api_key>" >&2
     fi
 }
+run_dsmon_for_user() {
+    if command -v runuser >/dev/null 2>&1 && [ "$INSTALL_USER" != "root" ]; then
+        runuser -u "$INSTALL_USER" -- "$BIN_DST" "$@"
+    else
+        "$BIN_DST" "$@"
+    fi
+}
 echo "Running first check..."
 CHECK_STATUS=0
-CHECK_OUTPUT="$("$BIN_DST" check 2>&1)" || CHECK_STATUS=$?
+CHECK_OUTPUT="$(run_dsmon_for_user check 2>&1)" || CHECK_STATUS=$?
 if [ -n "$CHECK_OUTPUT" ]; then
     printf "%s\n" "$CHECK_OUTPUT"
 fi
@@ -280,12 +271,11 @@ elif [ "$CHECK_STATUS" -ne 0 ]; then
     esac
 fi
 echo ""
-if [ "$USE_SYSTEMD" -eq 1 ]; then
-    echo "Installation complete. $SERVICE_NAME is set to auto-start on login."
-    echo "If it is not running, start it now with: systemctl --user start dsmon.service"
+if command -v systemctl >/dev/null 2>&1; then
+    echo "Installation complete. $SERVICE_NAME is set to auto-start on login for $INSTALL_USER."
+    echo "If it is not running, start it now: systemctl --user start dsmon.service"
 else
-    echo "Installation complete. The dsmon daemon will auto-start at desktop login"
-    echo "via the autostart entry; for non-desktop sessions run: $BIN_DST daemon"
+    echo "Installation complete. Start the daemon manually with: $BIN_DST daemon"
 fi
 if [ "$INSTALL_PLASMOID" -eq 1 ]; then
     echo "Add widget: right-click panel/desktop -> Add Widgets -> DeepSeek Balance Monitor"

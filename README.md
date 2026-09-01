@@ -87,7 +87,7 @@ The Plasma widget is optional and requires KDE Plasma 6. It reads status from a 
    ```bash
    tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
    cd deepseek-balance-monitor-*-linux-x86_64
-   ./install.sh
+   sudo ./install.sh
    ```
 
    The installer auto-enables and starts the daemon (`systemctl --user enable --now dsmon.service`).
@@ -162,15 +162,15 @@ cd rust-linux
 cargo +1.77.2 build --release --locked
 ```
 
-Linux release tarballs install `~/.local/bin/dsmon` plus a systemd user service (`~/.config/systemd/user/dsmon.service`) or, on non-systemd distributions, a desktop autostart entry — all under your user directory, no sudo required:
+Linux release tarballs install the `dsmon` binary and systemd user service at system level (`/usr/local/bin/dsmon`, `/etc/systemd/user/dsmon.service`) with sudo, and the Plasma widget plus its icon under your user directory (`~/.local/share/`) so widget updates never need sudo:
 
 ```bash
 tar -xzf deepseek-balance-monitor-*-linux-x86_64.tar.gz
 cd deepseek-balance-monitor-*-linux-x86_64
-./install.sh
+sudo ./install.sh
 ```
 
-The installer adds `~/.local/bin` to your PATH via your shell profile if it is not already there. On systemd systems it runs `systemctl --user enable --now dsmon.service` so the daemon auto-starts on login and runs immediately; on non-systemd systems it writes a desktop autostart entry instead.
+On systemd systems the installer runs `systemctl --user enable --now dsmon.service` (for the sudo user) so the daemon auto-starts on login and runs immediately; on non-systemd systems it writes a desktop autostart entry instead.
 
 The CLI is currently available only in the Rust Linux build. Windows and MacOS builds use GUI/tray controls.
 
