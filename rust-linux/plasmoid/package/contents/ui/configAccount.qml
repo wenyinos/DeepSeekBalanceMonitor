@@ -12,10 +12,6 @@ KCM.SimpleKCM {
     property string statusText: ""
     property bool hasStoredApiKey: false
     property string loadedApiKey: ""
-    property bool hasOgApiKey: false
-    property string loadedOgApiKey: ""
-    property bool hasCcApiKey: false
-    property string loadedCcApiKey: ""
     property var saveCommands: []
     property bool savingBatch: false
     property string pageLanguage: systemLanguage()
@@ -150,6 +146,8 @@ KCM.SimpleKCM {
                 } catch (error) {
                     pageLanguage = systemLanguage()
                 }
+                busy = false
+                statusText = tr("loaded")
                 disconnectSource(sourceName)
                 return
             }
