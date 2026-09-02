@@ -18,4 +18,4 @@ target/
 **/.cargo/
 *.rs.bk
 .codex/
-.commandcode/taste/
+.commandcode/
