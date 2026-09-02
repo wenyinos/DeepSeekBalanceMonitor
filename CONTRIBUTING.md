@@ -1,160 +1,200 @@
-# Contributing - Port Sync Guide
+# Contributing
 
-> **⚠️ 2026-05-12：API 服务状态后台已变更**
->
-> DeepSeek 官方状态页底层已从 `status.deepseek.com/api/v2` 迁移至 FlashDuty（`status.flashcat.cloud/deepseek`）。原 REST API 不再可用。Python 版 `src/api_client.py` 的 `fetch_service_status()` 已适配新后台（RSC 抓取 + 组件级状态解析），对应单元测试 `tests/test_core.py` 已同步更新。
->
-> 各移植版本需同步跟进此变更。
+> 本文档描述 v2.0.2 的 Python-Windows 运行时架构与各端约定，供贡献者快速建立基线。
+> 权威细节（配置/密钥存储/多平台矩阵/忙时算法）见 `CLAUDE.md`；agent 高信号事实见 `AGENTS.md`。
+> 同一功能存在 Python 与 Rust 双实现，修改 API 客户端 / 忙时速率算法 / 告警逻辑时必须同步检查两端。
 
-## Config Schema (v1.2)
+## 项目状态
 
-移植版本必须兼容以下 `config.json` 字段。未知字段应保留不删，忽略即可。
-下表是 v1.2 目标 schema；当前 Python 版未实现的新增行为在 `Changed Since v1.2` 中单独列出。
+v2.0.2 包结构；12 平台（DeepSeek/Kimi/StepFun 按量 + OCGo/MiniMax/Command Code 套餐）；管理页设为首选按钮；Python 与 Rust 双实现。
 
-| Key | Type | Default | Notes |
-|---|---|---|---|
-| `api_key` | string | `""` | deprecated — plaintext is only read for migration; runtime key is stored encrypted in SQLite and config.json holds `""` |
-| `interval_minutes` | int | `10` | 1–1440 |
-| `threshold_yuan` | float | `1.0` | 0–10000 |
-| `language` | string | `"en"` | reserved for command-line/non-GUI text and legacy compatibility; CLI output must stay English and user settings should not expose this field |
-| `ui_language` | string | `"zh"` | GUI / tray / widget language; `"zh"` or `"en"` |
-| `alert_mode` | string | `"once"` | `"never"` / `"always"` / `"once"` |
-| `api_alert_enabled` | bool | `true` | |
-| `retention_days` | int | `30` | 1–3650 |
-| `theme` | string | `"default"` | `"default"` / `"contrast"` / `"bright"` / `"dark_mode"` / `"mono"` / `"custom"` |
-| `icon_colors` | object | `{}` | `{"ok":"3C6966","low":"B9463C","degraded":"78695A","nodata":"69696E"}` - only used when `theme` is `"custom"` |
-| `icon_stroke` | bool | `false` | icon outline colour matches text (white/black based on background) |
-| `export_path` | string | `""` | directory for CSV exports; empty = user home directory |
-| `http_proxy` | string | `""` | HTTP/HTTPS proxy URL, e.g. `http://127.0.0.1:7890` |
-| `proxy_enabled` | bool | `false` | Enable HTTP/HTTPS proxy; when disabled, proxy address is preserved |
-| `rainmeter_enabled` | bool | `true` | enable/disable local Rainmeter HTTP interface |
-| `auto_start` | bool | `false` | |
+### 架构总览（v2.0.2 包结构）
 
-**补充说明**：
-- `proxy_enabled`：控制 HTTP/HTTPS 代理是否启用。禁用时保留代理地址不清除。`proxy_enabled` 为 `false` 时，`http_proxy` 配置不生效。
-
-## Notification Format
-
-点击图标查看余额的通知卡片格式（标题 + 多行正文，每行有 emoji 前缀）。文案跟随 `ui_language`，以下为中英文示例：
-
-**中文示例 (`ui_language: "zh"`)**：
 ```
-DeepSeek 余额：                              ← 固定标题
-💰 12.34 CNY（充值 10.00，赠送 2.34）        ← 有余额时显示
-📊 忙时消耗 0.06/小时 | 预计可用 28 天 4 小时  ← 有历史数据时显示
-📡 API 服务状态：🟢 服务正常          ← 常驻，emoji 为双指示器
-🕐 上次查询：5 分钟前                          ← 仅显示相对时间
+src/
+├─ tray_app.py            入口编排（托盘主循环），惰性导入 ui.main_window 等
+├─ core/                  基础设施（无 UI 依赖）
+│   ├─ paths.py             常量+log 叶子
+│   ├─ config.py            DEFAULT_CONFIG/CRUD/i18n _T
+│   ├─ secure_settings.py   Fernet+SQLite
+│   ├─ storage.py           双表读写+消耗速率+get_today_spend
+│   └─ app_state.py         AppState 共享状态（含峰谷相位机/单日过快判定）
+├─ platforms/             平台注册表与 API 客户端（无 src 依赖）
+│   ├─ registry.py          PlatformMeta + PLATFORMS + BILLING_COL_MAP + STATUS_ICON
+│   ├─ _http.py             共享层：install_proxy/http_get_json/format_reset_short
+│   ├─ deepseek.py          余额 + FlashDuty 状态页
+│   ├─ minimax.py           套餐额度（TLS 重试 x3）+ MiniMax 状态页
+│   ├─ kimi.py              按量余额 CN(CNY)/Global(USD)
+│   ├─ stepfun.py           按量余额 CN(CNY)/Global(USD)，仅 prepaid
+│   ├─ command_code.py      Command Code 套餐（GOAT/标准两模式）
+│   └─ opencode.py          OCGo 套餐额度
+├─ ui/                    全部 tkinter 界面
+│   ├─ main_window.py       懒构建 tabs 主窗
+│   ├─ history_dialog.py    HistoryFrame 看板 + LedgerFrame 流水表
+│   ├─ manage_frame.py      管理 Tab 组合帧
+│   ├─ api_management_frame.py  含设为首选按钮
+│   ├─ settings_dialog.py
+│   └─ icon_renderer.py     托盘图标渲染（5 态：ok/low/fast/degraded/nodata）
+├─ integrations/
+│   └─ rainmeter_server.py  Rainmeter HTTP 接口
+├─ mac/                   macOS 实现（rumps/pywebview，勿动功能）
+└─ webview/               macOS 设置 webview 桥
+├─ rust-linux/          Rust CLI+守护+Plasma 小组件（工具链固定 1.77.2）
+└─ rust-windows/        Rust Windows 原生 GUI（nwg high-dpi；rustls+webpki-roots 内嵌证书）
 ```
 
-**英文示例 (`ui_language: "en"`)**：
-```
-DeepSeek Balance:                              ← Fixed title
-💰 12.34 CNY (Topped 10.00, Granted 2.34)      ← Shown when balance available
-📊 Busy: 0.06/hr | Est. 28d 4h remaining       ← Shown with history data
-📡 API Status: 🟢 All Systems Operational       ← Always visible, dual indicator emoji
-🕐 Last Check: 5 min ago                        ← Relative time only
-```
+依赖方向：tray_app → {core, platforms, ui, integrations}；ui → {core, platforms}；core → platforms.registry（叶子）；integrations → {core, ui}。
+**循环依赖消解**：`core/paths.py` 打破 config↔secure_settings/storage；`tray_app↔ui.main_window` 双向惰性导入保留。
 
-## Consumption Rate (v1.2.7+)
+### 主窗口结构（懒构建）
 
-消耗速率自 v1.2.7 起改用忙时切片算法。存储层返回忙时小时消耗速率（CNY/小时）和预计可用忙时小时数，UI 层仅负责将小时数换算为天/小时格式展示。移植版本调用 `get_consumption_rate()` 时须注意返回值语义已变更（hourly_rate 而非 daily_rate），不可沿用旧版日均消耗标签。
+- Tab 注册表 `_holders/_builders`，内容**首次选中时才构建**；打开后链式预构建其余 tab（每 tick 一个，防卡顿回归）
+- Tab 顺序：📊 看板 → 🗂 管理 → ⚙️ 设置 → (🛠 开发者 demo)
+- **关键教训：`_ensure()` 必须返回 `win`**——曾因重构丢失 return 导致首次打开全链路失效（窗口不显示、事件不触发、tab 全空白），症状分散难查
+- 窗口高度按 DPI 公式计算（两整图表块+第三块 header）
+- 图表画布为**固定物理像素高**，不乘 DPI（绘制即物理坐标，字号由 Tk 自动缩放）
 
-## CLI Operations
+## 核心实现与约定
 
-当前只有 Rust Linux 版提供用户可直接使用的 CLI，命令名为 `dsmon`。Windows / macOS 如后续增加 CLI，应遵循相同语义，但现阶段仍以 GUI / 托盘为主。
+### 1. 多平台注册表 `src/platforms/registry.py`
 
-| Command | Requirement |
+- `PlatformMeta`: `key/display_name/default_mode/package_windows/has_status_page/console_url` + `default_billing_period`（billing_period 未设时全链路默认窗口）
+- 已注册 12 平台：
+  - payg：`deepseek`、`kimi_token_cn/global`（Kimi）、`stepfun_token_cn/global`（StepFun）
+  - package：`opencode_go`、`minimax_token_cn/global`、`minimax_coding_cn/global`、`command_code`、`command_code_goat`
+- 添加新平台只需在 PLATFORMS 字典加一行
+- 同文件还承载共享常量：`BILLING_COL_MAP/billing_col()`、`STATUS_ICON`
+
+### 2. Command Code 平台（`src/platforms/command_code.py`）
+
+- 接口：`GET https://api.commandcode.ai/alpha/whoami`（取 orgId，失败容忍）→ `alpha/billing/credits`（Bearer 认证；无 orgId 也可查）
+- 两种 API 类型（分开的平台 key）：
+  - `command_code`（标准）：仅 5h/weekly 两窗（类 minimax），无 monthly；默认周窗口首选
+  - `command_code_goat`：GOAT 套餐 $10/月=$70 credits；monthly 为推算——API 只给 `credits.monthlyCredits`（USD 剩余），cap 硬编码 70；仅当 planId（`_`→`-` 小写）以 `individual-goat` 开头才推算，否则 monthly=None；默认月窗口首选
+- 统一统计“剩余”而非已用：各窗口产出 `percent_remaining` 为主，`usage_percent` 仅派生（100−剩余，最低 0）
+- GOAT 结转语义：剩余可 >100%——`monthlyCredits/70*100` 不 clamp（滚动结余合法超满额）；5h/week 仍 clamp [0,100]
+- 窗口数据 `{name: usage_percent, percent_remaining, reset_in_sec}`；resetAt 秒/毫秒归一；used/cap 兼容数字或数字字符串
+- billing_period 平台默认贯通各消费点：icon_renderer、history_dialog（信息栏/折线/日志列/容耗图 `_get_billing_col`）、tray 通知栏均按 `get_platform(...).default_billing_period` 解析；API 表单未选项时落平台默认
+- 若 5h/week/monthly 全缺 → ValueError（无窗口可显示）
+
+### 3. 管理 Tab `src/manage_frame.py`（合并 API管理+流水）
+
+- 上半部 = 完整 ApiManagementFrame（增删改查/表单/billing_period）+ ⭐设为首选按钮
+- 设为首选复用托盘 `_apply_preferred_switch` 完整链（图标/缓存/主窗同步）；当前首选行按钮禁用并显示"已是首选"
+- 下半部 = LedgerFrame(show_selector=False)，由上方表格点选驱动（`on_select` → `ledger.set_api_id`）
+- 无 API 时管理表居中提示"请先添加 API"，流水区控件全禁用（防串数据查询）
+- 未选中时流水表清空+占位提示（placeholder 需 `lift()` 防 Treeview 覆盖）
+- 托盘"添加/编辑"与 show("api_management"/"ledger") 均路由到 manage tab
+- **陷阱**：mgmt.refresh() 会触发 on_change → 不得在 _on_api_change 中再回调 mgmt.refresh（递归爆栈）；改为 mgmt.refresh() 末尾重发 `_on_select()` 单向同步
+- 首选切换必须走 tray 的 `_apply_preferred_switch` 完整链——仅 set_preferred_api 不刷新图标/缓存
+
+### 4. 看板 HistoryFrame
+
+- 信息栏：Text widget（固定像素×DPI holder + pack_propagate(False)）
+  - payg：大字加粗余额（tag_raise("big") 保证优先级）+ 今日消耗/30d日均 + 状态 + 速率 + 上次查询
+  - package：各窗口 `标签 [ttk.Progressbar] 剩余%（X重置）`（window_create 内嵌，样式 `ok/warn/crit.Horizontal.TProgressbar` 按余量三档配色）+ 日消耗 + 状态；剩余>100%（GOAT 结转）文本保留、进度条满格
+  - 无数据时显示错误行但仍渲染日消耗/状态
+  - 渲染异常兜底：_update_info 外壳 try/except 记日志显示"数据不足"
+- 数据源：`app._api_cache[选中api_id]`，缓存空且=首选时回退全局状态
+- 三图表块（可滚动 Canvas+Scrollbar，滚轮绑定 Enter/Leave），各块带周期单选：
+  1. 余额变动 折线（30/7天）
+  2. 每日消耗 热力图(180天)/柱状(30天)
+  3. 时段分布 柱状（30/7天）
+- 绘图方法签名统一 `(canvas=None, chart_h=None)` 参数化，_draw_block 分发
+- **悬浮提示**：canvas._hover_pts 记录命中区域；折线=点命中，柱状=整列矩形命中（零高度柱可命中），热力图=格子矩形；tooltip 贴边翻转防出界
+- API 选择器：手动选择保留，`follow_preferred=True` 时跟随 config 首选（托盘切换/设置保存/on_show 传入）；下拉显示仅 API 名称（同名自动 ` #2` 序号），不带平台括注
+
+### 5. 热力图 `_draw_heatmap`
+
+- GitHub 风格：周列（周一首行）、5级绿色渐变按相对量
+- 纵向撑满固定画布（cell 由高度反推）、水平居中
+- 星期标签贴网格左缘；月份标签位于网格上方留间距；图例已移除
+- payg 用落差、package 用涨幅（正增量累加口径同日消耗）
+
+### 6. 双模式与多平台余额
+
+- `apis[].mode`: `payg`/`package`；`apis[].billing_period`: per-API（管理表显示原始字面值）
+- 套餐忙时速率已移除（量化百分比下切片算法失真）；日消耗保留
+- payg 客户端 schema 映射约定（各平台独立解析文件，映射到应用三字段模型）：
+  - total_balance = 可用余额；topped_up_balance = 充值/现金；granted_balance = 赠送/代金券
+  - Kimi: available/voucher/cash；StepFun: balance/total_cash_balance/total_voucher_balance
+  - 货币随平台区域标注（CNY/USD），写入 balance_history.currency 列
+
+### 7. 托盘与通知
+
+- 并行查询所有 API + 按平台并行抓服务状态（statuses dict 按 api.platform 分发入缓存，合并而非覆盖）
+- DB 状态写入只写本平台 own_st：无状态页平台（command_code/opencode/kimi/stepfun）或抓取失败一律写 NULL，禁止借用首选平台状态
+- MiniMax TLS UNEXPECTED_EOF → fetch_minimax_quota 内 3 次重试（间隔1s）+ Connection: close
+- 切换首选 → refresh_all(follow_preferred=True)
+- 托盘菜单顺序：⚡余额速览（default）→ 📊看板 → API选择 → 立即查询 → 控制台 → 设置；API 选择子菜单仅显示名称
+- 峰谷时提醒（默认关，勾选框与API状态变化提醒同行）：GMT+8 周一至五 9–12/14–18 为 △peak，周末与其余为 ▽valley；相位翻转一次性通知；仅首选为 deepseek 时生效
+- 单日消耗过快提醒（默认关）：当日忙时正增量达到线值（payg CNY / package %，package 按平台默认窗口）触发一次通知；图标同步变橙
+
+### 8. 服务状态
+
+- DeepSeek → FlashDuty；MiniMax → status.minimax.io (LLM 组件)；OCGo/Kimi/StepFun/Command Code → 无
+
+### 9. 设置页排版（SettingsFrame._build 单行化）
+
+- 单行行式：查询间隔 / 语言 / 保留天数 / 导出路径 / 启用代理+地址同行；开机自启、Rainmeter 各自独立行
+- 预警线与单日线各自两行式：前导词完整表述一行 + 缩进组件行（按量/套餐双 spinbox + 低额/过快勾选框缀于对应行尾）
+- 主题行含图标描边 checkbox；预览色块 5 态（含 fast）；自定义色输入 grid 3+2 位于色块下方
+- API状态变化提醒与 DeepSeek 峰谷时提醒同行
+- 作者信息块（_make_link 本地定义：by / RedNote / Contributors / GitHub 链接紧随版本号右侧不指定字体）
+- 语言切换：保存检测 lang_changed → mw.close_for_rebuild() 销毁主窗全部懒构建状态，下次打开按新语言重建
+- 放弃修改：reload_from_config() 销毁重建 SettingsFrame 回滚控件值
+- 未保存弹框仅在**关闭窗口**时出现（hide()/show(key≠settings)/X 协议走 _leave_settings_check）；切 tab 不询问
+- 首选展示项已从设置页移除——由管理页 ⭐按钮取代；refresh_preferred_selector/preferred_combo/_pref_map 已删
+
+### 10. 历史表
+
+| 模式 | 表 | 列 |
+|---|---|---|
+| payg | balance_history | api_id, timestamp, currency, total, topped, granted, service_status |
+| package | package_history | api_id, timestamp, h5/weekly/monthly percent+reset, service_status |
+
+Ledger 树列由 `package_windows` + `has_status_page` 动态决定（package 分支勿漏 status 列追加）。
+
+### Rust 双实现
+
+- rust-linux：CLI+守护+Plasma 小组件（`dsmon`），工具链固定 1.77.2（rust-toolchain.toml）；用户级安装免 sudo
+- rust-windows：nwg 原生 GUI，声明系统 DPI 感知（app.manifest + high-dpi feature，字体必须 size_absolute）；Command Code 额度显示 + Subscriptions 页
+- Command Code monthly 双端口径对照：Rust 展示 used/cap（已用口径），Python 统一剩余口径且剩余可 >100%（结余结转）
+- 双端统一 rustls+webpki-roots 内嵌证书（根证书数据靠升级 webpki-roots 依赖维护）
+- Rust 端验证由 CI（rockylinux:8 容器 + cargo +1.77.2）承担
+
+## 关键文件清单
+
+| 文件 | 用途 |
 |---|---|
-| `dsmon init-config` | 仅在配置不存在时创建默认配置，不覆盖未知字段 |
-| `dsmon set-key` | 从 stdin 或参数读取 API Key，加密写入 SQLite `secure_settings`，并确保 `config.json.api_key` 为空；`demo` 触发演示模式 |
-| `dsmon set <field> <value>` | 修改单个配置字段并校验非法输入；不得用于 API Key，API Key 必须走 `set-key` |
-| `dsmon check` | 手动查询一次余额，输出固定英文，不发送桌面通知，并写入历史记录 |
-| `dsmon daemon` | systemd 用户服务使用的轮询模式；每轮必须重新读取配置 |
-| `dsmon history [days]` | 输出英文历史统计摘要，不要求输出原始行 |
-| `dsmon history export [days] [currency\|all] [path\|-]` | 导出 CSV；未指定路径时使用 `export_path` 或用户主目录 |
-| `dsmon widget-status` | 输出 Plasma 小组件消费的 JSON，字段变化需兼容旧小组件 |
+| `src/core/paths.py` | 叶子常量+log，无 src 依赖 |
+| `src/platforms/registry.py` | 平台注册表（12 平台）+ BILLING_COL_MAP + STATUS_ICON + default_billing_period |
+| `src/platforms/_http.py` | 共享 install_proxy/http_get_json/format_reset_short |
+| `src/platforms/command_code.py` | Command Code 客户端（GOAT monthly 估算/标准 5h+weekly） |
+| `src/core/config.py` | DEFAULT_CONFIG(retention 180/daily_spend_*)、多API CRUD、i18n _T 字典 |
+| `src/core/secure_settings.py` | Fernet+SQLite 加密存储 |
+| `src/core/storage.py` | 双表 + get_consumption_rate(billing_period) + get_today_spend |
+| `src/ui/manage_frame.py` | 管理 Tab 组合帧 |
+| `src/ui/api_management_frame.py` | API 管理表格+表单（on_select 钩子 + ⭐设为首选） |
+| `src/ui/main_window.py` | 统一主窗 DSMonitor（懒构建 tabs） |
+| `src/ui/history_dialog.py` | HistoryFrame 看板（三图表块/信息栏/悬浮）+ LedgerFrame 流水表 |
+| `src/ui/settings_dialog.py` | 设置 Tab（单行排版、dirty tracking、语言重建） |
+| `src/tray_app.py` | 托盘主循环、并行轮询、API选择菜单、_apply_preferred_switch |
 
-**CLI 输出语言**：所有 CLI 输出必须固定为英文，不随 `ui_language` 切换。
+## 开发注意事项
 
-## API Endpoints
-
-| Endpoint | Purpose |
-|---|---|
-| `api.deepseek.com/user/balance` | 余额查询 |
-| `status.flashcat.cloud/deepseek` | FlashDuty 服务状态（RSC 解析，匹配 API 组件） |
-
-
-## i18n
-
-**当前使用的 Key**：`src/config.py` 内 `_T` 字典覆盖当前所有活跃的 i18n Key，各移植版本需同时支持中英文；【05-13】当前已将所有硬编码字段迁移为 i18n Key
-
-**已移除的 Key**：以下 Key 已从 Python 版移除，移植版本无需实现：
-`topped_up`, `granted`, `checking`, `error_fetch`, `bal_msg`, `bal_error_title`, `bal_empty_title`, `bal_currency_line`, `status_line`, `status_line_no`, `preferred_currency`, `currency_label`, `currency_hint`, `enable_alerts`, `enable_alerts_label`
-
-## 当前版本变更 (v1.2.x)
-
-### Config
-
-- **新增** `proxy_placeholder` i18n key，代理地址输入框空时灰色提示文字
-- **调整** 代理标签 `HTTP 代理` → `HTTP/HTTPS proxy`
-- **新增** `rainmeter_enabled` 配置项（bool，默认 `true`），控制本地 Rainmeter HTTP 接口启停
-- **新增** 通知/历史页 i18n key：【05-13】`rate_line`、`remaining_dh`/`remaining_h`/`remaining_lt1h`、`est_prefix`、`ago_just`/`ago_min`/`ago_hr`、`validate_invalid`/`validate_interval`/`validate_threshold`/`validate_retention`、`hex_invalid`、`alert_never`/`alert_always`/`alert_once`、`load_more`/`all_loaded`、`export_csv_btn`/`export_msg`、`filter_btn`/`cancel_btn`、`rms_fallback`
-
-### Behaviour
-
-- **自定义图标配色**：5 套预置主题 + custom 模式，`_get_colors(config)` 统一读取。托盘文字和描边颜色基于背景亮度自选黑白（阈值 170）。保存后图标即时刷新。【05-13】custom 模式新增实时预览与颜色值保存前校验。
-- **API Key 加密存储**：`src/secure_settings.py`（Fernet + SQLite），`load_config()` → `_resolve_api_key()` 按 secure_settings → credential_store → config.json 三级回退，`save_config()` 自动清空明文字段。这是为了兼容旧版本，新版本应统一使用 SQLite 加密存储。
-- **Demo 模式**：启动时生成模拟历史数据，不请求真实 API；开发者面板可调整数值显示。Python 版由 `--demo` 参数触发，模拟数据使用内存生成；Rust 移植版由 API Key 填入 `demo` 触发，使用独立 `demo_mode_balance` SQLite 表。
-- **历史记录页**：右键新增「📊 历史记录」，展示历史记录、消耗速率，并支持 CSV 导出全部记录；图表/表格的具体格式和实现方式不作为跨平台要求。【05-13】Python-Windows 版本已吸收 Mac 版本的按日期筛选功能。
-- **消耗速率**：`get_consumption_rate(days=7)` 基于 topped 余额 + 加权平均；7 天数据不足时自动扩大到 `retention_days` 窗口
-- **API 服务状态入数据库**：`balance_history` 表新增 `service_status` 列，`save_balance_record` 同步写入
-- **通知卡片视觉优化**：每行增加 emoji 前缀（💰📊🕐📡），上次查询改为仅显示相对时间（N 分钟/小时前）
-- **HTTP 代理**：启动时读取 `http_proxy` 配置并全局安装，设置页修改后即时生效；代理开关：`proxy_enabled` 复选框 + 地址输入框，关闭时保留地址不清除；地址空时灰色 placeholder
-- **设置页优化**：标题简化为 `⚙️ 设置` / `⚙️ Settings`；移除 footer 中的上次查询和余额行
-- **历史记录页解耦**：【05-13】历史记录页抽取为独立模块 `src/history_dialog.py`，`_on_history` 缩减为 thin wrapper。内部含日期筛选（YYYYMMDD 格式）、筛选/取消按钮、分页加载、折线图、消耗速率分析和 CSV 导出
-- **代理修复**：【05-13】`install_proxy("")` 现调用 `build_opener()` 恢复默认 opener（含系统代理），不再使用空 `ProxyHandler` 覆盖系统代理设置
-- **循环依赖消解**：【05-13】`rainmeter_server`、`settings_dialog`、`history_dialog` 不再 import `tray_app`，改为通过 `app` 对象上的回调注入（`app._trigger_check`、`app._rebuild_menu`）
-- **Python 版窗口管理**：设置、历史、开发者面板共用 `_tk_root`，避免多 `tk.Tk()` 导致变量/样式冲突。历史和开发者面板支持重复唤起聚焦；该项不是跨平台实现要求
-
-### Windows / Port-Specific
-
-- **Rainmeter 小工具**：`rainmeter-widget/`，本地 HTTP 接口 `127.0.0.1:17654`，skin 四版本涵盖中英文、是否高分屏，`.rmskin` CI 打包；添加 Rainmeter 接口开关设置项；`/widget-status` 响应自 v1.3.2 起包含 OpenCode Go 额度字段（`og_configured`/`og_error`/`og_rolling|weekly|monthly_percent`/`og_rolling|weekly|monthly_line`），由应用后台每 10 分钟刷新缓存、失败保留上次成功数据，接口约定与 Python 版实施建议见 `rainmeter-widget/PYTHON_RAINMETER_INTEGRATION.md`
-- **Windows 凭据管理器（已过时）**：自 1.2.1 起，Windows 版本（Rust / Python）统一使用 SQLite 加密存储，凭据管理器仅作为兼容性回退
-- **Windows 发布签名（可选）**：SignPath.io（免费版，开源项目），fork 开发者自行配置，详见 [CODE_SIGNING.md](CODE_SIGNING.md)
-
-### macOS / Port-Specific
-
-- **macOS Keychain 集成**：Python macOS 版使用 Keychain 加密存储 API Key（v1.2 特性），后续版本将统一使用 SQLite 加密存储
-- **macOS WebView 设置界面**：macOS 版使用 WebView 实现设置界面
-
-### Rust-Linux / Port-Specific
-
-- **Plasma 6 小工具**（仅支持 Linux Rust）：透明玻璃风格，emoji 状态展示，配置页改用 `dsmon set` 命令
-- **Linux SHA256 校验和**：Release 中提供 `checksums.txt` 用于验证 tarball 完整性，详见 [CODE_SIGNING.md](CODE_SIGNING.md)
-
-## 历史变更记录
-
-### v1.1 变更
-
-**Config**：
-- `enable_alerts: bool` **已移除**，替换为 `alert_mode: "never" | "always" | "once"`，默认 `"once"`
-- **新增** `api_alert_enabled: bool`，默认 `true`。为 `false` 时 API 状态翻转不弹通知，但内存状态位继续追踪
-- **新增** `retention_days: int`，默认 `30`。日志和 SQLite 余额历史在每次启动时清理超过此天数的记录
-- `preferred_currency` **已移除**。DeepSeek 每个账号只有一种币种，API 返回什么就显示什么
-- 所有余额数值不再拼接 `¥`，改为标注实际币种代码（如 `12.34 CNY`）
-- 保存设置时必须校验非法输入并提示用户；保存过程不要求原子写入
-
-**Behaviour**：
-- **通知卡片重构**：标题使用 `bal_title` 翻译，正文按行排列--余额行（有数据时）、状态行（上次查询 / 查询出错 / 尚未查询）、API 服务状态行（常驻）
-- **API 服务状态**：每次轮询额外调用 `status.deepseek.com` API，匹配组件名含 `api` 的项。GUI / tray / widget 状态变化时独立弹通知（`api_degraded_title/msg`、`api_recovered_title/msg`）
-- **托盘图标新增暖灰色**：API 服务异常时底色变为暖灰 + 余额数字，优先级高于余额高低判断（红色 > 暖灰 > 青色 > 灰色）
-- **余额查询容错**：查询失败时若 API 服务已知异常，不清空已有余额数据、不设错误状态
-- **低余额提醒**：从二元开关变为三选一下拉，模式切换时 `_alert_suppressed` 状态位自动复位。`"never"` 模式下切回会重新触发
-- **右键充值**：托盘菜单新增一项，跳转 `platform.deepseek.com/top_up`
-
-### v1.0.1 变更
-
-- 初始版本发布
-- 基本余额查询和低余额提醒功能
-- 设置对话框和托盘图标
-- Windows 可执行文件构建脚本
+- API Key 存 secure_settings.db，config.json 永远写空
+- ttkbootstrap 尝试后回滚，保持原生 Tk；Canvas 无抗锯齿
+- PyInstaller 需 cryptography 在 requirements.txt
+- API 切换显示缓存；fetch 失败合并缓存保留旧数据仅更新 error
+- 设置保存不触发重查
+- 所有 UI 文本必须在 _T 字典中；空值占位符 "-" 不用 em-dash
+- PowerShell `Set-Content -Encoding UTF8` 会写 BOM——批量改 py 文件后需剥离 BOM（ast.parse 报 U+FEFF 即此因），或改用 [IO.File]::WriteAllText + UTF8Encoding($false)
+- git 全局 http.proxy 指向 127.0.0.1:7890 但本地代理常未运行——用 `git -c http.proxy= fetch` 绕过直连
+- **Tk 陷阱集**：
+  - Text tag 优先级=创建顺序逆序，后建覆盖先建（big 需 tag_raise）
+  - Text height 单位按基础字体行高，混合字号需 holder 固定像素+pack_propagate(False)
+  - 程序化 notebook.select() 不触发 <<NotebookTabChanged>>（真实点击才触发），关键转换需显式调用
+  - window_create 的嵌入 widget 在 delete("1.0","end") 后不会自动销毁，需自行维护引用列表
+  - emoji 为非 BMP 字符时勿用 "+Nc" 索引运算加 tag，直接分段 insert 带 tags
+- 函数内 `from X import log` 会把 log 变成局部名，导致同函数更早的 log() 调用 UnboundLocalError——闭包上层已有则勿再导入

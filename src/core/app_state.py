@@ -109,6 +109,13 @@ class AppState:
             api = next((a for a in apis if a.get("id") == pref_id), None)
             mode = (api or {}).get("mode", "payg")
             bp = (api or {}).get("billing_period") or None
+            if not bp:
+                try:
+                    from src.platforms.registry import get_platform
+                    pmeta = get_platform((api or {}).get("platform", ""))
+                    bp = pmeta.default_billing_period if pmeta else None
+                except Exception:
+                    bp = None
             try:
                 if mode == "package":
                     line = float(self.config.get("daily_spend_line_percent", 10))

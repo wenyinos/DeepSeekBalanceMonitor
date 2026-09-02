@@ -351,9 +351,10 @@ class ApiManagementFrame(ttk.Frame):
                 pw = pmeta.package_windows
                 opts = {k: BILLING_LABELS.get(k, k) if lang == "zh" else BILLING_LABELS_EN.get(k, k) for k in pw}
                 billing_combo["values"] = list(opts.keys())
-                # if current value not in options, reset
+                # if current value not in options, reset to platform default
                 if billing_period_var.get() not in opts:
-                    billing_period_var.set(pw[-1] if pw else "monthly")
+                    billing_period_var.set(pmeta.default_billing_period if pmeta else
+                                           (pw[-1] if pw else "monthly"))
             else:
                 billing_frame.pack_forget()
                 billing_period_var.set("")

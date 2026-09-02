@@ -332,7 +332,10 @@ class HistoryFrame(ttk.Frame):
             if api.get("id") == api_id:
                 api_name = api.get("name", "")
                 api_mode = api.get("mode", "payg")
-                billing_period = api.get("billing_period") or "monthly"
+                billing_period = api.get("billing_period") or ""
+                if not billing_period:
+                    pmeta = get_platform(api.get("platform", ""))
+                    billing_period = pmeta.default_billing_period if pmeta else "monthly"
                 break
 
         # read per-API cached data
@@ -804,7 +807,10 @@ class HistoryFrame(ttk.Frame):
             try:
                 api = get_api_by_id(api_id) if api_id else None
                 if api:
-                    billing_period = api.get("billing_period") or "monthly"
+                    billing_period = api.get("billing_period") or ""
+                    if not billing_period:
+                        pmeta = get_platform(api.get("platform", ""))
+                        billing_period = pmeta.default_billing_period if pmeta else "monthly"
             except Exception:
                 pass
             from src.platforms.registry import billing_col
@@ -856,12 +862,15 @@ class HistoryFrame(ttk.Frame):
         self._draw_bar(labels, vals, y_fmt="{:.1f}", canvas=canvas, chart_h=chart_h)
 
     def _get_billing_col(self, api_id):
-        """Get the billing_period column for this API from its own config setting."""
+        """Get the billing_period column for this API (own setting, else platform default)."""
         billing_period = "monthly"
         try:
             api = get_api_by_id(api_id) if api_id else None
-            if api and api.get("billing_period"):
-                billing_period = api.get("billing_period")
+            if api:
+                billing_period = api.get("billing_period") or ""
+                if not billing_period:
+                    pmeta = get_platform(api.get("platform", ""))
+                    billing_period = pmeta.default_billing_period if pmeta else "monthly"
         except Exception:
             pass
         from src.platforms.registry import billing_col
