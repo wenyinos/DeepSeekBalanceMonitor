@@ -4,6 +4,7 @@ Tray icon image generation - rounded-rectangle with bold balance label.
 from PIL import Image, ImageDraw, ImageFont
 
 from src.core.config import log, get_api_by_id
+from src.platforms.registry import get_platform
 
 _RADIUS = 12
 
@@ -102,13 +103,16 @@ def _create_icon_image_impl(app):
 
     if pd:
         # Package mode: show remaining % for preferred billing_period
-        billing_period = "monthly"
+        billing_period = ""
         try:
             pref_api_id = app.config.get("preferred_api_id")
             if pref_api_id:
                 pref_api = get_api_by_id(pref_api_id)
                 if pref_api:
-                    billing_period = pref_api.get("billing_period") or "monthly"
+                    billing_period = pref_api.get("billing_period") or ""
+                    if not billing_period:
+                        pmeta = get_platform(pref_api.get("platform", ""))
+                        billing_period = pmeta.default_billing_period if pmeta else "monthly"
         except Exception:
             pass
         col_map = {"5h": pd.get("5h") or pd.get("rolling"), "weekly": pd.get("weekly"), "monthly": pd.get("monthly")}

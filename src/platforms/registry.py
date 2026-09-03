@@ -22,6 +22,8 @@ class PlatformMeta:
     # Package-specific: which windows to display
     # "5h"=rolling, "weekly", "monthly"
     package_windows: list = field(default_factory=lambda: ["5h", "weekly", "monthly"])
+    # Preferred billing window used when api.billing_period is unset
+    default_billing_period: str = "monthly"
     # Does this platform have a status page? (affects history table status column)
     has_status_page: bool = False
 
@@ -127,6 +129,29 @@ PLATFORMS = {
         package_windows=[],
         has_status_page=False,
         console_url="https://platform.stepfun.ai",
+    ),
+    # Command Code — package windows; GOAT has a monthly credit pool, standard doesn't
+    "command_code": PlatformMeta(
+        key="command_code",
+        display_name="Command Code",
+        default_mode="package",
+        supports_payg=False,
+        supports_package=True,
+        console_url="https://commandcode.ai",
+        package_windows=["5h", "weekly"],
+        default_billing_period="weekly",
+        has_status_page=False,
+    ),
+    "command_code_goat": PlatformMeta(
+        key="command_code_goat",
+        display_name="Command Code GOAT",
+        default_mode="package",
+        supports_payg=False,
+        supports_package=True,
+        console_url="https://commandcode.ai",
+        package_windows=["5h", "weekly", "monthly"],
+        default_billing_period="monthly",
+        has_status_page=False,
     ),
 }
 

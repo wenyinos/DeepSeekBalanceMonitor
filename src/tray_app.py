@@ -126,6 +126,9 @@ def _fetch_package(api, proxy_url=""):
         if plat.startswith("minimax_"):
             from src.platforms.minimax import fetch_minimax_quota
             quota = fetch_minimax_quota(platform_key=plat, api_key=key, http_proxy=proxy_url)
+        elif plat.startswith("command_code"):
+            from src.platforms.command_code import fetch_command_code_quota
+            quota = fetch_command_code_quota(api_key=key, platform_key=plat, http_proxy=proxy_url)
         else:
             from src.platforms.opencode import fetch_opencode_quota
             quota = fetch_opencode_quota(api_key=key, http_proxy=proxy_url)
@@ -217,16 +220,17 @@ def do_balance_check(app: AppState):
             except Exception as e:
                 log(f"Status fetch failed for {plat}: {e}")
 
-        s_indicator = status.get("indicator") if status else None
         for f in as_completed(futures):
             mode, api = futures[f]
             api_id, result, err = f.result()
             if result is None:
                 log(f"Check failed for {api.get('name')} ({mode}): {err}")
                 continue
-            # per-API status: this platform's fetch result (fallback: preferred's)
+            # per-API status: this platform's own fetch result only.
+            # Platforms without a status page (or failed fetches) write NULL —
+            # never borrow the preferred API's indicator for another platform.
             own_st = statuses.get(api.get("platform", ""))
-            s_ind = own_st.get("indicator") if own_st else s_indicator
+            s_ind = own_st.get("indicator") if own_st else None
             if mode == "payg":
                 data = result
                 for code, bal in data["all_balances"].items():
@@ -372,7 +376,14 @@ def get_today_spend_value(app: AppState) -> float:
     from src.core.storage import get_today_spend
     pref_id = app.config.get("preferred_api_id", "")
     api = next((a for a in app.config.get("apis") or [] if a.get("id") == pref_id), {})
-    return get_today_spend(pref_id, api.get("mode", "payg"), api.get("billing_period") or None)
+    bp = api.get("billing_period") or None
+    if not bp and api.get("mode") == "package":
+        try:
+            pmeta = get_platform(api.get("platform", ""))
+            bp = pmeta.default_billing_period if pmeta else None
+        except Exception:
+            bp = None
+    return get_today_spend(pref_id, api.get("mode", "payg"), bp)
 
 
 def notify_user(app: AppState):
@@ -448,7 +459,10 @@ def on_show_balance(icon, item):
                 pref_api = get_api_by_id(app.config.get("preferred_api_id")) if app.config.get("preferred_api_id") else None
                 if pref_api:
                     pref_platform = pref_api.get("platform", "")
-                    billing_period = pref_api.get("billing_period") or "monthly"
+                    billing_period = pref_api.get("billing_period") or ""
+                    if not billing_period:
+                        pmeta = get_platform(pref_platform)
+                        billing_period = pmeta.default_billing_period if pmeta else "monthly"
             except Exception:
                 pass
             pmeta = get_platform(pref_platform) if pref_platform else None
