@@ -12,12 +12,10 @@ fn main() {
         dsmon_core::storage::KEY_COMMAND_CODE,
     ] {
         match dsmon_core::storage::read_secret(key) {
-            Ok(Some(value)) if value == DEMO_KEY => {
-                match dsmon_core::storage::delete_secret(key) {
-                    Ok(()) => println!("removed the demo key for {key}"),
-                    Err(error) => println!("could not remove {key}: {error}"),
-                }
-            }
+            Ok(Some(value)) if value == DEMO_KEY => match dsmon_core::storage::delete_secret(key) {
+                Ok(()) => println!("removed the demo key for {key}"),
+                Err(error) => println!("could not remove {key}: {error}"),
+            },
             Ok(Some(_)) => println!("kept {key}: it no longer holds the demo value"),
             Ok(None) => println!("{key} was already empty"),
             Err(error) => println!("could not read {key}: {error}"),

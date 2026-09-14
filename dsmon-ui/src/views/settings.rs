@@ -34,10 +34,8 @@ pub enum Action {
 pub struct State {
     /// Edited copy of the configuration.
     pub draft: AppConfig,
-    /// New key material; empty means "keep what is stored".
-    pub deepseek_key: String,
-    pub opencode_key: String,
-    pub command_code_key: String,
+    /// New key material, keyed by platform; empty means "keep what is stored".
+    pub keys: std::collections::BTreeMap<String, String>,
     /// Feedback shown under the cards.
     pub notice: Option<String>,
     /// Set while an erase is waiting for a second click.
@@ -48,9 +46,7 @@ impl State {
     pub fn new(config: AppConfig) -> Self {
         Self {
             draft: config,
-            deepseek_key: String::new(),
-            opencode_key: String::new(),
-            command_code_key: String::new(),
+            keys: std::collections::BTreeMap::new(),
             notice: None,
             pending_clear: false,
         }
@@ -100,13 +96,7 @@ pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Act
 impl State {
     /// Whether any field asks for its stored key to be erased.
     pub fn has_clear_request(&self) -> bool {
-        [
-            &self.deepseek_key,
-            &self.opencode_key,
-            &self.command_code_key,
-        ]
-        .iter()
-        .any(|value| {
+        self.keys.values().any(|value| {
             matches!(
                 dsmon_core::storage::classify_key_input(value),
                 dsmon_core::storage::KeyInput::Clear
@@ -182,45 +172,24 @@ fn credentials_card(
                 }
             });
         }
-        ui.add_space(8.0);
 
-        key_field(
-            ui,
-            palette,
-            view.text("api_key_label"),
-            &mut state.deepseek_key,
-        );
-        ui.label(
-            RichText::new(view.text("api_key_missing_body"))
-                .color(palette.text_secondary)
-                .size(12.0),
-        );
         ui.add_space(10.0);
 
-        key_field(
-            ui,
-            palette,
-            view.text("og_api_key_label"),
-            &mut state.opencode_key,
-        );
-        ui.label(
-            RichText::new(view.text("og_hint"))
-                .color(palette.text_secondary)
-                .size(12.0),
-        );
-        ui.add_space(10.0);
+        // Every platform the catalog knows about gets a field, so a key can be
+        // entered before its client exists.
+        for meta in dsmon_core::catalog::implemented() {
+            let value = state.keys.entry(meta.key.to_owned()).or_default();
+            key_field(ui, palette, meta.display_name, value);
+        }
 
-        key_field(
-            ui,
-            palette,
-            view.text("cc_api_key_label"),
-            &mut state.command_code_key,
-        );
-        ui.label(
-            RichText::new(view.text("cc_hint"))
-                .color(palette.text_secondary)
-                .size(12.0),
-        );
+        ui.add_space(6.0);
+        ui.collapsing(view.text("pending_platforms"), |ui| {
+            ui.add_space(4.0);
+            for meta in dsmon_core::catalog::pending() {
+                let value = state.keys.entry(meta.key.to_owned()).or_default();
+                key_field(ui, palette, meta.display_name, value);
+            }
+        });
     });
 }
 

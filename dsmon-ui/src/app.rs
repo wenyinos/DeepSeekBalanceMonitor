@@ -68,6 +68,10 @@ impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         crate::fonts::install(&cc.egui_ctx);
 
+        // Secrets used to live under fixed names; move them to their platform
+        // identifiers before anything reads them.
+        storage::migrate_secret_names();
+
         let config = AppConfig::load();
         apply_theme(&cc.egui_ctx, &config);
 
@@ -111,22 +115,26 @@ impl App {
     /// Stores whatever the key fields hold. Blank fields are left alone.
     /// Returns false when a write fails, with the reason in the notice.
     fn store_keys(&mut self) -> bool {
-        for (key, value) in [
-            (storage::KEY_DEEPSEEK, &self.settings.deepseek_key),
-            (storage::KEY_OPENCODE_GO, &self.settings.opencode_key),
-            (storage::KEY_COMMAND_CODE, &self.settings.command_code_key),
-        ] {
+        let mut failure = None;
+        for (platform, value) in &self.settings.keys {
             let result = match storage::classify_key_input(value) {
                 storage::KeyInput::Keep => continue,
-                storage::KeyInput::Clear => storage::delete_secret(key),
-                storage::KeyInput::Set(secret) => storage::store_secret(key, secret),
+                storage::KeyInput::Clear => storage::delete_secret(platform),
+                storage::KeyInput::Set(secret) => storage::store_secret(platform, secret),
             };
             if let Err(error) = result {
-                self.settings.notice = Some(error);
-                return false;
+                failure = Some(error);
+                break;
             }
         }
-        true
+
+        match failure {
+            Some(error) => {
+                self.settings.notice = Some(error);
+                false
+            }
+            None => true,
+        }
     }
 
     /// Saves the keys entered in the credentials card, in place.
@@ -135,9 +143,9 @@ impl App {
             return;
         }
 
-        self.settings.deepseek_key.clear();
-        self.settings.opencode_key.clear();
-        self.settings.command_code_key.clear();
+        for value in self.settings.keys.values_mut() {
+            value.clear();
+        }
         self.settings.pending_clear = false;
 
         let lang = self.config.ui_language.clone();

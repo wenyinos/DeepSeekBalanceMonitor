@@ -24,6 +24,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "group_appearance") => "Icon Appearance",
             ("en", "api_key_label") => "DeepSeek API Key:",
             ("en", "save_keys") => "Save keys",
+            ("en", "pending_platforms") => "Platforms not supported yet",
             ("en", "no_subscriptions") =>
                 "No subscriptions configured yet. Add an API key on the Settings page.",
             ("en", "keys_hint") =>
@@ -177,6 +178,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "group_appearance") => "图标外观",
             (_, "api_key_label") => "DeepSeek API Key:",
             (_, "save_keys") => "保存密钥",
+            (_, "pending_platforms") => "暂未支持的平台",
             (_, "no_subscriptions") => "尚未配置订阅，请到设置页添加 API Key。",
             (_, "keys_hint") => "留空保持原密钥，输入 0 清除，粘贴请用 Ctrl+V。",
             (_, "clear_confirm") => "将清除标记为 0 的密钥，此操作无法撤销。",
