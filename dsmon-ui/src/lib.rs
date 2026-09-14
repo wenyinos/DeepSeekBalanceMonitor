@@ -5,7 +5,9 @@
 
 mod app;
 pub mod fonts;
+pub mod i18n;
 pub mod theme;
 pub mod tray;
+pub mod views;
 
 pub use app::run;

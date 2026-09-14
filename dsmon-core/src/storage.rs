@@ -213,7 +213,9 @@ pub fn history_records(
     };
 
     match currency {
-        Some(currency) => collect(stmt.query_map(params![cutoff, currency, limit], record_from_row)),
+        Some(currency) => {
+            collect(stmt.query_map(params![cutoff, currency, limit], record_from_row))
+        }
         None => collect(stmt.query_map(params![cutoff, limit], record_from_row)),
     }
 }
@@ -223,7 +225,9 @@ pub fn history_currencies(days: u64) -> Result<Vec<String>, String> {
     let conn = open_db()?;
     let cutoff = time::format_local(Local::now() - ChronoDuration::days(days as i64));
     let mut stmt = conn
-        .prepare("SELECT DISTINCT currency FROM balance_history WHERE timestamp >= ?1 ORDER BY currency")
+        .prepare(
+            "SELECT DISTINCT currency FROM balance_history WHERE timestamp >= ?1 ORDER BY currency",
+        )
         .map_err(|error| error.to_string())?;
     let rows = stmt
         .query_map(params![cutoff], |row| row.get::<_, String>(0))
@@ -259,7 +263,10 @@ fn record_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryRecord> {
 }
 
 fn collect(
-    rows: Result<rusqlite::MappedRows<'_, impl Fn(&rusqlite::Row<'_>) -> rusqlite::Result<HistoryRecord>>, SqlError>,
+    rows: Result<
+        rusqlite::MappedRows<'_, impl Fn(&rusqlite::Row<'_>) -> rusqlite::Result<HistoryRecord>>,
+        SqlError,
+    >,
 ) -> Result<Vec<HistoryRecord>, String> {
     let mut records = Vec::new();
     for row in rows.map_err(|error| error.to_string())? {
@@ -349,8 +356,9 @@ mod tests {
 
     #[test]
     fn keeps_recent_log_lines_only() {
-        let cutoff = chrono::NaiveDateTime::parse_from_str("2026-01-02 00:00:00", "%Y-%m-%d %H:%M:%S")
-            .unwrap();
+        let cutoff =
+            chrono::NaiveDateTime::parse_from_str("2026-01-02 00:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap();
         assert!(keep_log_line("[2026-01-02 12:00:00] later", cutoff));
         assert!(keep_log_line("[2026-01-01 23:59:59] earlier", cutoff) == false);
         assert!(keep_log_line("no timestamp here", cutoff));

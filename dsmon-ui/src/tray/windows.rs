@@ -17,10 +17,18 @@ pub struct TrayHandle {
 ///
 /// The menu entries are wired to the UI in stage 3, when the shared command
 /// channel exists; stage 0 only needs the icon to appear and stay alive.
-pub fn spawn(label: &str, palette: Palette, on_quit: impl Fn() + Send + Sync + 'static) -> TrayHandle {
+pub fn spawn(
+    label: &str,
+    palette: Palette,
+    on_quit: impl Fn() + Send + Sync + 'static,
+) -> TrayHandle {
     let rendered = icon::render(&IconSpec {
         label,
-        background: [palette.bg_panel.r(), palette.bg_panel.g(), palette.bg_panel.b()],
+        background: [
+            palette.bg_panel.r(),
+            palette.bg_panel.g(),
+            palette.bg_panel.b(),
+        ],
         foreground: [palette.accent.r(), palette.accent.g(), palette.accent.b()],
         size: 64,
     });

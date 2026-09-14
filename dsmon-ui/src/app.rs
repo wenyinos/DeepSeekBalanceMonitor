@@ -1,9 +1,15 @@
-//! Application shell: window, sidebar navigation and theme switching.
+//! Application shell: window, sidebar navigation and the page dispatch.
 
+use std::path::PathBuf;
+
+use dsmon_core::config::AppConfig;
+use dsmon_core::monitor::Monitor;
+use dsmon_core::storage;
 use egui::{Align2, Color32, CornerRadius, FontId, Frame, Margin, Sense};
 
-use crate::fonts::DIGITS_FAMILY;
-use crate::theme::{self, Palette, ThemeMode};
+use crate::i18n::tr;
+use crate::theme::{self, Palette};
+use crate::views::{self, View};
 
 /// Pages reachable from the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,11 +22,11 @@ enum Page {
 impl Page {
     const ALL: [Page; 3] = [Page::Status, Page::History, Page::Settings];
 
-    fn label(self) -> &'static str {
+    fn label(self, lang: &str) -> &'static str {
         match self {
-            Page::Status => "状态",
-            Page::History => "历史",
-            Page::Settings => "设置",
+            Page::Status => tr(lang, "balance_title"),
+            Page::History => tr(lang, "history_tab"),
+            Page::Settings => tr(lang, "settings_tab"),
         }
     }
 }
@@ -44,7 +50,10 @@ pub fn run() -> eframe::Result<()> {
 
 struct App {
     page: Page,
-    mode: ThemeMode,
+    config: AppConfig,
+    monitor: Monitor,
+    history: views::history::State,
+    settings: views::settings::State,
     /// Kept alive so the tray icon stays registered for the whole session.
     _tray: crate::tray::TrayHandle,
 }
@@ -54,25 +63,90 @@ impl App {
         crate::fonts::install(&cc.egui_ctx);
         theme::install(&cc.egui_ctx);
 
-        let mode = ThemeMode::System;
-        theme::set_mode(&cc.egui_ctx, mode);
+        let config = AppConfig::load();
+        theme::set_mode(&cc.egui_ctx, theme::mode_from_config(&config.ui_theme));
+
+        let monitor = Monitor::start(config.clone());
+        let settings = views::settings::State::new(config.clone());
 
         let quit_ctx = cc.egui_ctx.clone();
         let tray = crate::tray::spawn("--", theme::current(&cc.egui_ctx), move || {
             quit_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         });
 
-        Self {
+        let mut app = Self {
             page: Page::Status,
-            mode,
+            config,
+            monitor,
+            history: views::history::State::default(),
+            settings,
             _tray: tray,
+        };
+        app.reload_history();
+        app
+    }
+
+    /// Reloads the records for the current filters.
+    fn reload_history(&mut self) {
+        let days = self.history.days;
+        self.history.currencies = storage::history_currencies(days).unwrap_or_default();
+        let currency = self.history.currency.clone();
+        self.history.records =
+            storage::history_records(days, currency.as_deref(), 5000).unwrap_or_default();
+    }
+
+    /// Persists the settings draft, including any newly entered keys.
+    fn save_settings(&mut self, ctx: &egui::Context) {
+        let draft = self.settings.draft.clone();
+        if let Err(error) = draft.save() {
+            self.settings.notice = Some(error);
+            return;
         }
+
+        for (key, value) in [
+            (storage::KEY_DEEPSEEK, &self.settings.deepseek_key),
+            (storage::KEY_OPENCODE_GO, &self.settings.opencode_key),
+            (storage::KEY_COMMAND_CODE, &self.settings.command_code_key),
+        ] {
+            if value.trim().is_empty() {
+                continue;
+            }
+            if let Err(error) = storage::store_secret(key, value) {
+                self.settings.notice = Some(error);
+                return;
+            }
+        }
+
+        self.config = draft;
+        theme::set_mode(ctx, theme::mode_from_config(&self.config.ui_theme));
+        let lang = self.config.ui_language.clone();
+        self.settings.reset(self.config.clone());
+        self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
+        self.monitor.refresh();
+    }
+
+    /// Writes the visible records to a CSV file.
+    fn export_history(&mut self) {
+        let path = export_target(&self.config);
+        let csv = views::history::export(&self.history.records);
+        let lang = self.config.ui_language.clone();
+
+        self.history.notice = Some(match std::fs::write(&path, csv) {
+            Ok(()) => format!("{} {}", tr(&lang, "export_success"), path.display()),
+            Err(error) => format!("{} {error}", tr(&lang, "export_failed")),
+        });
     }
 }
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let palette = theme::current(ui.ctx());
+        let lang = self.config.ui_language.clone();
+        let view = View {
+            palette: &palette,
+            lang: &lang,
+        };
+        let snapshot = self.monitor.snapshot();
 
         egui::Panel::left("navigation")
             .exact_size(190.0)
@@ -86,9 +160,14 @@ impl eframe::App for App {
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new(dsmon_core::APP_NAME).strong());
                 ui.add_space(14.0);
+
                 for page in Page::ALL {
-                    if nav_item(ui, &palette, page.label(), self.page == page).clicked() {
+                    let selected = self.page == page;
+                    if nav_item(ui, &palette, page.label(&lang), selected).clicked() && !selected {
                         self.page = page;
+                        if page == Page::History {
+                            self.reload_history();
+                        }
                     }
                 }
             });
@@ -99,10 +178,35 @@ impl eframe::App for App {
                     .fill(palette.bg_app)
                     .inner_margin(Margin::same(16)),
             )
-            .show(ui, |ui| match self.page {
-                Page::Status => status_page(ui, &palette),
-                Page::History => history_page(ui, &palette),
-                Page::Settings => settings_page(ui, &palette, &mut self.mode),
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| match self.page {
+                    Page::Status => {
+                        if views::status::show(ui, &view, &snapshot) {
+                            self.monitor.refresh();
+                        }
+                    }
+                    Page::History => {
+                        if let Some(action) = views::history::show(ui, &view, &mut self.history) {
+                            match action {
+                                views::history::Action::Reload => self.reload_history(),
+                                views::history::Action::Export => self.export_history(),
+                            }
+                        }
+                    }
+                    Page::Settings => {
+                        if let Some(action) = views::settings::show(ui, &view, &mut self.settings) {
+                            match action {
+                                views::settings::Action::Save => self.save_settings(ui.ctx()),
+                                views::settings::Action::Cancel => {
+                                    self.settings.reset(self.config.clone())
+                                }
+                                views::settings::Action::OpenReleases => {
+                                    open_url(views::settings::RELEASES_URL)
+                                }
+                            }
+                        }
+                    }
+                });
             });
     }
 }
@@ -140,94 +244,34 @@ fn nav_item(ui: &mut egui::Ui, palette: &Palette, label: &str, selected: bool) -
     response
 }
 
-/// Panel with the standard card styling.
-fn card(ui: &mut egui::Ui, palette: &Palette, contents: impl FnOnce(&mut egui::Ui)) {
-    Frame::NONE
-        .fill(palette.bg_panel)
-        .corner_radius(CornerRadius::same(12))
-        .inner_margin(Margin::same(16))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            contents(ui);
-        });
-    ui.add_space(12.0);
-}
-
-/// Renders a figure with the embedded digits face.
-fn figure(ui: &mut egui::Ui, palette: &Palette, text: &str, size: f32) {
-    ui.label(
-        egui::RichText::new(text)
-            .font(FontId::new(size, egui::FontFamily::Name(DIGITS_FAMILY.into())))
-            .color(palette.text_primary),
+/// Where an export lands: the configured directory, or the home directory.
+fn export_target(config: &AppConfig) -> PathBuf {
+    let name = format!(
+        "deepseek-balance-history-{}.csv",
+        chrono::Local::now().format("%Y%m%d")
     );
-}
-
-fn status_page(ui: &mut egui::Ui, palette: &Palette) {
-    card(ui, palette, |ui| {
-        ui.label(
-            egui::RichText::new("DeepSeek 余额")
-                .color(palette.text_secondary)
-                .small(),
-        );
-        ui.add_space(4.0);
-        figure(ui, palette, "--.--", 34.0);
-        ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new("尚未配置 API Key，请在设置中填入。")
-                .color(palette.text_secondary),
-        );
-    });
-
-    card(ui, palette, |ui| {
-        ui.label(egui::RichText::new("服务状态").strong());
-        ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new("等待首次检查")
-                .color(palette.text_secondary)
-                .small(),
-        );
-    });
-}
-
-fn history_page(ui: &mut egui::Ui, palette: &Palette) {
-    card(ui, palette, |ui| {
-        ui.label(egui::RichText::new("余额历史").strong());
-        ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new("暂无历史数据。配置 API Key 后开始记录。")
-                .color(palette.text_secondary)
-                .small(),
-        );
-    });
-}
-
-fn settings_page(ui: &mut egui::Ui, palette: &Palette, mode: &mut ThemeMode) {
-    let mut selected = *mode;
-
-    card(ui, palette, |ui| {
-        ui.label(egui::RichText::new("外观").strong());
-        ui.add_space(8.0);
-        for (candidate, label) in [
-            (ThemeMode::System, "跟随系统"),
-            (ThemeMode::Light, "日间"),
-            (ThemeMode::Dark, "夜间"),
-        ] {
-            ui.radio_value(&mut selected, candidate, label);
-        }
-    });
-
-    card(ui, palette, |ui| {
-        ui.label(egui::RichText::new("版本").strong());
-        ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new(format!("v{}", dsmon_core::VERSION))
-                .color(palette.text_secondary)
-                .small(),
-        );
-    });
-
-    if selected != *mode {
-        *mode = selected;
-        theme::set_mode(ui.ctx(), selected);
+    let configured = config.export_path.trim();
+    if configured.is_empty() {
+        home_dir().join(name)
+    } else {
+        PathBuf::from(configured).join(name)
     }
+}
+
+fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Hands a URL to the desktop.
+fn open_url(url: &str) {
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+
+    #[cfg(windows)]
+    let _ = std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn();
 }

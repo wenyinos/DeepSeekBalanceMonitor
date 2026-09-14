@@ -111,7 +111,11 @@ pub struct CommandCodeApiResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct CommandCodeApiCredits {
-    #[serde(rename = "monthlyCredits", default, deserialize_with = "deserialize_optional_number")]
+    #[serde(
+        rename = "monthlyCredits",
+        default,
+        deserialize_with = "deserialize_optional_number"
+    )]
     pub monthly_credits: Option<f64>,
 }
 

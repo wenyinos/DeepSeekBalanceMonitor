@@ -5,9 +5,7 @@ use std::time::Duration;
 use chrono::{DateTime, Local};
 
 use super::{http_client, sanitize_message};
-use crate::model::{
-    OpenCodeGoApiResponse, OpenCodeGoApiWindow, OpenCodeGoQuota, OpenCodeGoUsage,
-};
+use crate::model::{OpenCodeGoApiResponse, OpenCodeGoApiWindow, OpenCodeGoQuota, OpenCodeGoUsage};
 
 const USAGE_URL: &str = "https://opencode.ai/zen/go/v1/usage";
 
@@ -36,9 +34,18 @@ pub fn fetch_quota(api_key: &str, http_proxy: &str) -> Result<OpenCodeGoQuota, S
 
     let now = Local::now().timestamp();
     let quota = OpenCodeGoQuota {
-        rolling: payload.usage.rolling.map(|window| window_to_usage(window, now)),
-        weekly: payload.usage.weekly.map(|window| window_to_usage(window, now)),
-        monthly: payload.usage.monthly.map(|window| window_to_usage(window, now)),
+        rolling: payload
+            .usage
+            .rolling
+            .map(|window| window_to_usage(window, now)),
+        weekly: payload
+            .usage
+            .weekly
+            .map(|window| window_to_usage(window, now)),
+        monthly: payload
+            .usage
+            .monthly
+            .map(|window| window_to_usage(window, now)),
     };
 
     if quota.rolling.is_none() && quota.weekly.is_none() && quota.monthly.is_none() {

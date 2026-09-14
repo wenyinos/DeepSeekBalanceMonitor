@@ -13,7 +13,14 @@ use crate::paths;
 /// Alert policy for a low balance.
 pub const ALERT_MODES: [&str; 3] = ["never", "always", "once"];
 /// Tray icon colour presets.
-pub const THEMES: [&str; 6] = ["default", "contrast", "bright", "dark_mode", "mono", "custom"];
+pub const THEMES: [&str; 6] = [
+    "default",
+    "contrast",
+    "bright",
+    "dark_mode",
+    "mono",
+    "custom",
+];
 /// Interface schemes.
 pub const UI_THEMES: [&str; 3] = ["system", "light", "dark"];
 /// Interface languages.
@@ -159,6 +166,43 @@ fn default_true() -> bool {
 }
 
 impl AppConfig {
+    /// Reads the configuration.
+    ///
+    /// A missing file yields the defaults. A file that fails to parse is
+    /// renamed to `config.json.corrupt` first, so the broken content is
+    /// preserved for the user instead of being silently overwritten.
+    pub fn load() -> Self {
+        let path = paths::config_file();
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(_) => return Self::default(),
+        };
+
+        match serde_json::from_str::<Self>(&text) {
+            Ok(mut config) => {
+                config.normalize();
+                config
+            }
+            Err(_) => {
+                let mut backup = path.clone();
+                backup.set_extension("json.corrupt");
+                let _ = std::fs::rename(&path, &backup);
+                Self::default()
+            }
+        }
+    }
+
+    /// Writes the configuration, creating the directory if needed.
+    pub fn save(&self) -> Result<(), String> {
+        paths::ensure_dir(&paths::config_dir()).map_err(|error| error.to_string())?;
+
+        let mut normalized = self.clone();
+        normalized.normalize();
+
+        let text = serde_json::to_string_pretty(&normalized).map_err(|error| error.to_string())?;
+        std::fs::write(paths::config_file(), text).map_err(|error| error.to_string())
+    }
+
     /// Clamps numeric fields into range and replaces unknown enum values with
     /// their defaults. Anything the file got wrong stays usable.
     pub fn normalize(&mut self) {
@@ -196,44 +240,6 @@ impl AppConfig {
             self.widget_size = default_widget_size();
         }
     }
-}
-
-/// Reads the configuration.
-///
-/// A missing file yields the defaults. A file that fails to parse is renamed to
-/// `config.json.corrupt` first, so the broken content is preserved for the user
-/// instead of being silently overwritten.
-pub fn load() -> AppConfig {
-    let path = paths::config_file();
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(_) => return AppConfig::default(),
-    };
-
-    match serde_json::from_str::<AppConfig>(&text) {
-        Ok(mut config) => {
-            config.normalize();
-            config
-        }
-        Err(_) => {
-            let mut backup = path.clone();
-            backup.set_extension("json.corrupt");
-            let _ = std::fs::rename(&path, &backup);
-            AppConfig::default()
-        }
-    }
-}
-
-/// Writes the configuration, creating the directory if needed.
-pub fn save(config: &AppConfig) -> Result<(), String> {
-    let directory = paths::config_dir();
-    paths::ensure_dir(&directory).map_err(|error| error.to_string())?;
-
-    let mut normalized = config.clone();
-    normalized.normalize();
-
-    let text = serde_json::to_string_pretty(&normalized).map_err(|error| error.to_string())?;
-    std::fs::write(paths::config_file(), text).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -274,7 +280,9 @@ mod tests {
 
     #[test]
     fn unknown_enum_values_fall_back() {
-        let config = parse(r#"{"alert_mode":"sometimes","theme":"neon","ui_theme":"neon","widget_size":"huge"}"#);
+        let config = parse(
+            r#"{"alert_mode":"sometimes","theme":"neon","ui_theme":"neon","widget_size":"huge"}"#,
+        );
         assert_eq!(config.alert_mode, "once");
         assert_eq!(config.theme, "default");
         assert_eq!(config.ui_theme, "system");

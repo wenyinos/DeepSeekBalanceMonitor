@@ -206,7 +206,11 @@ mod tests {
     fn palettes_keep_text_readable() {
         for palette in [Palette::DARK, Palette::LIGHT] {
             for (label, foreground, background) in [
-                ("primary text on panel", palette.text_primary, palette.bg_panel),
+                (
+                    "primary text on panel",
+                    palette.text_primary,
+                    palette.bg_panel,
+                ),
                 ("primary text on app", palette.text_primary, palette.bg_app),
                 ("label on accent", palette.on_accent, palette.accent),
                 (
@@ -216,10 +220,7 @@ mod tests {
                 ),
             ] {
                 let ratio = contrast(foreground, background);
-                assert!(
-                    ratio >= 4.5,
-                    "{label} must reach WCAG AA, got {ratio:.2}"
-                );
+                assert!(ratio >= 4.5, "{label} must reach WCAG AA, got {ratio:.2}");
             }
         }
     }

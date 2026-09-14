@@ -12,6 +12,7 @@ pub mod demo;
 pub mod history;
 pub mod icon;
 pub mod model;
+pub mod monitor;
 pub mod paths;
 pub mod platforms;
 pub mod storage;

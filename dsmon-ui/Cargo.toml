@@ -8,8 +8,10 @@ description = "Shared egui interface for DeepSeek Balance Monitor"
 
 [dependencies]
 dsmon-core = { path = "../dsmon-core" }
+chrono.workspace = true
 eframe.workspace = true
 egui.workspace = true
+egui_plot.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { workspace = true, features = ["blocking"] }

@@ -23,9 +23,10 @@ pub fn install(ctx: &egui::Context) {
         "share-tech".to_owned(),
         Arc::new(FontData::from_static(DIGITS_FONT)),
     );
-    fonts
-        .families
-        .insert(FontFamily::Name(DIGITS_FAMILY.into()), vec!["share-tech".to_owned()]);
+    fonts.families.insert(
+        FontFamily::Name(DIGITS_FAMILY.into()),
+        vec!["share-tech".to_owned()],
+    );
 
     if let Some((bytes, index)) = load_system_font() {
         fonts.font_data.insert(

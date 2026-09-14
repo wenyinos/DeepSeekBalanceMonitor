@@ -50,11 +50,17 @@ pub fn render(spec: &IconSpec<'_>) -> TrayIcon {
     let mut buffer = vec![0u8; (size * size * 4) as usize];
 
     let radius = (size as f32 * 0.22).max(2.0);
-    let background = [spec.background[0], spec.background[1], spec.background[2], 255];
+    let background = [
+        spec.background[0],
+        spec.background[1],
+        spec.background[2],
+        255,
+    ];
 
     for y in 0..size {
         for x in 0..size {
-            let coverage = rounded_rect_coverage(x as f32 + 0.5, y as f32 + 0.5, size as f32, radius);
+            let coverage =
+                rounded_rect_coverage(x as f32 + 0.5, y as f32 + 0.5, size as f32, radius);
             if coverage > 0.0 {
                 let index = ((y * size + x) * 4) as usize;
                 buffer[index] = background[0];

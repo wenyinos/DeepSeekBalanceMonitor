@@ -6,7 +6,7 @@ use chrono::Local;
 
 use super::{http_client, sanitize_message, urlencode};
 use crate::model::{
-    CommandCodeApiResponse, CommandCodeApiWindow, CommandCodeApiWhoami, CommandCodeQuota,
+    CommandCodeApiResponse, CommandCodeApiWhoami, CommandCodeApiWindow, CommandCodeQuota,
     CommandCodeWindow,
 };
 
@@ -48,9 +48,7 @@ pub fn fetch_quota(api_key: &str, http_proxy: &str) -> Result<CommandCodeQuota, 
         .five_hour
         .as_ref()
         .zip(payload.window_limits.weekly.as_ref())
-        .and_then(|(five_hour, weekly)| {
-            monthly_cap(five_hour.cap.max(0.0), weekly.cap.max(0.0))
-        });
+        .and_then(|(five_hour, weekly)| monthly_cap(five_hour.cap.max(0.0), weekly.cap.max(0.0)));
     let monthly = monthly_window(monthly_cap, payload.credits.monthly_credits);
 
     let quota = CommandCodeQuota {
@@ -134,7 +132,10 @@ fn monthly_cap(five_hour_cap: f64, weekly_cap: f64) -> Option<f64> {
 }
 
 /// Derives the monthly window from the plan pool and the remaining credits.
-fn monthly_window(monthly_cap: Option<f64>, monthly_credits: Option<f64>) -> Option<CommandCodeWindow> {
+fn monthly_window(
+    monthly_cap: Option<f64>,
+    monthly_credits: Option<f64>,
+) -> Option<CommandCodeWindow> {
     monthly_cap
         .zip(monthly_credits)
         .map(|(cap, remaining)| CommandCodeWindow {
@@ -168,7 +169,10 @@ mod tests {
 
     #[test]
     fn normalises_millisecond_and_second_epochs() {
-        assert_eq!(epoch_to_reset_seconds(Some(1_767_225_600.0), 1_767_225_600), 0);
+        assert_eq!(
+            epoch_to_reset_seconds(Some(1_767_225_600.0), 1_767_225_600),
+            0
+        );
         assert_eq!(
             epoch_to_reset_seconds(Some(1_767_225_600_000.0), 1_767_225_600),
             0

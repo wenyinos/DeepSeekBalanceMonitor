@@ -50,14 +50,12 @@ impl Tray for MonitorTray {
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let on_quit = Arc::clone(&self.on_quit);
-        vec![
-            StandardItem {
-                label: "退出".to_owned(),
-                activate: Box::new(move |_| on_quit()),
-                ..Default::default()
-            }
-            .into(),
-        ]
+        vec![StandardItem {
+            label: "退出".to_owned(),
+            activate: Box::new(move |_| on_quit()),
+            ..Default::default()
+        }
+        .into()]
     }
 }
 

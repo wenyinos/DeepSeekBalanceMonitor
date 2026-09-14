@@ -31,7 +31,8 @@ pub fn summarize_history(records: &[HistoryRecord]) -> Vec<HistorySummary> {
                 .iter()
                 .map(|record| record.total)
                 .fold(f64::NEG_INFINITY, f64::max);
-            let avg_total = items.iter().map(|record| record.total).sum::<f64>() / items.len() as f64;
+            let avg_total =
+                items.iter().map(|record| record.total).sum::<f64>() / items.len() as f64;
 
             Some(HistorySummary {
                 currency,
@@ -51,7 +52,10 @@ pub fn summarize_history(records: &[HistoryRecord]) -> Vec<HistorySummary> {
 }
 
 /// Busy-hour rate over the last `hours`, for the most recently seen currency.
-pub fn consumption_rate(hours: i64, interval_minutes: u64) -> Result<Option<ConsumptionRate>, String> {
+pub fn consumption_rate(
+    hours: i64,
+    interval_minutes: u64,
+) -> Result<Option<ConsumptionRate>, String> {
     let conn = storage::open_db()?;
     let currency = match conn.query_row(
         "SELECT currency FROM balance_history
@@ -132,9 +136,8 @@ pub fn consumption_rate_from_records(
     let parsed: Vec<(NaiveDateTime, f64)> = records
         .iter()
         .map(|record| {
-            let timestamp =
-                NaiveDateTime::parse_from_str(&record.timestamp, "%Y-%m-%d %H:%M:%S")
-                    .map_err(|error| error.to_string())?;
+            let timestamp = NaiveDateTime::parse_from_str(&record.timestamp, "%Y-%m-%d %H:%M:%S")
+                .map_err(|error| error.to_string())?;
             Ok((timestamp, record.topped))
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -178,7 +181,12 @@ pub fn consumption_rate_from_records(
             }
 
             if previous_time > segment_start_time {
-                intervals.push((segment_start_value, segment_start_time, previous_value, previous_time));
+                intervals.push((
+                    segment_start_value,
+                    segment_start_time,
+                    previous_value,
+                    previous_time,
+                ));
             }
             segment_start_value = current_value;
             segment_start_time = current_time;
@@ -378,7 +386,8 @@ mod tests {
         let records: Vec<HistoryRecord> = (0..7)
             .map(|step| {
                 let minutes = step * 10;
-                let timestamp = format!("2026-01-01 {:02}:{:02}:00", 10 + minutes / 60, minutes % 60);
+                let timestamp =
+                    format!("2026-01-01 {:02}:{:02}:00", 10 + minutes / 60, minutes % 60);
                 record(&timestamp, 100.0 - step as f64 * 10.0)
             })
             .collect();
