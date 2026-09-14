@@ -214,13 +214,19 @@ impl App {
         let _ = self.config.save();
     }
 
-    /// Closing the window leaves the application running in the tray.
+    /// Closing the window puts it out of the way and leaves the application
+    /// running; only the tray's quit entry ends it.
     fn hide_on_close(&self, ctx: &egui::Context) {
         if self.quitting || !ctx.input(|input| input.viewport().close_requested()) {
             return;
         }
+
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        if window_can_hide() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
     }
 
     /// Drops the records outside the retention window and compacts the file,
@@ -277,6 +283,35 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Everything that has to happen whether or not a window is on screen.
+    ///
+    /// eframe calls this in both cases and `ui` only when there is something to
+    /// draw, so the tray — the one surface a hidden or minimized window leaves —
+    /// is driven from here. It is also where a close request has to be answered:
+    /// cancelling it from `ui` would miss whenever the window happens to be
+    /// minimized or behind another one, and the application would quit.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let snapshot = self.monitor.snapshot();
+        let lang = self.config.ui_language.clone();
+
+        // Frames are drawn on demand, so without a heartbeat a reading that
+        // lands between two interactions would sit unseen — on screen and in
+        // the tray.
+        ctx.request_repaint_after(if snapshot.checking {
+            std::time::Duration::from_millis(500)
+        } else {
+            std::time::Duration::from_secs(1)
+        });
+
+        self.drain_tray_commands(ctx);
+        self.tray.publish(
+            &crate::tray::status(&snapshot, &self.config, &lang),
+            &icon_theme(&self.config),
+        );
+
+        self.hide_on_close(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let style = theme::Style::from_config(&self.config.theme);
         let palette = theme::current(ui.ctx(), style, &self.config.icon_colors);
@@ -287,25 +322,6 @@ impl eframe::App for App {
         };
         let snapshot = self.monitor.snapshot();
         let mut switch = false;
-
-        // Frames are drawn on demand, so without a heartbeat a reading that
-        // lands between two interactions would sit unseen — on screen and in
-        // the tray.
-        ui.ctx().request_repaint_after(if snapshot.checking {
-            std::time::Duration::from_millis(500)
-        } else {
-            std::time::Duration::from_secs(1)
-        });
-
-        // The tray carries the latest reading and answers what was picked in
-        // it; the window hides rather than exits when it is closed.
-        self.drain_tray_commands(ui.ctx());
-        self.tray.publish(
-            &crate::tray::status(&snapshot, &self.config, &lang),
-            &icon_theme(&self.config),
-        );
-
-        self.hide_on_close(ui.ctx());
 
         egui::Panel::left("navigation")
             .exact_size(190.0)
@@ -554,6 +570,42 @@ fn home_dir() -> PathBuf {
 fn show_window(ctx: &egui::Context) {
     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+
+    if window_can_hide() {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+    } else {
+        // Wayland refuses to unminimize, so the closest thing to calling the
+        // window back is asking the compositor to activate it — the protocol
+        // behind that request is meant for exactly this. Whether it also
+        // unminimizes is the compositor's decision, so the task bar entry is
+        // still the route that always works.
+        ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+            egui::UserAttentionType::Critical,
+        ));
+    }
+}
+
+/// Whether this platform lets a window disappear and be brought back.
+///
+/// Wayland leaves that to the compositor: winit's backend ignores a request to
+/// hide a surface, refuses to unminimize one, and its focus request does
+/// nothing, so a close there has to minimize instead and the window comes back
+/// from the task bar.
+fn window_can_hide() -> bool {
+    #[cfg(unix)]
+    {
+        // The rule winit picks its backend by: Wayland wins when the session
+        // advertises it, unless the backend has been pinned by hand.
+        if std::env::var_os("WINIT_UNIX_BACKEND").is_some_and(|backend| backend == "x11") {
+            return true;
+        }
+        std::env::var_os("WAYLAND_DISPLAY").is_none()
+    }
+
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 /// Hands a URL to the desktop.
