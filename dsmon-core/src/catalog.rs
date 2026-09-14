@@ -84,7 +84,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Package,
         windows: &["5h", "weekly", "monthly"],
         console_url: "https://open.bigmodel.cn",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "glm_coding_global",
@@ -92,7 +92,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Package,
         windows: &["5h", "weekly", "monthly"],
         console_url: "https://z.ai",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "kimi_token_cn",
@@ -116,7 +116,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Package,
         windows: &["5h", "weekly"],
         console_url: "https://platform.minimaxi.com",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "minimax_token_global",
@@ -124,7 +124,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Package,
         windows: &["5h", "weekly"],
         console_url: "https://platform.minimax.io",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "minimax_coding_cn",
@@ -132,7 +132,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Package,
         windows: &["5h", "weekly"],
         console_url: "https://platform.minimaxi.com",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "minimax_coding_global",
@@ -140,7 +140,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Package,
         windows: &["5h", "weekly"],
         console_url: "https://platform.minimax.io",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "stepfun_token_cn",
@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn the_three_shipped_clients_are_listed_as_implemented() {
+    fn every_listed_platform_has_a_client() {
         let implemented: Vec<&str> = implemented().map(|meta| meta.key).collect();
         assert_eq!(
             implemented,
@@ -252,14 +252,21 @@ mod tests {
                 "deepseek",
                 "opencode_go",
                 "command_code",
+                "glm_coding_cn",
+                "glm_coding_global",
                 "kimi_token_cn",
                 "kimi_token_global",
+                "minimax_token_cn",
+                "minimax_token_global",
+                "minimax_coding_cn",
+                "minimax_coding_global",
                 "stepfun_token_cn",
                 "stepfun_token_global",
                 "openrouter",
-            ]
+            ],
+            "the list is what the interface offers; a new client belongs here"
         );
-        assert!(pending().count() >= 6, "the rest are placeholders");
+        assert_eq!(pending().count(), 0, "nothing is waiting for a client");
     }
 
     #[test]

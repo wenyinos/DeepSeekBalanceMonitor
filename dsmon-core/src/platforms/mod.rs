@@ -2,7 +2,9 @@
 
 pub mod command_code;
 pub mod deepseek;
+pub mod glm;
 pub mod kimi;
+pub mod minimax;
 pub mod opencode_go;
 pub mod openrouter;
 pub mod status;
@@ -118,4 +120,19 @@ mod tests {
         config.proxy_enabled = true;
         assert_eq!(effective_proxy(&config), "http://127.0.0.1:7890");
     }
+}
+
+/// Seconds until an epoch, accepting both second and millisecond values: the
+/// platforms are not consistent about which they send.
+pub(crate) fn epoch_to_reset_seconds(epoch: Option<f64>, now: i64) -> i64 {
+    epoch
+        .map(|value| {
+            let seconds = if value >= 100_000_000_000.0 {
+                (value / 1000.0) as i64
+            } else {
+                value as i64
+            };
+            (seconds - now).max(0)
+        })
+        .unwrap_or(0)
 }

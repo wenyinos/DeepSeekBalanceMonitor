@@ -64,21 +64,70 @@ pub struct ConsumptionRate {
     pub currency: String,
 }
 
-/// One quota window of the OpenCode Go subscription.
+/// One quota window of a package plan, whichever plan it belongs to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct OpenCodeGoUsage {
+pub struct QuotaWindow {
+    /// Share of the window already used, 0-100.
     pub usage_percent: f64,
+    /// Share still available, 0-100.
     pub percent_remaining: f64,
+    /// Seconds until the window resets, 0 when the provider does not say.
     pub reset_in_sec: i64,
+    /// The pool behind the share, for a provider that reports money rather than
+    /// a percentage — Command Code's monthly allowance. The history records
+    /// these when they are there, and the share otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap: Option<f64>,
 }
 
-/// The three OpenCode Go windows.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct OpenCodeGoQuota {
-    pub rolling: Option<OpenCodeGoUsage>,
-    pub weekly: Option<OpenCodeGoUsage>,
-    pub monthly: Option<OpenCodeGoUsage>,
+impl QuotaWindow {
+    /// From a share of the window, which is what most providers report.
+    pub fn from_percent(usage_percent: f64, reset_in_sec: i64) -> Self {
+        let usage_percent = usage_percent.clamp(0.0, 100.0);
+        Self {
+            usage_percent,
+            percent_remaining: (100.0 - usage_percent).max(0.0),
+            reset_in_sec,
+            used: None,
+            cap: None,
+        }
+    }
+
+    /// From a pool of money spent out of a total.
+    pub fn from_pool(used: f64, cap: f64, reset_in_sec: i64) -> Self {
+        let used = used.max(0.0);
+        let cap = cap.max(0.0);
+        let used = used.min(cap);
+        let usage_percent = if cap > 0.0 {
+            (used / cap * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+
+        Self {
+            usage_percent,
+            percent_remaining: (100.0 - usage_percent).max(0.0),
+            reset_in_sec,
+            used: Some(used),
+            cap: Some(cap),
+        }
+    }
+
+    /// What the history records: the money when the provider deals in it, and
+    /// the share out of a hundred otherwise.
+    pub fn as_recorded_usage(&self) -> (f64, f64) {
+        match (self.used, self.cap) {
+            (Some(used), Some(cap)) => (used, cap),
+            _ => (self.usage_percent, 100.0),
+        }
+    }
 }
+
+/// A package plan's reading: one entry per window it declares, keyed by the
+/// window names the catalog lists for it.
+pub type PackageQuota = std::collections::BTreeMap<String, QuotaWindow>;
 
 #[derive(Debug, Deserialize)]
 pub struct OpenCodeGoApiResponse {
@@ -101,22 +150,6 @@ pub struct OpenCodeGoApiWindow {
     pub percent: f64,
     #[serde(rename = "resetsAt", default)]
     pub resets_at: Option<String>,
-}
-
-/// One quota window of the Command Code subscription.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CommandCodeWindow {
-    pub used: f64,
-    pub cap: f64,
-    pub reset_in_sec: i64,
-}
-
-/// The Command Code windows: five-hour, weekly and the derived monthly view.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct CommandCodeQuota {
-    pub five_hour: Option<CommandCodeWindow>,
-    pub weekly: Option<CommandCodeWindow>,
-    pub monthly: Option<CommandCodeWindow>,
 }
 
 #[derive(Debug, Deserialize)]

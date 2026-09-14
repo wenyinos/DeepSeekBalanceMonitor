@@ -4,16 +4,15 @@ use std::time::Duration;
 
 use chrono::Local;
 
-use super::{http_client, sanitize_message, urlencode};
+use super::{epoch_to_reset_seconds, http_client, sanitize_message, urlencode};
 use crate::model::{
-    CommandCodeApiResponse, CommandCodeApiWhoami, CommandCodeApiWindow, CommandCodeQuota,
-    CommandCodeWindow,
+    CommandCodeApiResponse, CommandCodeApiWhoami, CommandCodeApiWindow, PackageQuota, QuotaWindow,
 };
 
 const API_BASE: &str = "https://api.commandcode.ai/";
 
 /// Reads the five-hour and weekly windows plus the derived monthly view.
-pub fn fetch_quota(api_key: &str, http_proxy: &str) -> Result<CommandCodeQuota, String> {
+pub fn fetch_quota(api_key: &str, http_proxy: &str) -> Result<PackageQuota, String> {
     let client = http_client(Duration::from_secs(10), http_proxy)?;
     let organization_id = fetch_org_id(&client, api_key)?;
     let org_query = organization_id
@@ -51,19 +50,20 @@ pub fn fetch_quota(api_key: &str, http_proxy: &str) -> Result<CommandCodeQuota, 
         .and_then(|(five_hour, weekly)| monthly_cap(five_hour.cap.max(0.0), weekly.cap.max(0.0)));
     let monthly = monthly_window(monthly_cap, payload.credits.monthly_credits);
 
-    let quota = CommandCodeQuota {
-        five_hour: payload
-            .window_limits
-            .five_hour
-            .map(|window| window_to_window(window, now)),
-        weekly: payload
-            .window_limits
-            .weekly
-            .map(|window| window_to_window(window, now)),
-        monthly,
-    };
+    let mut quota = PackageQuota::new();
+    for (name, window) in [
+        ("5h", payload.window_limits.five_hour),
+        ("weekly", payload.window_limits.weekly),
+    ] {
+        if let Some(window) = window {
+            quota.insert(name.to_owned(), window_to_window(window, now));
+        }
+    }
+    if let Some(monthly) = monthly {
+        quota.insert("monthly".to_owned(), monthly);
+    }
 
-    if quota.five_hour.is_none() && quota.weekly.is_none() && quota.monthly.is_none() {
+    if quota.is_empty() {
         return Err("Command Code API returned no usage windows.".to_owned());
     }
     Ok(quota)
@@ -93,26 +93,12 @@ fn fetch_org_id(
     Ok(payload.org.and_then(|org| org.id))
 }
 
-fn window_to_window(window: CommandCodeApiWindow, now: i64) -> CommandCodeWindow {
-    CommandCodeWindow {
-        used: window.used.max(0.0),
-        cap: window.cap.max(0.0),
-        reset_in_sec: epoch_to_reset_seconds(window.reset_at, now),
-    }
-}
-
-/// Accepts both second and millisecond epochs.
-fn epoch_to_reset_seconds(epoch: Option<f64>, now: i64) -> i64 {
-    epoch
-        .map(|value| {
-            let seconds = if value >= 100_000_000_000.0 {
-                (value / 1000.0) as i64
-            } else {
-                value as i64
-            };
-            (seconds - now).max(0)
-        })
-        .unwrap_or(0)
+fn window_to_window(window: CommandCodeApiWindow, now: i64) -> QuotaWindow {
+    QuotaWindow::from_pool(
+        window.used,
+        window.cap,
+        epoch_to_reset_seconds(window.reset_at, now),
+    )
 }
 
 /// Plan credit pools keyed by the plan's rolling window caps, per
@@ -132,17 +118,10 @@ fn monthly_cap(five_hour_cap: f64, weekly_cap: f64) -> Option<f64> {
 }
 
 /// Derives the monthly window from the plan pool and the remaining credits.
-fn monthly_window(
-    monthly_cap: Option<f64>,
-    monthly_credits: Option<f64>,
-) -> Option<CommandCodeWindow> {
+fn monthly_window(monthly_cap: Option<f64>, monthly_credits: Option<f64>) -> Option<QuotaWindow> {
     monthly_cap
         .zip(monthly_credits)
-        .map(|(cap, remaining)| CommandCodeWindow {
-            used: (cap - remaining).clamp(0.0, cap),
-            cap,
-            reset_in_sec: 0,
-        })
+        .map(|(cap, remaining)| QuotaWindow::from_pool(cap - remaining, cap, 0))
 }
 
 #[cfg(test)]
@@ -159,8 +138,8 @@ mod tests {
     #[test]
     fn derives_the_monthly_window_from_remaining_credits() {
         let window = monthly_window(Some(80.0), Some(30.0)).expect("window is derived");
-        assert_eq!(window.cap, 80.0);
-        assert_eq!(window.used, 50.0);
+        assert_eq!(window.cap, Some(80.0));
+        assert_eq!(window.used, Some(50.0));
         assert_eq!(window.reset_in_sec, 0);
 
         assert!(monthly_window(Some(80.0), None).is_none());
@@ -194,7 +173,20 @@ mod tests {
             },
             0,
         );
-        assert_eq!(window.used, 0.0);
-        assert_eq!(window.cap, 0.0);
+        assert_eq!(window.used, Some(0.0));
+        assert_eq!(window.cap, Some(0.0));
+        assert_eq!(window.usage_percent, 0.0);
+    }
+
+    /// The monthly view is money spent out of a pool, so it records those
+    /// rather than a share of a hundred.
+    #[test]
+    fn the_monthly_pool_is_recorded_in_money() {
+        let window = monthly_window(Some(80.0), Some(30.0)).expect("window is derived");
+        assert_eq!(window.as_recorded_usage(), (50.0, 80.0));
+        assert_eq!(window.usage_percent, 62.5);
+
+        let share = QuotaWindow::from_percent(25.0, 0);
+        assert_eq!(share.as_recorded_usage(), (25.0, 100.0));
     }
 }

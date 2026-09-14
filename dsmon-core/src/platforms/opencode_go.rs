@@ -5,12 +5,12 @@ use std::time::Duration;
 use chrono::{DateTime, Local};
 
 use super::{http_client, sanitize_message};
-use crate::model::{OpenCodeGoApiResponse, OpenCodeGoApiWindow, OpenCodeGoQuota, OpenCodeGoUsage};
+use crate::model::{OpenCodeGoApiResponse, OpenCodeGoApiWindow, PackageQuota, QuotaWindow};
 
 const USAGE_URL: &str = "https://opencode.ai/zen/go/v1/usage";
 
 /// Reads the rolling, weekly and monthly usage windows.
-pub fn fetch_quota(api_key: &str, http_proxy: &str) -> Result<OpenCodeGoQuota, String> {
+pub fn fetch_quota(api_key: &str, http_proxy: &str) -> Result<PackageQuota, String> {
     let client = http_client(Duration::from_secs(10), http_proxy)?;
     let response = client
         .get(USAGE_URL)
@@ -33,28 +33,24 @@ pub fn fetch_quota(api_key: &str, http_proxy: &str) -> Result<OpenCodeGoQuota, S
         .map_err(|error| format!("OpenCode Go JSON parse failed: {error}"))?;
 
     let now = Local::now().timestamp();
-    let quota = OpenCodeGoQuota {
-        rolling: payload
-            .usage
-            .rolling
-            .map(|window| window_to_usage(window, now)),
-        weekly: payload
-            .usage
-            .weekly
-            .map(|window| window_to_usage(window, now)),
-        monthly: payload
-            .usage
-            .monthly
-            .map(|window| window_to_usage(window, now)),
-    };
+    let mut quota = PackageQuota::new();
+    for (name, window) in [
+        ("5h", payload.usage.rolling),
+        ("weekly", payload.usage.weekly),
+        ("monthly", payload.usage.monthly),
+    ] {
+        if let Some(window) = window {
+            quota.insert(name.to_owned(), window_to_usage(window, now));
+        }
+    }
 
-    if quota.rolling.is_none() && quota.weekly.is_none() && quota.monthly.is_none() {
+    if quota.is_empty() {
         return Err("OpenCode Go API returned no usage windows.".to_owned());
     }
     Ok(quota)
 }
 
-fn window_to_usage(window: OpenCodeGoApiWindow, now: i64) -> OpenCodeGoUsage {
+fn window_to_usage(window: OpenCodeGoApiWindow, now: i64) -> QuotaWindow {
     let usage_percent = window.percent.clamp(0.0, 100.0);
     let reset_in_sec = window
         .resets_at
@@ -63,11 +59,7 @@ fn window_to_usage(window: OpenCodeGoApiWindow, now: i64) -> OpenCodeGoUsage {
         .map(|reset_at| (reset_at.timestamp() - now).max(0))
         .unwrap_or(0);
 
-    OpenCodeGoUsage {
-        usage_percent,
-        percent_remaining: (100.0 - usage_percent).max(0.0),
-        reset_in_sec,
-    }
+    QuotaWindow::from_percent(usage_percent, reset_in_sec)
 }
 
 /// The endpoint reports failures as `{"error": {"message": ...}}`.

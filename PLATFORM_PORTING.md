@@ -1,10 +1,10 @@
-# 待移植的订阅平台
+# 订阅平台移植笔记
 
 Python 版（`main` 分支的 `src/platforms/`）支持 **8 个平台家族、15 个可添加条目**；
-Rust GUI 版目前只实现了其中三个（DeepSeek、OpenCode Go、Command Code）。
+Rust GUI 版已全部接入，与 Python 版一一对应。
 
-本文件记录其余平台的接口细节与实现要点，作为移植依据。所有内容来自 `main` 分支的
-Python 实现，未做改动。
+本文件记录各平台的接口细节与实现要点，作为维护依据——改动解析逻辑时先看这里。
+所有内容来自 `main` 分支的 Python 实现，未做改动。
 
 ## 总览
 
@@ -16,7 +16,21 @@ Python 实现，未做改动。
 | MiniMax | `minimax_token_cn/global`、`minimax_coding_cn/global` | 额度窗口 | `minimaxi.com` / `minimax.io` | 中 |
 | GLM Coding | `glm_coding_cn`、`glm_coding_global` | 额度窗口 | `open.bigmodel.cn` / `api.z.ai` | 中高 |
 
-已完成：`deepseek`（余额）、`opencode_go`（额度窗口）、`command_code`（额度窗口）。
+各平台对应的 Rust 模块：
+
+| 家族 | Rust 模块 |
+|---|---|
+| DeepSeek | `platforms/deepseek.rs` |
+| OpenCode Go | `platforms/opencode_go.rs` |
+| Command Code | `platforms/command_code.rs` |
+| Kimi | `platforms/kimi.rs` |
+| StepFun | `platforms/stepfun.rs` |
+| OpenRouter | `platforms/openrouter.rs` |
+| MiniMax | `platforms/minimax.rs` |
+| GLM Coding | `platforms/glm.rs` |
+
+额度窗口在 Rust 侧统一为 `model::PackageQuota`（窗口名 → `QuotaWindow`），
+窗口名与各自在 `catalog::PlatformMeta::windows` 里声明的一致。
 
 ## 两类指标模型
 
@@ -143,7 +157,7 @@ Python 版把所有平台归为两类，界面按类别渲染不同的形态。
 
 ---
 
-## 移植前需要先做的事
+## 移植时已经解决的事（留作记录）
 
 单个平台的 fetch 都不难，真正的成本在模型层——Rust 版目前**没有多平台概念**：
 
@@ -156,9 +170,12 @@ Python 版把所有平台归为两类，界面按类别渲染不同的形态。
 4. **凭据命名**：`secure_settings` 里现在按平台写了固定键名
    （`opencode_go_api_key` 等）。多账户后需要按条目 id 存，或保持"一平台一键"的现状。
 
-## 建议的移植顺序
+## 解析要点回顾
 
-1. **Kimi → StepFun → OpenRouter**：三个都是单请求 + 字段映射，可以一起做，
-   顺便验证"多平台抽象"是否站得住
-2. **MiniMax**：需要处理双端点、模型优选与时间戳判断
-3. **GLM**：401 重试与位置识别的窗口解析最需要单独测试
+接入顺序按难度递增，实际也是这么做的：Kimi → StepFun → OpenRouter（单请求 + 字段映射），
+然后是 MiniMax（双端点、模型优选、秒/毫秒判断），最后是 GLM（401 裸 key 重试、
+按数组位置识别窗口）。三处最容易出错的地方都有对应单测：
+
+- MiniMax：`model_remains` 的两处位置、`general` 优选、剩余百分比取反
+- GLM：`TOKENS_LIMIT` 第 0/1 项的窗口归属、`nextResetTime` 毫秒、`code`/`success` 双条件
+- 两者共用的时间戳秒/毫秒判断，已统一到 `platforms::epoch_to_reset_seconds`

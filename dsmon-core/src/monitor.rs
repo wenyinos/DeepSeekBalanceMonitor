@@ -13,7 +13,7 @@ use std::time::Duration;
 use chrono::{DateTime, Local};
 
 use crate::config::AppConfig;
-use crate::model::{Balances, CommandCodeQuota, ConsumptionRate, OpenCodeGoQuota};
+use crate::model::{Balances, ConsumptionRate, PackageQuota};
 use crate::{demo, history, platforms, storage};
 
 /// Outcome of a subscription lookup.
@@ -42,8 +42,8 @@ pub struct Snapshot {
     pub service_status: String,
     /// Burn-rate estimates per platform.
     pub consumption_rates: std::collections::BTreeMap<String, ConsumptionRate>,
-    pub opencode_go: Subscription<OpenCodeGoQuota>,
-    pub command_code: Subscription<CommandCodeQuota>,
+    /// The package plans' quota windows, keyed by platform.
+    pub packages: std::collections::BTreeMap<String, Subscription<PackageQuota>>,
     pub last_check: Option<DateTime<Local>>,
     /// Set when the last poll failed; cleared by the next success.
     pub last_error: Option<String>,
@@ -168,13 +168,12 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
 
     match result {
         Ok(outcome) => {
-            record_subscription_usage(&outcome.opencode_go, &outcome.command_code);
+            record_subscription_usage(&outcome.packages);
             guard.balances = outcome.balances;
             guard.balance_errors = outcome.balance_errors;
             guard.service_status = outcome.service_status;
             guard.consumption_rates = outcome.consumption_rates;
-            guard.opencode_go = outcome.opencode_go;
-            guard.command_code = outcome.command_code;
+            guard.packages = outcome.packages;
             guard.last_error = None;
             guard.last_check = Some(Local::now());
         }
@@ -185,17 +184,14 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
     }
 }
 
-/// Refreshes the subscription quotas alone.
+/// Refreshes the package plans' quotas alone.
 fn poll_subscriptions(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>) {
-    let proxy = platforms::effective_proxy(config);
-    let opencode_go = fetch_opencode_go(proxy);
-    let command_code = fetch_command_code(proxy);
-    record_subscription_usage(&opencode_go, &command_code);
+    let packages = gather_packages(platforms::effective_proxy(config));
+    record_subscription_usage(&packages);
 
     if let Ok(mut guard) = snapshot.lock() {
         guard.checking = false;
-        guard.opencode_go = opencode_go;
-        guard.command_code = command_code;
+        guard.packages = packages;
         guard.last_check = Some(Local::now());
     }
 }
@@ -212,8 +208,7 @@ struct Outcome {
     balance_errors: std::collections::BTreeMap<String, String>,
     service_status: String,
     consumption_rates: std::collections::BTreeMap<String, ConsumptionRate>,
-    opencode_go: Subscription<OpenCodeGoQuota>,
-    command_code: Subscription<CommandCodeQuota>,
+    packages: std::collections::BTreeMap<String, Subscription<PackageQuota>>,
 }
 
 fn gather(config: &AppConfig) -> Result<Outcome, String> {
@@ -268,8 +263,7 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
         balance_errors,
         service_status,
         consumption_rates,
-        opencode_go: fetch_opencode_go(proxy),
-        command_code: fetch_command_code(proxy),
+        packages: gather_packages(proxy),
     })
 }
 
@@ -329,63 +323,66 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
         consumption_rates: consumption_rate
             .map(|rate| [("deepseek".to_owned(), rate)].into_iter().collect())
             .unwrap_or_default(),
-        opencode_go: fetch_opencode_go(platforms::effective_proxy(config)),
-        command_code: fetch_command_code(platforms::effective_proxy(config)),
+        packages: gather_packages(platforms::effective_proxy(config)),
     })
 }
 
-/// Logs the monthly allowance so the subscription page can chart it.
+/// Logs the monthly allowance of every plan that reports one, so the
+/// subscription page can chart it.
 ///
-/// OpenCode Go reports a percentage, so its pool is recorded as a 0-100 scale;
-/// Command Code reports dollars against the plan's pool.
+/// A plan that reports money is recorded in money; one that reports a share is
+/// recorded out of a hundred.
 fn record_subscription_usage(
-    opencode_go: &Subscription<OpenCodeGoQuota>,
-    command_code: &Subscription<CommandCodeQuota>,
+    packages: &std::collections::BTreeMap<String, Subscription<PackageQuota>>,
 ) {
-    if let Subscription::Loaded(quota) = opencode_go {
-        if let Some(monthly) = &quota.monthly {
-            let _ = storage::save_subscription_usage(
-                storage::PROVIDER_OPENCODE_GO,
-                monthly.usage_percent,
-                100.0,
-            );
-        }
-    }
+    for (platform, subscription) in packages {
+        let Subscription::Loaded(quota) = subscription else {
+            continue;
+        };
+        let Some(monthly) = quota.get("monthly") else {
+            continue;
+        };
 
-    if let Subscription::Loaded(quota) = command_code {
-        if let Some(monthly) = &quota.monthly {
-            let _ = storage::save_subscription_usage(
-                storage::PROVIDER_COMMAND_CODE,
-                monthly.used,
-                monthly.cap,
-            );
+        let (used, cap) = monthly.as_recorded_usage();
+        if let Err(error) = storage::save_subscription_usage(platform, used, cap) {
+            let _ = storage::log_line(&format!(
+                "usage history write failed for {platform}: {error}"
+            ));
         }
     }
 }
 
-fn fetch_opencode_go(proxy: &str) -> Subscription<OpenCodeGoQuota> {
-    let key = match storage::read_secret(storage::KEY_OPENCODE_GO) {
-        Ok(Some(key)) => key,
-        Ok(None) => return Subscription::NotConfigured,
-        Err(error) => return Subscription::Failed(error),
-    };
+/// Reads every configured package plan, keeping failures beside the successes
+/// so one broken key does not hide the others.
+fn gather_packages(proxy: &str) -> std::collections::BTreeMap<String, Subscription<PackageQuota>> {
+    use crate::catalog::{self, Mode};
 
-    match platforms::opencode_go::fetch_quota(&key, proxy) {
-        Ok(quota) => Subscription::Loaded(quota),
-        Err(error) => Subscription::Failed(error),
+    let mut packages = std::collections::BTreeMap::new();
+    for meta in catalog::implemented().filter(|meta| meta.mode == Mode::Package) {
+        let subscription = match storage::read_secret(meta.key) {
+            Ok(Some(key)) => match fetch_package(meta.key, &key, proxy) {
+                Ok(quota) => Subscription::Loaded(quota),
+                Err(error) => Subscription::Failed(error),
+            },
+            Ok(None) => Subscription::NotConfigured,
+            Err(error) => Subscription::Failed(error),
+        };
+        packages.insert(meta.key.to_owned(), subscription);
     }
+    packages
 }
 
-fn fetch_command_code(proxy: &str) -> Subscription<CommandCodeQuota> {
-    let key = match storage::read_secret(storage::KEY_COMMAND_CODE) {
-        Ok(Some(key)) => key,
-        Ok(None) => return Subscription::NotConfigured,
-        Err(error) => return Subscription::Failed(error),
-    };
-
-    match platforms::command_code::fetch_quota(&key, proxy) {
-        Ok(quota) => Subscription::Loaded(quota),
-        Err(error) => Subscription::Failed(error),
+/// Sends one plan's request to its client.
+fn fetch_package(platform: &str, key: &str, proxy: &str) -> Result<PackageQuota, String> {
+    match platform {
+        "opencode_go" => platforms::opencode_go::fetch_quota(key, proxy),
+        "command_code" => platforms::command_code::fetch_quota(key, proxy),
+        "glm_coding_cn" | "glm_coding_global" => platforms::glm::fetch_quota(platform, key, proxy),
+        "minimax_token_cn"
+        | "minimax_token_global"
+        | "minimax_coding_cn"
+        | "minimax_coding_global" => platforms::minimax::fetch_quota(platform, key, proxy),
+        other => Err(format!("No quota client for {other}.")),
     }
 }
 
@@ -406,6 +403,7 @@ mod tests {
     fn snapshot_starts_empty() {
         let snapshot = Snapshot::default();
         assert!(snapshot.balances.is_empty());
+        assert!(snapshot.packages.is_empty());
         assert!(snapshot.last_check.is_none());
         assert!(!snapshot.checking);
         assert!(!snapshot.demo);

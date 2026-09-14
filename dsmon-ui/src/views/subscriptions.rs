@@ -1,10 +1,15 @@
 //! Subscriptions page: quota windows for the paid plans, two per row.
 //!
-//! Cards are laid out in pairs so another provider only has to add an entry
-//! here; the grid takes care of the rest.
+//! Which plans appear, what they are called and which windows they have all
+//! come from the catalog, so a plan brings only its client with it — the page
+//! takes care of the rest.
 
+use std::collections::{BTreeMap, BTreeSet};
+
+use dsmon_core::catalog::{self, window_label_key, Mode, PlatformMeta};
+use dsmon_core::config::MAX_BILLING_DAY;
 use dsmon_core::history::daily_usage;
-use dsmon_core::model::SubscriptionPoint;
+use dsmon_core::model::{PackageQuota, SubscriptionPoint};
 use dsmon_core::monitor::{Snapshot, Subscription};
 use dsmon_core::platforms::format_reset_seconds;
 use dsmon_core::storage;
@@ -12,51 +17,29 @@ use egui::RichText;
 use egui_plot::{Line, Plot, PlotPoints};
 
 use super::{card, progress_line, usage_color, View};
+use crate::theme::Palette;
+
+/// How far back each plan's chart looks.
+const HISTORY_DAYS: u64 = 30;
 
 /// Fixed height of a chart card's heading row.
 const HEADING_ROW_HEIGHT: f32 = 30.0;
-use crate::theme::Palette;
-
-/// The providers the page can show, in display order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Provider {
-    OpenCodeGo,
-    CommandCode,
-}
-
-impl Provider {
-    const ALL: [Provider; 2] = [Provider::OpenCodeGo, Provider::CommandCode];
-
-    /// The key this provider's secret is stored under.
-    fn key(self) -> &'static str {
-        match self {
-            Provider::OpenCodeGo => dsmon_core::storage::KEY_OPENCODE_GO,
-            Provider::CommandCode => dsmon_core::storage::KEY_COMMAND_CODE,
-        }
-    }
-
-    /// Whether the provider has a key stored, and so deserves a card. Decided by
-    /// the stored key rather than the last poll, so the cards appear at once.
-    fn is_configured(self, configured: &std::collections::BTreeSet<String>) -> bool {
-        configured.contains(self.key())
-    }
-}
 
 /// What the page asks the application to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     /// The Command Code billing day was edited; persist it.
     BillingDay(u8),
-    /// Re-read the subscription quotas, leaving the balance alone.
+    /// Re-read the quotas, leaving the balance alone.
     Refresh,
 }
 
 /// Page state, owned by the application.
 #[derive(Debug, Clone, Default)]
 pub struct State {
-    pub opencode_go: Vec<SubscriptionPoint>,
-    pub command_code: Vec<SubscriptionPoint>,
-    /// Day of the month Command Code renews on, 1-28.
+    /// Logged readings per platform, for the charts.
+    pub history: BTreeMap<String, Vec<SubscriptionPoint>>,
+    /// Day of the month Command Code renews on.
     pub billing_day: u8,
 }
 
@@ -68,13 +51,31 @@ impl State {
         }
     }
 
-    /// Reloads both providers' logged readings.
+    /// Reloads every plan's logged readings.
     pub fn reload(&mut self) {
-        self.opencode_go = storage::subscription_usage_history(storage::PROVIDER_OPENCODE_GO, 30)
-            .unwrap_or_default();
-        self.command_code = storage::subscription_usage_history(storage::PROVIDER_COMMAND_CODE, 60)
-            .unwrap_or_default();
+        self.history = plans()
+            .map(|meta| {
+                let points =
+                    storage::subscription_usage_history(meta.key, HISTORY_DAYS).unwrap_or_default();
+                (meta.key.to_owned(), points)
+            })
+            .collect();
     }
+}
+
+/// Every plan the catalog lists, in display order.
+fn plans() -> impl Iterator<Item = PlatformMeta> {
+    catalog::implemented()
+        .filter(|meta| meta.mode == Mode::Package)
+        .copied()
+}
+
+/// The plans that hold a key, and so deserve a card. Decided by the stored key
+/// rather than the last poll, so the cards appear at once.
+fn configured_plans(configured: &BTreeSet<String>) -> Vec<PlatformMeta> {
+    plans()
+        .filter(|meta| configured.contains(meta.key))
+        .collect()
 }
 
 /// Draws the page.
@@ -83,7 +84,7 @@ pub fn show(
     view: &View<'_>,
     snapshot: &Snapshot,
     state: &mut State,
-    configured: &std::collections::BTreeSet<String>,
+    configured: &BTreeSet<String>,
 ) -> Option<Action> {
     let mut refresh = false;
 
@@ -101,13 +102,9 @@ pub fn show(
     });
     ui.add_space(4.0);
 
-    // Only configured subscriptions take up space. Leaving a placeholder for each
-    // unconfigured provider would turn into clutter once more are added.
-    let configured: Vec<Provider> = Provider::ALL
-        .into_iter()
-        .filter(|provider| provider.is_configured(configured))
-        .collect();
-
+    // Only configured plans take up space. Leaving a placeholder for each
+    // unconfigured one would turn into clutter as the list grows.
+    let configured = configured_plans(configured);
     let mut billing_day = None;
 
     if configured.is_empty() {
@@ -120,19 +117,15 @@ pub fn show(
         // Two per row, so a growing list keeps the same rhythm.
         for chunk in configured.chunks(2) {
             ui.columns(2, |columns| {
-                for (slot, provider) in chunk.iter().enumerate() {
-                    match provider {
-                        Provider::OpenCodeGo => {
-                            opencode_go_card(&mut columns[slot], view, snapshot, state)
-                        }
-                        Provider::CommandCode => command_code_card(
-                            &mut columns[slot],
-                            view,
-                            snapshot,
-                            state,
-                            &mut billing_day,
-                        ),
-                    }
+                for (slot, meta) in chunk.iter().enumerate() {
+                    plan_card(
+                        &mut columns[slot],
+                        view,
+                        snapshot,
+                        state,
+                        meta,
+                        &mut billing_day,
+                    );
                 }
             });
         }
@@ -144,126 +137,84 @@ pub fn show(
     billing_day.map(Action::BillingDay)
 }
 
-fn opencode_go_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, state: &State) {
-    let palette = view.palette;
-
-    card(ui, palette, |ui| {
-        ui.set_min_height(super::SUBSCRIPTION_CARD_HEIGHT);
-        ui.label(
-            RichText::new(view.text("og_title"))
-                .size(16.0)
-                .color(palette.text_primary)
-                .strong(),
-        );
-        ui.add_space(10.0);
-
-        match &snapshot.opencode_go {
-            Subscription::Loaded(quota) => {
-                for (label, window) in [
-                    (view.text("og_window_5h"), quota.rolling.as_ref()),
-                    (view.text("og_window_weekly"), quota.weekly.as_ref()),
-                    (view.text("og_window_monthly"), quota.monthly.as_ref()),
-                ] {
-                    window_row(
-                        ui,
-                        palette,
-                        label,
-                        window.map(|w| (w.usage_percent, w.reset_in_sec)),
-                    );
-                }
-            }
-            Subscription::NotConfigured => {
-                ui.label(
-                    RichText::new(view.text("og_not_configured"))
-                        .color(palette.text_secondary)
-                        .size(12.0),
-                );
-            }
-            Subscription::Failed(error) => {
-                let message = format!("{} {error}", view.text("og_refresh_failed"));
-                ui.add(
-                    egui::Label::new(RichText::new(message).color(palette.destructive).size(12.0))
-                        .truncate(),
-                )
-                .on_hover_text(error);
-            }
-        }
-    });
-
-    // No subscription, no chart.
-    if !matches!(snapshot.opencode_go, Subscription::NotConfigured) {
-        usage_chart(ui, view, view.text("og_title"), &state.opencode_go, None);
-    }
-}
-
-fn command_code_card(
+/// One plan: its windows in a card, its chart underneath.
+fn plan_card(
     ui: &mut egui::Ui,
     view: &View<'_>,
     snapshot: &Snapshot,
     state: &State,
+    meta: &PlatformMeta,
     billing_day: &mut Option<u8>,
 ) {
     let palette = view.palette;
+    let reading = snapshot.packages.get(meta.key);
 
     card(ui, palette, |ui| {
         ui.set_min_height(super::SUBSCRIPTION_CARD_HEIGHT);
         ui.label(
-            RichText::new(view.text("group_cc"))
+            RichText::new(meta.display_name)
                 .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
         );
         ui.add_space(10.0);
 
-        match &snapshot.command_code {
-            Subscription::Loaded(quota) => {
-                for (label, window) in [
-                    (view.text("cc_window_5h"), quota.five_hour.as_ref()),
-                    (view.text("cc_window_weekly"), quota.weekly.as_ref()),
-                    (view.text("cc_window_monthly"), quota.monthly.as_ref()),
-                ] {
-                    window_row(ui, palette, label, window.map(window_from_cc));
+        match reading {
+            Some(Subscription::Loaded(quota)) => {
+                for name in meta.windows {
+                    window_row(
+                        ui,
+                        palette,
+                        view.text(window_label_key(name)),
+                        usage_of(quota, name),
+                    );
                 }
             }
-            Subscription::NotConfigured => {
-                ui.label(
-                    RichText::new(view.text("cc_not_configured"))
-                        .color(palette.text_secondary)
-                        .size(12.0),
-                );
-            }
-            Subscription::Failed(error) => {
-                let message = format!("{} {error}", view.text("cc_refresh_failed"));
+            Some(Subscription::Failed(error)) => {
+                let message = format!("{} {error}", view.text("package_refresh_failed"));
                 ui.add(
                     egui::Label::new(RichText::new(message).color(palette.destructive).size(12.0))
                         .truncate(),
                 )
                 .on_hover_text(error);
             }
+            // A card for a plan without a key is not shown, so this is only
+            // reached while the first reading is on its way.
+            _ => {
+                ui.label(
+                    RichText::new(view.text("package_not_configured"))
+                        .color(palette.text_secondary)
+                        .size(12.0),
+                );
+            }
         }
     });
 
-    // No subscription, no chart.
-    if !matches!(snapshot.command_code, Subscription::NotConfigured) {
+    // No reading, no chart.
+    let points = state
+        .history
+        .get(meta.key)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if matches!(reading, Some(Subscription::Loaded(_))) {
         if let Some(edited) = usage_chart(
             ui,
             view,
-            view.text("group_cc"),
-            &state.command_code,
-            Some(state.billing_day),
+            meta.display_name,
+            points,
+            meta.key == storage::KEY_COMMAND_CODE,
+            state.billing_day,
         ) {
             *billing_day = Some(edited);
         }
     }
 }
 
-fn window_from_cc(window: &dsmon_core::model::CommandCodeWindow) -> (f64, i64) {
-    let percent = if window.cap > 0.0 {
-        (window.used / window.cap * 100.0).clamp(0.0, 100.0)
-    } else {
-        0.0
-    };
-    (percent, window.reset_in_sec)
+/// The used share of one window, absent when the plan does not report it.
+fn usage_of(quota: &PackageQuota, name: &str) -> Option<(f64, i64)> {
+    quota
+        .get(name)
+        .map(|window| (window.usage_percent, window.reset_in_sec))
 }
 
 /// One quota window: label and figures on a line, the bar right beneath.
@@ -308,7 +259,7 @@ fn window_row(ui: &mut egui::Ui, palette: &Palette, label: &str, window: Option<
     ui.add_space(10.0);
 }
 
-/// Per-day consumption for one provider, with an optional billing-day field.
+/// Per-day consumption for one plan, with an optional billing-day field.
 ///
 /// Returns the edited day when the field changes.
 fn usage_chart(
@@ -316,7 +267,8 @@ fn usage_chart(
     view: &View<'_>,
     title: &str,
     points: &[SubscriptionPoint],
-    billing_day: Option<u8>,
+    billing_day_field: bool,
+    billing_day: u8,
 ) -> Option<u8> {
     let palette = view.palette;
     let mut action = None;
@@ -338,7 +290,7 @@ fn usage_chart(
                         .strong(),
                 );
 
-                if let Some(day) = billing_day {
+                if billing_day_field {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // The field, its label and the heading all share one size:
                         // egui aligns rows by the middle of each item, so mixing
@@ -348,11 +300,11 @@ fn usage_chart(
                                 .text_styles
                                 .insert(egui::TextStyle::Button, egui::FontId::proportional(16.0));
 
-                            let mut edited = day;
+                            let mut edited = billing_day;
                             if ui
                                 .add(
                                     egui::DragValue::new(&mut edited)
-                                        .range(1..=dsmon_core::config::MAX_BILLING_DAY)
+                                        .range(1..=MAX_BILLING_DAY)
                                         .speed(0.2),
                                 )
                                 .changed()
@@ -419,4 +371,42 @@ fn usage_chart(
     });
 
     action
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_plan_in_the_catalog_gets_a_card_when_configured() {
+        let configured: BTreeSet<String> = plans().map(|meta| meta.key.to_owned()).collect();
+        let shown = configured_plans(&configured);
+        assert_eq!(
+            shown.len(),
+            plans().count(),
+            "a key for every plan shows every plan"
+        );
+        assert!(shown.iter().all(|meta| meta.mode == Mode::Package));
+    }
+
+    #[test]
+    fn a_plan_without_a_key_is_not_shown() {
+        let configured: BTreeSet<String> =
+            [storage::KEY_COMMAND_CODE.to_owned()].into_iter().collect();
+        let shown = configured_plans(&configured);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].key, storage::KEY_COMMAND_CODE);
+    }
+
+    #[test]
+    fn a_missing_window_reads_as_nothing() {
+        let mut quota = PackageQuota::new();
+        quota.insert(
+            "5h".to_owned(),
+            dsmon_core::model::QuotaWindow::from_percent(25.0, 60),
+        );
+
+        assert_eq!(usage_of(&quota, "5h"), Some((25.0, 60)));
+        assert_eq!(usage_of(&quota, "weekly"), None, "a window the plan omits");
+    }
 }
