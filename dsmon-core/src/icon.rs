@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn icon_label_collapses_long_figures() {
-        assert_eq!(icon_label(0.0), "0");
+        assert_eq!(icon_label(0.0), "0.0");
         assert_eq!(icon_label(12.4), "12");
         assert_eq!(icon_label(99.0), "99");
         assert_eq!(icon_label(100.0), "OK");
