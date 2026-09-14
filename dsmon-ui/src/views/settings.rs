@@ -196,13 +196,17 @@ fn credentials_card(
                 key_field(ui, palette, meta.display_name, value);
             }
 
-            ui.collapsing(view.text("pending_platforms"), |ui| {
-                ui.add_space(4.0);
-                for meta in dsmon_core::catalog::pending().filter(|meta| meta.mode == mode) {
-                    let value = state.keys.entry(meta.key.to_owned()).or_default();
-                    key_field(ui, palette, meta.display_name, value);
-                }
-            });
+            // The two groups share a heading, and egui derives a widget's id
+            // from its label — without a salt the second one would collide.
+            egui::CollapsingHeader::new(view.text("pending_platforms"))
+                .id_salt(heading)
+                .show(ui, |ui| {
+                    ui.add_space(4.0);
+                    for meta in dsmon_core::catalog::pending().filter(|meta| meta.mode == mode) {
+                        let value = state.keys.entry(meta.key.to_owned()).or_default();
+                        key_field(ui, palette, meta.display_name, value);
+                    }
+                });
 
             ui.add_space(10.0);
         }
