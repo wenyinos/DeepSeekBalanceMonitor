@@ -101,6 +101,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "status_critical") => "Critical Outage",
             ("en", "status_maintenance") => "Under Maintenance",
             ("en", "status_unknown") => "Status Unknown",
+            ("en", "no_data") => "No data",
             ("en", "balance_empty") => {
                 "No balance data yet. Click Check Now or wait for the next check."
             }
@@ -244,6 +245,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "status_critical") => "关键不可用",
             (_, "status_maintenance") => "维护中",
             (_, "status_unknown") => "服务状态未知",
+            (_, "no_data") => "暂无数据",
             (_, "balance_empty") => "尚未查询到余额，请稍后或点击立即查询。",
             (_, "balance_error_title") => "DeepSeek 余额 - 错误",
             (_, "low_balance_title") => "DeepSeek 余额不足",

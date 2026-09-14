@@ -45,12 +45,18 @@ impl Default for State {
     }
 }
 
-/// Draws the page.
-pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Action> {
+/// The trend summary, drawn as one column of the status page's top row.
+pub fn show_summary(ui: &mut egui::Ui, view: &View<'_>, state: &State) -> Option<Action> {
+    let mut action = None;
+    summary_card(ui, view, state, &mut action);
+    action
+}
+
+/// The filter row and the chart, drawn full width beneath the top row.
+pub fn show_chart(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Action> {
     let mut action = None;
     filters_card(ui, view, state, &mut action);
     chart_card(ui, view, state);
-    summary_card(ui, view, state, &mut action);
     action
 }
 
@@ -187,60 +193,46 @@ fn summary_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, action: &mut 
                 }
             });
         });
+        ui.add_space(6.0);
 
-        if let Some(notice) = &state.notice {
-            ui.add_space(4.0);
-            ui.label(RichText::new(notice).color(palette.text_secondary).small());
-        }
-
-        let summaries = summarize_history(&state.records);
-        if summaries.is_empty() {
-            ui.add_space(6.0);
-            ui.label(
-                RichText::new(view.text("history_empty"))
-                    .color(palette.text_secondary)
-                    .small(),
-            );
-            return;
-        }
-
-        ui.add_space(8.0);
-        for summary in summaries {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(&summary.currency).color(palette.text_primary));
+        match summarize_history(&state.records).first() {
+            Some(summary) => {
                 ui.label(
                     RichText::new(format!(
-                        "{} {}",
+                        "{}  {} {}",
+                        summary.currency,
                         view.text("history_range"),
                         format_range(&summary.min_total, &summary.max_total)
                     ))
                     .color(palette.text_secondary)
                     .small(),
                 );
+                ui.add_space(2.0);
                 ui.label(
                     RichText::new(format!(
-                        "{} {}",
+                        "{} {}  {} {} {}",
                         view.text("history_avg"),
-                        dsmon_core::history::format_amount(summary.avg_total)
-                    ))
-                    .color(palette.text_secondary)
-                    .small(),
-                );
-                ui.label(
-                    RichText::new(format!(
-                        "{} {}",
+                        dsmon_core::history::format_amount(summary.avg_total),
                         view.text("history_change"),
-                        dsmon_core::history::format_amount(summary.change_total)
+                        dsmon_core::history::format_amount(summary.change_total),
+                        trend_label(view, summary.change_total),
                     ))
                     .color(trend_color(palette, summary.change_total))
                     .small(),
                 );
+            }
+            None => {
                 ui.label(
-                    RichText::new(trend_label(view, summary.change_total))
+                    RichText::new(view.text("history_empty"))
                         .color(palette.text_secondary)
                         .small(),
                 );
-            });
+            }
+        }
+
+        if let Some(notice) = &state.notice {
+            ui.add_space(4.0);
+            ui.label(RichText::new(notice).color(palette.text_secondary).small());
         }
     });
 }

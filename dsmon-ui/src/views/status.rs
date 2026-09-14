@@ -29,18 +29,24 @@ pub fn show(
     history: &mut history::State,
 ) -> Option<Action> {
     let mut refresh = false;
+    let mut history_action = None;
 
-    ui.columns(2, |columns| {
+    // Balance, trend summary and service health share the top row.
+    ui.columns(3, |columns| {
         balance_card(&mut columns[0], view, snapshot, &mut refresh);
-        health_card(&mut columns[1], view, snapshot);
+        history_action = history::show_summary(&mut columns[1], view, history);
+        health_card(&mut columns[2], view, snapshot);
     });
 
-    let chart_action = history::show(ui, view, history);
+    // The filter row and the chart keep the full width below.
+    if let Some(action) = history::show_chart(ui, view, history) {
+        history_action = Some(action);
+    }
 
     if refresh {
         return Some(Action::Refresh);
     }
-    chart_action.map(|action| match action {
+    history_action.map(|action| match action {
         history::Action::Reload => Action::ReloadHistory,
         history::Action::Export => Action::ExportHistory,
     })
@@ -109,7 +115,7 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
                     );
                     ui.add_space(6.0);
                     ui.label(
-                        RichText::new(view.text("balance_empty"))
+                        RichText::new(view.text("no_data"))
                             .color(palette.text_secondary)
                             .small(),
                     );
@@ -132,7 +138,7 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
         );
 
         if let Some(error) = &snapshot.last_error {
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             ui.label(RichText::new(error).color(palette.destructive).small());
         }
     });
