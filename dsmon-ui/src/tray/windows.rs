@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use dsmon_core::icon::{self, IconSpec, IconTheme};
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
+    menu::{Menu, MenuEvent, MenuItem},
     MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
 
@@ -16,7 +16,6 @@ use super::{Command, Status};
 
 /// Menu ids, as they come back through `MenuEvent`.
 const ID_OPEN: &str = "open-window";
-const ID_WIDGET: &str = "widget";
 const ID_REFRESH: &str = "refresh";
 const ID_SCHEME: &str = "scheme";
 const ID_SETTINGS: &str = "settings";
@@ -25,14 +24,13 @@ const ID_QUIT: &str = "quit";
 /// Keeps the tray icon registered for as long as it is held.
 pub struct TrayHandle {
     icon: TrayIcon,
-    /// Entries whose text or tick follows the application state, so they have
-    /// to be reachable after the menu is built.
+    /// Entries whose text follows the interface language, so they have to be
+    /// reachable after the menu is built.
     items: Items,
 }
 
 struct Items {
     open: MenuItem,
-    widget: CheckMenuItem,
     refresh: MenuItem,
     scheme: MenuItem,
     settings: MenuItem,
@@ -79,13 +77,6 @@ impl TrayHandle {
         for (item, key) in self.items.entries() {
             item.set_text(crate::i18n::tr(lang, key));
         }
-        self.items
-            .widget
-            .set_text(crate::i18n::tr(lang, "widget_entry"));
-    }
-
-    pub fn set_widget_visible(&self, visible: bool) {
-        self.items.widget.set_checked(visible);
     }
 }
 
@@ -100,7 +91,6 @@ pub fn spawn(
 
     let menu = Menu::new();
     let open = MenuItem::with_id(ID_OPEN, text("open_window"), true, None);
-    let widget = CheckMenuItem::with_id(ID_WIDGET, text("widget_entry"), true, false, None);
     let refresh = MenuItem::with_id(ID_REFRESH, text("check_now"), true, None);
     let scheme = MenuItem::with_id(ID_SCHEME, text("toggle_theme"), true, None);
     let settings = MenuItem::with_id(ID_SETTINGS, text("settings"), true, None);
@@ -109,7 +99,6 @@ pub fn spawn(
     let separator = tray_icon::menu::PredefinedMenuItem::separator();
     for entry in [
         &open as &dyn tray_icon::menu::IsMenuItem,
-        &widget,
         &refresh,
         &scheme,
         &separator,
@@ -128,8 +117,7 @@ pub fn spawn(
     let image = tray_icon::Icon::from_rgba(rendered.rgba, rendered.width, rendered.height)
         .expect("generated icon is a valid RGBA bitmap");
 
-    // A left click belongs to the widget, so the menu waits for the right
-    // button.
+    // A left click opens the window, so the menu waits for the right button.
     let icon = TrayIconBuilder::new()
         .with_tooltip(dsmon_core::APP_NAME)
         .with_icon(image)
@@ -144,7 +132,6 @@ pub fn spawn(
         icon,
         items: Items {
             open,
-            widget,
             refresh,
             scheme,
             settings,
@@ -160,7 +147,6 @@ fn install_handlers(commands: Arc<Mutex<Vec<Command>>>, ctx: egui::Context) {
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let command = match event.id.0.as_str() {
             ID_OPEN => Some(Command::OpenWindow),
-            ID_WIDGET => Some(Command::ToggleWidget),
             ID_REFRESH => Some(Command::Refresh),
             ID_SCHEME => Some(Command::ToggleScheme),
             ID_SETTINGS => Some(Command::OpenSettings),
@@ -180,7 +166,7 @@ fn install_handlers(commands: Arc<Mutex<Vec<Command>>>, ctx: egui::Context) {
             ..
         } = event
         {
-            push(&commands, Command::ToggleWidget);
+            push(&commands, Command::OpenWindow);
             ctx.request_repaint();
         }
     }));

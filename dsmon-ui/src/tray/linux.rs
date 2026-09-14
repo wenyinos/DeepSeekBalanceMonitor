@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use dsmon_core::icon::{self, IconSpec, IconTheme};
 use ksni::{
     blocking::{Handle, TrayMethods},
-    menu::{CheckmarkItem, MenuItem, StandardItem},
+    menu::{MenuItem, StandardItem},
     Icon, ToolTip, Tray,
 };
 
@@ -27,7 +27,6 @@ pub struct MonitorTray {
     lang: String,
     status: Status,
     theme: IconTheme,
-    widget_visible: bool,
     commands: Arc<Mutex<Vec<Command>>>,
     ctx: egui::Context,
 }
@@ -89,21 +88,14 @@ impl Tray for MonitorTray {
         }
     }
 
-    /// Left click: the widget is what the tray is a shortcut to.
+    /// Left click: the window is what the tray stands for.
     fn activate(&mut self, _x: i32, _y: i32) {
-        self.send(Command::ToggleWidget);
+        self.send(Command::OpenWindow);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
             self.entry("open_window", Command::OpenWindow),
-            CheckmarkItem {
-                label: self.label("widget_entry"),
-                checked: self.widget_visible,
-                activate: Box::new(|tray: &mut Self| tray.send(Command::ToggleWidget)),
-                ..Default::default()
-            }
-            .into(),
             self.entry("check_now", Command::Refresh),
             self.entry("toggle_theme", Command::ToggleScheme),
             MenuItem::Separator,
@@ -128,12 +120,6 @@ impl TrayHandle {
         let lang = lang.to_owned();
         let _ = self.handle.update(move |tray| tray.lang = lang);
     }
-
-    pub fn set_widget_visible(&self, visible: bool) {
-        let _ = self
-            .handle
-            .update(move |tray| tray.widget_visible = visible);
-    }
 }
 
 /// Registers the tray icon; the interface drives it through the returned handle.
@@ -151,7 +137,6 @@ pub fn spawn(
             tooltip: crate::i18n::tr(lang, "checking").to_owned(),
         },
         theme: theme.clone(),
-        widget_visible: false,
         commands,
         ctx,
     };

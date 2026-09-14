@@ -28,8 +28,6 @@ use crate::i18n::tr;
 /// What the tray asks the running application to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
-    /// Show the floating widget, or hide it when it is up.
-    ToggleWidget,
     /// Bring the main window to the front.
     OpenWindow,
     /// Poll again straight away.
@@ -162,11 +160,6 @@ impl Tray {
     /// Relabels the menu after the interface language changed.
     pub fn set_language(&self, lang: &str) {
         self.handle.set_language(lang);
-    }
-
-    /// Ticks or unticks the widget entry in the menu.
-    pub fn set_widget_visible(&self, visible: bool) {
-        self.handle.set_widget_visible(visible);
     }
 
     /// Everything the user picked since the last call.

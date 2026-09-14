@@ -180,7 +180,6 @@ impl App {
         if language_changed {
             self.tray.set_language(&lang);
         }
-        self.tray.set_widget_visible(self.config.widget_enabled);
         self.settings.reset(self.config.clone());
         self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
         self.monitor.refresh();
@@ -192,11 +191,6 @@ impl App {
 
         for command in self.tray.take_commands() {
             match command {
-                Command::ToggleWidget => {
-                    self.config.widget_enabled = !self.config.widget_enabled;
-                    let _ = self.config.save();
-                    self.tray.set_widget_visible(self.config.widget_enabled);
-                }
                 Command::OpenWindow => show_window(ctx),
                 Command::Refresh => self.monitor.refresh(),
                 Command::ToggleScheme => self.toggle_scheme(ctx),
@@ -292,6 +286,7 @@ impl eframe::App for App {
             &crate::tray::status(&snapshot, &self.config, &lang),
             &icon_theme(&self.config),
         );
+
         self.hide_on_close(ui.ctx());
 
         egui::Panel::left("navigation")
