@@ -903,7 +903,6 @@ dependencies = [
  "eframe",
  "egui",
  "egui_plot",
- "image",
  "ksni",
  "tray-icon",
 ]

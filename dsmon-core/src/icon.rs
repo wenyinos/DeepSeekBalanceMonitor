@@ -8,6 +8,10 @@ use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
 /// Digital display face used for the figure drawn on the icon.
 const FONT_BYTES: &[u8] = include_bytes!("../../assets/font/ShareTech-Regular.ttf");
 
+/// The application's own artwork, the one a desktop shows in a task bar, a
+/// window list or an about box.
+const APP_ICON_BYTES: &[u8] = include_bytes!("../../assets/app.ico");
+
 /// An icon ready to be handed to a tray library.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrayIcon {
@@ -42,6 +46,27 @@ pub fn icon_label(amount: f64) -> String {
     } else {
         format!("{rounded:.0}")
     }
+}
+
+/// Decodes the application icon at `size`.
+///
+/// The file carries several sizes; the largest is scaled when none of them is
+/// the one asked for.
+pub fn app_icon(size: u32) -> Option<TrayIcon> {
+    let decoded = image::load_from_memory(APP_ICON_BYTES).ok()?;
+    let scaled = if decoded.width() == size && decoded.height() == size {
+        decoded.into_rgba8()
+    } else {
+        decoded
+            .resize_exact(size, size, image::imageops::FilterType::Lanczos3)
+            .into_rgba8()
+    };
+
+    Some(TrayIcon {
+        width: size,
+        height: size,
+        rgba: scaled.into_raw(),
+    })
 }
 
 /// Draws the icon described by `spec`.
@@ -338,6 +363,27 @@ mod tests {
         assert_eq!(icon_label(99.0), "99");
         assert_eq!(icon_label(100.0), "OK");
         assert_eq!(icon_label(f64::NAN), "--");
+    }
+
+    #[test]
+    fn the_application_icon_decodes_at_the_size_asked_for() {
+        for size in [32, 64, 256] {
+            let icon = app_icon(size).expect("the bundled icon decodes");
+            assert_eq!((icon.width, icon.height), (size, size));
+            assert_eq!(icon.rgba.len(), (size * size * 4) as usize);
+
+            // The mark is drawn on a transparent frame, and covers a good part
+            // of it rather than being an empty bitmap.
+            let painted = icon
+                .rgba
+                .chunks_exact(4)
+                .filter(|pixel| pixel[3] > 0)
+                .count();
+            assert!(
+                painted > (size * size / 10) as usize,
+                "{size}px frame came out nearly empty: {painted} pixels painted"
+            );
+        }
     }
 
     #[test]

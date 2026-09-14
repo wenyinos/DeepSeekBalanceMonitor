@@ -1,18 +1,8 @@
 # DeepSeek Balance Monitor
 
-A Windows tray app and Linux CLI/Plasma widget that periodically query the DeepSeek API for account balance and alert on low balance.
+A Windows and Linux desktop app that periodically queries the DeepSeek API for account balance and alerts on a low one.
 
 [中文版](README_zh.md)
-
-![preview](assets/preview.png)
-
-![Rainmeter preview](assets/preview_rainmeter.png)
-
-Rainmeter widget preview
-
-[Linux Plasma widget preview](assets/preview_linux.png) (KDE Plasma 6 only)
-
-[Mac WebView screenshots](assets/webview%20screenshots/) — menu bar, settings UI, history chart, light theme
 
 ---
 
@@ -232,10 +222,8 @@ DeepSeekBalance/
 │   ├── setup.bat
 │   ├── run_silent.vbs
 │   └── demo.vbs
-├── assets/                     # Icons, previews, fonts
+├── assets/                     # Icons and fonts
 │   ├── app.ico
-│   ├── AppIcon.icns / .png
-│   ├── preview.png / preview_zh.png
 │   └── font/
 ├── rainmeter-widget/           # Rainmeter desktop skin source
 ├── rust-windows/               # Native Rust Windows port

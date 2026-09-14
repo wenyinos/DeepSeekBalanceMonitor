@@ -1,18 +1,8 @@
 # DeepSeek 余额监控
 
-一个 Windows 系统托盘应用和 Linux 命令行 / Plasma 小组件，定时查询 DeepSeek API 账户余额，并在余额过低时提醒。
+一个 Windows 与 Linux 桌面应用，定时查询 DeepSeek API 账户余额，并在余额过低时提醒。
 
 [English](README.md)
-
-![preview](assets/preview_zh.png)
-
-![Rainmeter 小组件预览](assets/preview_rainmeter_zh.png)
-
-Rainmeter 小组件预览图
-
-[Linux Plasma 小组件预览](assets/preview_linux.png)（仅 KDE Plasma 6）
-
-[Mac WebView 截图](assets/webview%20screenshots/) — 菜单栏、设置界面、历史图表、浅色主题
 
 ---
 
@@ -233,10 +223,8 @@ DeepSeekBalance/
 │   ├── setup.bat
 │   ├── run_silent.vbs
 │   └── demo.vbs
-├── assets/                     # 图标、预览图、字体
+├── assets/                     # 图标与字体
 │   ├── app.ico
-│   ├── AppIcon.icns / .png
-│   ├── preview.png / preview_zh.png
 │   └── font/
 ├── rainmeter-widget/           # Rainmeter 桌面皮肤源文件
 ├── rust-windows/              # 原生 Rust Windows 版

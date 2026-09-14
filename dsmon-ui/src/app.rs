@@ -34,8 +34,13 @@ impl Page {
 
 /// Starts the interface. Both platform binaries call this.
 pub fn run() -> eframe::Result<()> {
+    prefer_x11();
+
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(dsmon_core::APP_NAME)
+        // A desktop looks the icon up under this name, which is the one the
+        // packages will install a `.desktop` file for.
+        .with_app_id("deepseek-balance-monitor")
         .with_inner_size([960.0, 620.0])
         .with_min_inner_size([760.0, 520.0]);
     if let Some(icon) = window_icon() {
@@ -80,6 +85,13 @@ impl App {
         let monitor = Monitor::start(config.clone());
         let configured = configured_platforms();
         let settings = views::settings::State::new(config.clone(), configured.clone());
+
+        // eframe only hands the window icon to Windows and macOS itself; on
+        // Linux the window comes up without one unless it is passed along.
+        if let Some(icon) = window_icon() {
+            cc.egui_ctx
+                .send_viewport_cmd(egui::ViewportCommand::Icon(Some(std::sync::Arc::new(icon))));
+        }
 
         let tray =
             crate::tray::Tray::spawn(&cc.egui_ctx, &config.ui_language, &icon_theme(&config));
@@ -513,17 +525,19 @@ fn configured_platforms() -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-/// The window icon, scaled down from the bundled artwork.
+/// The window icon: the application's own artwork, so the task bar and the
+/// window list carry the same mark on both platforms.
+///
+/// 128 px rather than the file's largest frame on purpose. An X11 property
+/// change carries at most 65535 words, and a 256×256 icon needs two more than
+/// that: the larger frame is refused without a word and the window comes up
+/// without an icon, which is how this was found.
 fn window_icon() -> Option<egui::IconData> {
-    let bytes = include_bytes!("../../assets/AppIcon.png");
-    let image = image::load_from_memory(bytes).ok()?;
-    let image = image
-        .resize(256, 256, image::imageops::FilterType::Lanczos3)
-        .to_rgba8();
+    let icon = dsmon_core::icon::app_icon(128)?;
     Some(egui::IconData {
-        rgba: image.into_raw(),
-        width: 256,
-        height: 256,
+        rgba: icon.rgba,
+        width: icon.width,
+        height: icon.height,
     })
 }
 
@@ -594,11 +608,6 @@ fn show_window(ctx: &egui::Context) {
 fn window_can_hide() -> bool {
     #[cfg(unix)]
     {
-        // The rule winit picks its backend by: Wayland wins when the session
-        // advertises it, unless the backend has been pinned by hand.
-        if std::env::var_os("WINIT_UNIX_BACKEND").is_some_and(|backend| backend == "x11") {
-            return true;
-        }
         std::env::var_os("WAYLAND_DISPLAY").is_none()
     }
 
@@ -607,6 +616,35 @@ fn window_can_hide() -> bool {
         true
     }
 }
+
+/// Starts through XWayland rather than on Wayland itself.
+///
+/// Closing the window to the tray is the point of this application, and Wayland
+/// will not let a window be hidden — a hidden window cannot be brought back
+/// either, since it is the compositor that owns both. Under X11 both work, so
+/// the session is asked for X11 whenever it offers one: winit picks Wayland the
+/// moment a session advertises it, which leaves clearing the variable as the
+/// only way to say otherwise.
+///
+/// A session with no X display at all keeps its native Wayland window, and
+/// `DSMON_NATIVE_WAYLAND=1` asks for that on purpose.
+#[cfg(target_os = "linux")]
+fn prefer_x11() {
+    if std::env::var_os("DSMON_NATIVE_WAYLAND").is_some() {
+        return;
+    }
+    if std::env::var_os("DISPLAY").is_none() {
+        return;
+    }
+
+    std::env::remove_var("WAYLAND_DISPLAY");
+    let _ = dsmon_core::storage::log_line(
+        "Opening the window through XWayland, which can hide it to the tray.",
+    );
+}
+
+#[cfg(not(target_os = "linux"))]
+fn prefer_x11() {}
 
 /// Hands a URL to the desktop.
 fn open_url(url: &str) {
