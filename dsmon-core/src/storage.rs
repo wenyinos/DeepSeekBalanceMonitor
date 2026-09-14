@@ -303,6 +303,41 @@ pub fn store_secret(key: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Removes a stored secret.
+pub fn delete_secret(key: &str) -> Result<(), String> {
+    let conn = open_db()?;
+    conn.execute("DELETE FROM secure_settings WHERE key = ?1", params![key])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// What the text typed into a key field means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyInput<'a> {
+    /// Blank: leave whatever is stored alone.
+    Keep,
+    /// A single `0`: remove the stored value.
+    Clear,
+    /// Anything else: store this value.
+    Set(&'a str),
+}
+
+/// Classifies a key field's contents.
+///
+/// The fields start empty and never show what is stored, so blank has to mean
+/// "no change". `0` is the one value reserved for removal, and the settings page
+/// spells that out next to the fields.
+pub fn classify_key_input(value: &str) -> KeyInput<'_> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        KeyInput::Keep
+    } else if trimmed == "0" {
+        KeyInput::Clear
+    } else {
+        KeyInput::Set(trimmed)
+    }
+}
+
 /// Appends a line to `app.log`.
 pub fn log_line(message: &str) -> std::io::Result<()> {
     use std::io::Write;
@@ -353,6 +388,16 @@ fn keep_log_line(line: &str, cutoff: chrono::NaiveDateTime) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classifies_key_field_input() {
+        assert_eq!(classify_key_input(""), KeyInput::Keep);
+        assert_eq!(classify_key_input("   "), KeyInput::Keep);
+        assert_eq!(classify_key_input("0"), KeyInput::Clear);
+        assert_eq!(classify_key_input(" 0 "), KeyInput::Clear);
+        assert_eq!(classify_key_input("sk-abc"), KeyInput::Set("sk-abc"));
+        assert_eq!(classify_key_input(" sk-abc "), KeyInput::Set("sk-abc"));
+    }
 
     #[test]
     fn keeps_recent_log_lines_only() {

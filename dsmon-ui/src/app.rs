@@ -112,10 +112,12 @@ impl App {
             (storage::KEY_OPENCODE_GO, &self.settings.opencode_key),
             (storage::KEY_COMMAND_CODE, &self.settings.command_code_key),
         ] {
-            if value.trim().is_empty() {
-                continue;
-            }
-            if let Err(error) = storage::store_secret(key, value) {
+            let result = match storage::classify_key_input(value) {
+                storage::KeyInput::Keep => continue,
+                storage::KeyInput::Clear => storage::delete_secret(key),
+                storage::KeyInput::Set(secret) => storage::store_secret(key, secret),
+            };
+            if let Err(error) = result {
                 self.settings.notice = Some(error);
                 return false;
             }

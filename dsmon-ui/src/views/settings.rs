@@ -134,6 +134,13 @@ fn credentials_card(
                 }
             });
         });
+
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(view.text("keys_hint"))
+                .color(palette.text_secondary)
+                .size(12.0),
+        );
         ui.add_space(8.0);
 
         key_field(
