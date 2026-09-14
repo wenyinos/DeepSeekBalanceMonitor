@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - "main"
-      - "Rust-Dev"
     tags:
       - "rust-v[0-9]*"
     paths:
@@ -70,11 +69,7 @@ jobs:
           package="deepseek-balance-monitor-${version}-linux-x86_64"
           mkdir -p "target/package/${package}"
           cp target/release/dsmon "target/package/${package}/"
-          cp package/install.sh package/uninstall.sh package/dsmon.service "target/package/${package}/"
-          cp -R plasmoid/package "target/package/${package}/plasmoid"
           tar -czf "target/package/${package}.tar.gz" -C target/package "${package}"
-          plasmoid="deepseek-balance-monitor-${version}-plasmoid.plasmoid"
-          (cd plasmoid/package && zip -qr "../../target/package/${plasmoid}" .)
 
       - name: Generate SHA256 checksum
         working-directory: rust-linux
@@ -102,13 +97,11 @@ jobs:
           name: ${{ steps.release_metadata.outputs.release_name }}
           files: |
             rust-linux/target/package/*.tar.gz
-            rust-linux/target/package/*.plasmoid
             rust-linux/target/package/checksums.txt
           body: |
             ## Rust builds
             - Windows: native x86_64 and i686 executables.
-            - Linux: x86_64 CLI daemon package with systemd user service and KDE Plasma widget.
-            - Rainmeter: Windows desktop widget skin package.
+            - Linux: x86_64 package.
 
             ## Verification
             Linux tarball SHA256 checksum: see `checksums.txt`

@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - "main"
-      - "Rust-Dev"
     tags:
       - "rust-v[0-9]*"
     paths:
@@ -137,7 +136,6 @@ jobs:
           body: |
             ## Rust builds
             - Windows: native x86_64 and i686 executables.
-            - Linux: x86_64 CLI daemon package with systemd user service and KDE Plasma widget.
-            - Rainmeter: Windows desktop widget skin package.
+            - Linux: x86_64 CLI daemon package with systemd user service.
           generate_release_notes: true
           overwrite_files: true

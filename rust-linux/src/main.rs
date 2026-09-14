@@ -2768,7 +2768,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_shared_theme_config_and_qml_widget_contracts() {
+    fn keeps_shared_theme_config_contracts() {
         for theme in [
             "default",
             "contrast",
@@ -2801,56 +2801,6 @@ mod tests {
         .unwrap();
         assert!(json.contains("\"api_key\":\"masked\""));
         assert!(json.contains("\"has_key\":true"));
-
-        let qml = include_str!("../plasmoid/package/contents/ui/main.qml");
-        assert!(qml.contains("function estimatedAvailabilityText()"));
-        assert!(qml.contains("function rainmeterBalanceLine()"));
-        assert!(qml.contains("function relativeLastCheck()"));
-        assert!(qml.contains("lines.push(\"💰 \""));
-        assert!(qml.contains("lines.push(\"📡 \""));
-        assert!(qml.contains("/usr/local/bin/dsmon opencode-go json"));
-        assert!(qml.contains("/usr/local/bin/dsmon command-code json"));
-        assert!(qml.contains("function applyOpencodeGo"));
-        assert!(qml.contains("function applyCommandCode"));
-        assert!(qml.contains("function formatCcValue"));
-        assert!(qml.contains("function barColor"));
-        assert!(qml.contains("function formatOgValue"));
-        assert!(qml.contains("ogRollingPercent"));
-        assert!(qml.contains("cc5hPercent"));
-        assert!(qml.contains("text: \"OpenCode\""));
-        assert!(qml.contains("tr(\"ccTitle\")"));
-        assert!(!qml.contains("text: tr(\"balances\")"));
-        assert!(!qml.contains("model: Object.keys(root.balances)"));
-
-        let config_qml = include_str!("../plasmoid/package/contents/ui/configGeneral.qml");
-        assert!(config_qml.contains("id: exportPathField"));
-        assert!(config_qml.contains("config.export_path"));
-        assert!(config_qml.contains("/usr/local/bin/dsmon set "));
-        assert!(!config_qml.contains("set-config"));
-        let account_qml = include_str!("../plasmoid/package/contents/ui/configAccount.qml");
-        assert!(account_qml.contains("/usr/local/bin/dsmon command-code set-key"));
-        assert!(account_qml.contains("/usr/local/bin/dsmon opencode-go set-key"));
-        assert!(account_qml.contains("/usr/local/bin/dsmon set-key"));
-        assert!(account_qml.contains("ogApiKeyField"));
-        assert!(account_qml.contains("ccApiKeyField"));
-        assert!(account_qml.contains("groupCredentials"));
-        assert!(!account_qml.contains("groupQuota"));
-        assert!(!account_qml.contains("QtControls.ProgressBar"));
-        assert!(!account_qml.contains("/usr/local/bin/dsmon opencode-go json"));
-        let sub_qml = include_str!("../plasmoid/package/contents/ui/configSubscription.qml");
-        assert!(sub_qml.contains("/usr/local/bin/dsmon opencode-go json"));
-        assert!(sub_qml.contains("/usr/local/bin/dsmon command-code json"));
-        assert!(sub_qml.contains("groupOg"));
-        assert!(sub_qml.contains("groupCc"));
-        assert!(sub_qml.contains("QtControls.ProgressBar"));
-        assert!(sub_qml.contains("barColor"));
-        assert!(sub_qml.contains("formatOgValue"));
-        assert!(sub_qml.contains("formatCcValue"));
-        let config_model = include_str!("../plasmoid/package/contents/config/config.qml");
-        assert!(config_model.contains("configAccount.qml"));
-        assert!(config_model.contains("account"));
-        assert!(config_model.contains("configSubscription.qml"));
-        assert!(config_model.contains("subscription"));
     }
 
     #[test]
