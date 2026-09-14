@@ -114,9 +114,11 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: signed-exe
 
+      # Pinned to WiX 5: the sources here are written for the v4/v5 schema, and
+      # WiX 7 refuses to run without accepting its maintenance-fee licence.
       - name: Install WiX
         run: |
-          dotnet tool install --global wix
+          dotnet tool install --global wix --version 5.0.2
           "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Build the installer

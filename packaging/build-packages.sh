@@ -84,7 +84,11 @@ dpkg-deb --root-owner-group --build "$root" "$output/${name}_${version}_${arch}.
 # --- RPM --------------------------------------------------------------------
 # The same payload, with the names Fedora and its relatives use.
 rpm_top="$work/rpm"
-mkdir -p "$rpm_top"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+# One at a time: the shell this runs under is `sh`, which has no brace
+# expansion — `mkdir -p dir/{a,b}` would make a directory with that name.
+for directory in BUILD RPMS SOURCES SPECS SRPMS; do
+    mkdir -p "$rpm_top/$directory"
+done
 
 # rpmbuild empties its build directory before a build, so the payload travels
 # as an archive of its own: the tree that the Debian package was made from,
