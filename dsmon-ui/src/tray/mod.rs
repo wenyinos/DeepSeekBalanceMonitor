@@ -237,7 +237,10 @@ mod tests {
         snapshot.balances.insert("openrouter".to_owned(), balances);
 
         let reported = status(&snapshot, &AppConfig::default(), "zh");
-        assert_eq!(reported.label, "7");
+        assert_eq!(
+            reported.label, "7.0",
+            "below ten the figure keeps a decimal"
+        );
         assert!(
             reported.tooltip.contains("OpenRouter"),
             "{}",

@@ -69,55 +69,58 @@ pub fn decrypt(blob: &[u8]) -> Result<String, String> {
 }
 
 /// Reads the key file, generating it on first use.
+///
+/// Several callers reach this at once in practice — the tests do, and so can
+/// the polling thread and the interface — so the file is guarded within this
+/// process, and read through a helper that waits out a write in progress.
 fn load_or_create_key() -> Result<[u8; KEY_LEN], String> {
+    static KEY_FILE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = KEY_FILE.lock().unwrap_or_else(|error| error.into_inner());
+
     let path = paths::secret_key_file();
-    match std::fs::read(&path) {
-        Ok(bytes) if bytes.len() == KEY_LEN => {
-            let mut key = [0u8; KEY_LEN];
-            key.copy_from_slice(&bytes);
+    if path.exists() {
+        return read_key_when_written(&path);
+    }
+
+    paths::ensure_dir(&paths::state_dir()).map_err(|error| error.to_string())?;
+    let mut key = [0u8; KEY_LEN];
+    SystemRandom::new()
+        .fill(&mut key)
+        .map_err(|_| "failed to generate a secure key".to_string())?;
+
+    match create_private_file(&path) {
+        Ok(mut file) => {
+            file.write_all(&key).map_err(|error| error.to_string())?;
             Ok(key)
         }
-        Ok(_) => Err(format!("invalid secure key file: {}", path.display())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            paths::ensure_dir(&paths::state_dir()).map_err(|error| error.to_string())?;
-            let mut key = [0u8; KEY_LEN];
-            SystemRandom::new()
-                .fill(&mut key)
-                .map_err(|_| "failed to generate a secure key".to_string())?;
-            match create_private_file(&path) {
-                Ok(mut file) => {
-                    file.write_all(&key).map_err(|error| error.to_string())?;
-                    Ok(key)
-                }
-                // Several callers can arrive together — the tests do, and so can
-                // two copies of the application — and the file exists before its
-                // contents do. Whoever loses the race uses the winner's key
-                // rather than making a second one.
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    read_key_when_written(&path)
-                }
-                Err(error) => Err(error.to_string()),
-            }
+        // Another process was quicker — the 1.x daemon shares this key file —
+        // so use what it wrote rather than making a second key.
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            read_key_when_written(&path)
         }
         Err(error) => Err(error.to_string()),
     }
 }
 
-/// Reads the key file, waiting briefly for whoever is writing it.
+/// Reads the key file, waiting out a write that has not finished.
 ///
-/// The file appears before its contents do, so a caller that lost the race can
-/// arrive while it is still empty; the key is small and the write is quick, so
-/// a short wait is enough.
+/// The file is created before its contents are written, so a reader can arrive
+/// at an empty one. Short means "still being written" and is waited for; a file
+/// longer than a key is corrupt rather than half-written, and no amount of
+/// waiting will change it.
 fn read_key_when_written(path: &Path) -> Result<[u8; KEY_LEN], String> {
     let mut last = String::new();
-    for _ in 0..50 {
+    for _ in 0..100 {
         match std::fs::read(path) {
             Ok(bytes) if bytes.len() == KEY_LEN => {
                 let mut key = [0u8; KEY_LEN];
                 key.copy_from_slice(&bytes);
                 return Ok(key);
             }
-            Ok(_) => last = format!("invalid secure key file: {}", path.display()),
+            Ok(bytes) if bytes.len() < KEY_LEN => {
+                last = format!("invalid secure key file: {}", path.display());
+            }
+            Ok(_) => return Err(format!("invalid secure key file: {}", path.display())),
             Err(error) => last = error.to_string(),
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
