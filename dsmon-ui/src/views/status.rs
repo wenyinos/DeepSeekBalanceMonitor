@@ -27,20 +27,24 @@ pub fn show(
     view: &View<'_>,
     snapshot: &Snapshot,
     history: &mut history::State,
+    platform: &str,
 ) -> Option<Action> {
     let mut refresh = false;
     let mut history_action = None;
 
     // Balance, trend summary and service health share the top row.
     ui.columns(3, |columns| {
-        balance_card(&mut columns[0], view, snapshot, &mut refresh);
+        balance_card(&mut columns[0], view, snapshot, platform, &mut refresh);
         history_action = history::show_summary(&mut columns[1], view, history);
         health_card(&mut columns[2], view, snapshot);
     });
 
-    // The filter row and the chart keep the full width below.
-    if let Some(action) = history::show_chart(ui, view, history) {
-        history_action = Some(action);
+    // The filter row and the chart keep the full width below. Only DeepSeek
+    // keeps a balance history, so the other providers show no chart.
+    if platform == dsmon_core::storage::KEY_DEEPSEEK {
+        if let Some(action) = history::show_chart(ui, view, history) {
+            history_action = Some(action);
+        }
     }
 
     if refresh {
@@ -52,7 +56,13 @@ pub fn show(
     })
 }
 
-fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh: &mut bool) {
+fn balance_card(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    snapshot: &Snapshot,
+    platform: &str,
+    refresh: &mut bool,
+) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
@@ -82,7 +92,8 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
         // Every line is drawn whether or not a reading has arrived yet, with
         // placeholders standing in for the figures. The card therefore keeps the
         // same height and nothing shifts when data lands.
-        let preferred = preferred_balance(&snapshot.balances);
+        let balances = snapshot.balances.get(platform);
+        let preferred = balances.and_then(preferred_balance);
         let amount = preferred
             .map(|(_, balance)| dsmon_core::history::format_amount(balance.total_balance))
             .unwrap_or_else(|| "--.--".to_owned());
@@ -143,7 +154,7 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
             .size(12.0),
         );
 
-        if let Some(error) = &snapshot.last_error {
+        if let Some(error) = snapshot.balance_errors.get(platform) {
             ui.add_space(2.0);
             ui.label(RichText::new(error).color(palette.destructive).size(12.0));
         }

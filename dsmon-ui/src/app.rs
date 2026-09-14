@@ -12,17 +12,20 @@ use crate::theme::{self, Palette};
 use crate::views::{self, View};
 
 /// Pages reachable from the sidebar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Page {
-    Status,
+    /// One balance provider, identified by its catalog key.
+    Balance(String),
     Subscriptions,
     Settings,
 }
 
 impl Page {
-    fn label(self, lang: &str) -> &'static str {
+    /// Label for the fixed pages; balance pages build their own from the
+    /// platform's display name.
+    fn label(&self, lang: &str) -> &'static str {
         match self {
-            Page::Status => tr(lang, "balance_title"),
+            Page::Balance(_) => "",
             Page::Subscriptions => tr(lang, "subscription_tab"),
             Page::Settings => tr(lang, "settings_tab"),
         }
@@ -84,7 +87,7 @@ impl App {
 
         let billing_day = config.billing_day_command_code;
         let mut app = Self {
-            page: Page::Status,
+            page: Page::Balance(dsmon_core::storage::KEY_DEEPSEEK.to_owned()),
             config,
             monitor,
             history: views::history::State::default(),
@@ -237,10 +240,10 @@ impl eframe::App for App {
                 for meta in dsmon_core::catalog::implemented()
                     .filter(|meta| meta.mode == dsmon_core::catalog::Mode::Payg)
                 {
-                    let selected = self.page == Page::Status;
+                    let selected = matches!(&self.page, Page::Balance(key) if key == meta.key);
                     let label = format!("{} {}", meta.display_name, tr(&lang, "balance_word"));
                     if nav_item(ui, &palette, &label, selected).clicked() && !selected {
-                        self.page = Page::Status;
+                        self.page = Page::Balance(meta.key.to_owned());
                         self.reload_history();
                     }
                 }
@@ -248,8 +251,10 @@ impl eframe::App for App {
                 for page in [Page::Subscriptions, Page::Settings] {
                     let selected = self.page == page;
                     if nav_item(ui, &palette, page.label(&lang), selected).clicked() && !selected {
+                        // Decide before the value moves into `self.page`.
+                        let is_subscriptions = page == Page::Subscriptions;
                         self.page = page;
-                        if page == Page::Subscriptions {
+                        if is_subscriptions {
                             self.subscriptions.reload();
                         }
                     }
@@ -284,10 +289,10 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 // The status page fills the window so it never scrolls; the
                 // other pages scroll when their content grows.
-                match self.page {
-                    Page::Status => {
+                match &self.page {
+                    Page::Balance(platform) => {
                         if let Some(action) =
-                            views::status::show(ui, &view, &snapshot, &mut self.history)
+                            views::status::show(ui, &view, &snapshot, &mut self.history, platform)
                         {
                             match action {
                                 views::status::Action::Refresh => self.monitor.refresh(),

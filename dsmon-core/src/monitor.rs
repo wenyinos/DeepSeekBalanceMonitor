@@ -35,7 +35,10 @@ pub enum Subscription<T> {
 /// Everything the interface needs to draw one frame.
 #[derive(Debug, Clone, Default)]
 pub struct Snapshot {
-    pub balances: Balances,
+    /// Readings per platform key, for the balance providers.
+    pub balances: std::collections::BTreeMap<String, Balances>,
+    /// Why a platform's last reading failed, keyed the same way.
+    pub balance_errors: std::collections::BTreeMap<String, String>,
     pub service_status: String,
     pub consumption_rate: Option<ConsumptionRate>,
     pub opencode_go: Subscription<OpenCodeGoQuota>,
@@ -166,6 +169,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
         Ok(outcome) => {
             record_subscription_usage(&outcome.opencode_go, &outcome.command_code);
             guard.balances = outcome.balances;
+            guard.balance_errors = outcome.balance_errors;
             guard.service_status = outcome.service_status;
             guard.consumption_rate = outcome.consumption_rate;
             guard.opencode_go = outcome.opencode_go;
@@ -203,7 +207,8 @@ fn set_checking(snapshot: &Arc<Mutex<Snapshot>>, value: bool) {
 
 /// What one successful poll produced.
 struct Outcome {
-    balances: Balances,
+    balances: std::collections::BTreeMap<String, Balances>,
+    balance_errors: std::collections::BTreeMap<String, String>,
     service_status: String,
     consumption_rate: Option<ConsumptionRate>,
     opencode_go: Subscription<OpenCodeGoQuota>,
@@ -219,14 +224,20 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
     if demo::is_enabled(&api_key) {
         return gather_demo(config);
     }
-    if api_key.is_empty() {
-        return Err("API key is not configured.".to_owned());
-    }
 
     let proxy = platforms::effective_proxy(config);
-    let balances = platforms::deepseek::fetch_balance(&api_key, proxy)?;
+    let (balances, balance_errors) = gather_balances(proxy);
+
+    if balances.is_empty() && balance_errors.is_empty() {
+        return Err("No balance provider is configured.".to_owned());
+    }
+
     let service_status = platforms::status::fetch(proxy);
-    storage::save_balance_history(&balances, &service_status)?;
+
+    // Only DeepSeek keeps a balance history, and only it has a status page.
+    if let Some(deepseek) = balances.get(storage::KEY_DEEPSEEK) {
+        storage::save_balance_history(deepseek, &service_status)?;
+    }
     let _ = storage::prune_balance_history(config.retention_days);
     let _ = storage::prune_subscription_history(config.retention_days);
 
@@ -237,11 +248,55 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
 
     Ok(Outcome {
         balances,
+        balance_errors,
         service_status,
         consumption_rate,
         opencode_go: fetch_opencode_go(proxy),
         command_code: fetch_command_code(proxy),
     })
+}
+
+/// Reads every configured balance provider, keeping failures beside the
+/// successes so one broken key does not hide the others.
+fn gather_balances(
+    proxy: &str,
+) -> (
+    std::collections::BTreeMap<String, Balances>,
+    std::collections::BTreeMap<String, String>,
+) {
+    use crate::catalog::{self, Mode};
+
+    let mut balances = std::collections::BTreeMap::new();
+    let mut errors = std::collections::BTreeMap::new();
+
+    for meta in catalog::implemented().filter(|meta| meta.mode == Mode::Payg) {
+        let Ok(Some(key)) = storage::read_secret(meta.key) else {
+            continue;
+        };
+
+        let result = match meta.key {
+            "deepseek" => platforms::deepseek::fetch_balance(&key, proxy),
+            "kimi_token_cn" | "kimi_token_global" => {
+                platforms::kimi::fetch_balance(meta.key, &key, proxy)
+            }
+            "stepfun_token_cn" | "stepfun_token_global" => {
+                platforms::stepfun::fetch_balance(meta.key, &key, proxy)
+            }
+            "openrouter" => platforms::openrouter::fetch_balance(meta.key, &key, proxy),
+            _ => continue,
+        };
+
+        match result {
+            Ok(found) => {
+                balances.insert(meta.key.to_owned(), found);
+            }
+            Err(error) => {
+                errors.insert(meta.key.to_owned(), error);
+            }
+        }
+    }
+
+    (balances, errors)
 }
 
 fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
@@ -251,7 +306,8 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
     let consumption_rate = demo::consumption_rate(&conn).ok();
 
     Ok(Outcome {
-        balances,
+        balances: [("deepseek".to_owned(), balances)].into_iter().collect(),
+        balance_errors: Default::default(),
         service_status: "none".to_owned(),
         consumption_rate,
         opencode_go: fetch_opencode_go(platforms::effective_proxy(config)),
