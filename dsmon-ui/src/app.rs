@@ -47,6 +47,21 @@ pub fn run() -> eframe::Result<()> {
         viewport = viewport.with_icon(icon);
     }
 
+    // Everything that can ask the application to do something writes here: the
+    // tray, and a second launch that wants the window raised.
+    let commands = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let ctx_holder = std::sync::Arc::new(std::sync::OnceLock::new());
+
+    let instance = match crate::instance::claim(
+        starts_minimized(),
+        std::sync::Arc::clone(&commands),
+        std::sync::Arc::clone(&ctx_holder),
+    ) {
+        crate::instance::Role::First(guard) => guard,
+        // The copy that is already running has the window; this one is done.
+        crate::instance::Role::Latecomer => return Ok(()),
+    };
+
     let options = eframe::NativeOptions {
         viewport,
         ..Default::default()
@@ -55,7 +70,10 @@ pub fn run() -> eframe::Result<()> {
     eframe::run_native(
         dsmon_core::APP_NAME,
         options,
-        Box::new(|cc| Ok(Box::new(App::new(cc)))),
+        Box::new(move |cc| {
+            let _ = ctx_holder.set(cc.egui_ctx.clone());
+            Ok(Box::new(App::new(cc, commands, instance)))
+        }),
     )
 }
 
@@ -70,6 +88,11 @@ struct App {
     configured: std::collections::BTreeSet<String>,
     /// The tray icon and the commands picked in its menu.
     tray: crate::tray::Tray,
+    /// Anything that can be asked of the application, from the tray or from a
+    /// second launch.
+    commands: std::sync::Arc<std::sync::Mutex<Vec<crate::tray::Command>>>,
+    /// The claim on being the running copy, kept for the process's lifetime.
+    _instance: crate::instance::Guard,
     /// What the last reading left behind, for the notifications it calls for.
     alerts: crate::notify::Watch,
     /// Set by a start that was asked to stay out of the way, until the window
@@ -81,7 +104,11 @@ struct App {
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(
+        cc: &eframe::CreationContext<'_>,
+        commands: std::sync::Arc<std::sync::Mutex<Vec<crate::tray::Command>>>,
+        instance: crate::instance::Guard,
+    ) -> Self {
         crate::fonts::install(&cc.egui_ctx);
 
         let config = AppConfig::load();
@@ -98,8 +125,12 @@ impl App {
                 .send_viewport_cmd(egui::ViewportCommand::Icon(Some(std::sync::Arc::new(icon))));
         }
 
-        let tray =
-            crate::tray::Tray::spawn(&cc.egui_ctx, &config.ui_language, &icon_theme(&config));
+        let tray = crate::tray::Tray::spawn(
+            &cc.egui_ctx,
+            &config.ui_language,
+            &icon_theme(&config),
+            std::sync::Arc::clone(&commands),
+        );
 
         let billing_day = config.billing_day_command_code;
         let mut app = Self {
@@ -111,6 +142,8 @@ impl App {
             settings,
             configured,
             tray,
+            commands,
+            _instance: instance,
             alerts: crate::notify::Watch::default(),
             hide_at_start: starts_minimized(),
             quitting: false,
@@ -209,11 +242,19 @@ impl App {
         self.monitor.refresh();
     }
 
+    /// Everything that has been asked of the application since the last frame.
+    fn take_commands(&self) -> Vec<crate::tray::Command> {
+        match self.commands.lock() {
+            Ok(mut queue) => std::mem::take(&mut *queue),
+            Err(_) => Vec::new(),
+        }
+    }
+
     /// Acts on whatever the user picked in the tray menu.
     fn drain_tray_commands(&mut self, ctx: &egui::Context) {
         use crate::tray::Command;
 
-        for command in self.tray.take_commands() {
+        for command in self.take_commands() {
             match command {
                 Command::ShowBalance => {
                     let lang = self.config.ui_language.clone();

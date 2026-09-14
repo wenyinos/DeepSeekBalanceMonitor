@@ -95,6 +95,7 @@ impl Tray for MonitorTray {
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
+            self.entry("view_balance", Command::ShowBalance),
             self.entry("open_window", Command::OpenWindow),
             self.entry("check_now", Command::Refresh),
             MenuItem::Separator,

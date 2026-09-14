@@ -14,12 +14,16 @@ egui.workspace = true
 egui_plot.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-ksni = { workspace = true, features = ["blocking"] }
+# `async-io` rather than ksni's default `tokio`: zbus picks its executor from
+# the enabled features, and a Tokio one would look for a runtime this process
+# never starts.
+ksni = { workspace = true, features = ["async-io", "blocking"] }
 zbus = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 tray-icon.workspace = true
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_System_Threading",
     "Win32_UI_Shell",
 ] }

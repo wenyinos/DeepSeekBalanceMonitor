@@ -120,10 +120,11 @@ fn state_of(snapshot: &Snapshot, config: &AppConfig, total: f64) -> State {
     }
 }
 
-/// Handle to the tray icon: draws it, and carries what the user picked in it.
+/// Handle to the tray icon: draws it, and hands what the user picked to the
+/// queue the application shares with everything else that can ask it to do
+/// something.
 pub struct Tray {
     handle: platform::TrayHandle,
-    commands: Arc<Mutex<Vec<Command>>>,
     /// What the icon shows right now, so an unchanged reading costs nothing.
     published: Mutex<Option<(Status, IconTheme)>>,
 }
@@ -134,12 +135,15 @@ impl Tray {
     /// Menu picks land in the queue read by [`Tray::take_commands`]; `ctx` is
     /// woken as they arrive, so the interface reacts without waiting for the
     /// next frame.
-    pub fn spawn(ctx: &egui::Context, lang: &str, theme: &IconTheme) -> Self {
-        let commands = Arc::new(Mutex::new(Vec::new()));
-        let handle = platform::spawn(lang, theme, Arc::clone(&commands), ctx.clone());
+    pub fn spawn(
+        ctx: &egui::Context,
+        lang: &str,
+        theme: &IconTheme,
+        commands: Arc<Mutex<Vec<Command>>>,
+    ) -> Self {
+        let handle = platform::spawn(lang, theme, commands, ctx.clone());
         Self {
             handle,
-            commands,
             published: Mutex::new(None),
         }
     }
@@ -161,14 +165,6 @@ impl Tray {
     /// Relabels the menu after the interface language changed.
     pub fn set_language(&self, lang: &str) {
         self.handle.set_language(lang);
-    }
-
-    /// Everything the user picked since the last call.
-    pub fn take_commands(&self) -> Vec<Command> {
-        match self.commands.lock() {
-            Ok(mut queue) => std::mem::take(&mut *queue),
-            Err(_) => Vec::new(),
-        }
     }
 }
 

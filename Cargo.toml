@@ -25,6 +25,8 @@ eframe = "0.36"
 egui = "0.36"
 egui_plot = "0.37"
 
-ksni = "0.3"
-zbus = { version = "5", default-features = false, features = ["blocking-api"] }
+# Features are chosen by the crate that uses it: ksni refuses to be built with
+# both of its runtimes at once, and zbus takes its executor from whichever.
+ksni = { version = "0.3", default-features = false }
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 tray-icon = "0.25"

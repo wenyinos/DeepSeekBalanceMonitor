@@ -15,6 +15,7 @@ use tray_icon::{
 use super::{Command, Status};
 
 /// Menu ids, as they come back through `MenuEvent`.
+const ID_BALANCE: &str = "view-balance";
 const ID_OPEN: &str = "open-window";
 const ID_REFRESH: &str = "refresh";
 const ID_SETTINGS: &str = "settings";
@@ -29,6 +30,7 @@ pub struct TrayHandle {
 }
 
 struct Items {
+    balance: MenuItem,
     open: MenuItem,
     refresh: MenuItem,
     settings: MenuItem,
@@ -36,8 +38,9 @@ struct Items {
 }
 
 impl Items {
-    fn entries(&self) -> [(&MenuItem, &str); 4] {
+    fn entries(&self) -> [(&MenuItem, &str); 5] {
         [
+            (&self.balance, "view_balance"),
             (&self.open, "open_window"),
             (&self.refresh, "check_now"),
             (&self.settings, "settings"),
@@ -87,6 +90,7 @@ pub fn spawn(
     let text = |key: &str| crate::i18n::tr(lang, key).to_owned();
 
     let menu = Menu::new();
+    let balance = MenuItem::with_id(ID_BALANCE, text("view_balance"), true, None);
     let open = MenuItem::with_id(ID_OPEN, text("open_window"), true, None);
     let refresh = MenuItem::with_id(ID_REFRESH, text("check_now"), true, None);
     let settings = MenuItem::with_id(ID_SETTINGS, text("settings"), true, None);
@@ -94,7 +98,8 @@ pub fn spawn(
 
     let separator = tray_icon::menu::PredefinedMenuItem::separator();
     for entry in [
-        &open as &dyn tray_icon::menu::IsMenuItem,
+        &balance as &dyn tray_icon::menu::IsMenuItem,
+        &open,
         &refresh,
         &separator,
         &settings,
@@ -130,6 +135,7 @@ pub fn spawn(
     TrayHandle {
         icon,
         items: Items {
+            balance,
             open,
             refresh,
             settings,
@@ -144,6 +150,7 @@ fn install_handlers(commands: Arc<Mutex<Vec<Command>>>, ctx: egui::Context) {
     let menu_ctx = ctx.clone();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let command = match event.id.0.as_str() {
+            ID_BALANCE => Some(Command::ShowBalance),
             ID_OPEN => Some(Command::OpenWindow),
             ID_REFRESH => Some(Command::Refresh),
             ID_SETTINGS => Some(Command::OpenSettings),
