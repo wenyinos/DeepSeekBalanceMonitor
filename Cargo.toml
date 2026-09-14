@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["dsmon-core", "dsmon-ui"]
+# rust-linux and rust-windows are folded into the workspace in stage 4,
+# once their legacy sources are replaced by thin entry points.
+exclude = ["rust-linux", "rust-windows"]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/wenyinos/DeepSeekBalanceMonitor"
+
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+ring = "0.17"
+image = { version = "0.25", default-features = false, features = ["png"] }
+ab_glyph = "0.2"
+
+eframe = "0.36"
+egui = "0.36"
+egui_plot = "0.37"
+
+ksni = "0.3"
+tray-icon = "0.25"
