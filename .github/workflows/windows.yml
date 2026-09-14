@@ -80,6 +80,9 @@ jobs:
               Select-Object -First 1).Matches.Groups[1].Value
           }
           if (-not $version) { throw "the version could not be read" }
+          # Both the version and the file name are used downstream: the WiX
+          # sources take the first, the packages are named after the second.
+          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "asset=deepseek-balance-monitor-$version-windows-${{ matrix.arch }}" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "version: $version"
