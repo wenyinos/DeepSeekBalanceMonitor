@@ -2,7 +2,7 @@
 
 本文件是项目的权威细节来源（架构、数据格式、平台集成、约定）。面向使用者的说明见
 `README.md`；agent 容易踩坑的高信号事实见 `AGENTS.md`；实施计划见 `PLAN.md`；
-各订阅平台的接口细节见 `PLATFORM_PORTING.md`。
+各订阅平台的接口细节见 `PLATFORM_PORTING.md`；1.x 差异与未移植功能见 `GAPS.md`。
 
 ## 项目概述
 
