@@ -123,7 +123,11 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
-        ui.label(RichText::new(view.text("service_status")).strong());
+        ui.label(
+            RichText::new(view.text("service_status"))
+                .color(palette.text_primary)
+                .strong(),
+        );
         ui.add_space(8.0);
 
         let status = if snapshot.service_status.is_empty() {
@@ -177,7 +181,11 @@ fn subscriptions_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
-        ui.label(RichText::new(view.text("og_title")).strong());
+        ui.label(
+            RichText::new(view.text("og_title"))
+                .color(palette.text_primary)
+                .strong(),
+        );
         ui.add_space(8.0);
 
         match &snapshot.opencode_go {
@@ -220,7 +228,11 @@ fn subscriptions_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
         }
 
         ui.add_space(12.0);
-        ui.label(RichText::new(view.text("group_cc")).strong());
+        ui.label(
+            RichText::new(view.text("group_cc"))
+                .color(palette.text_primary)
+                .strong(),
+        );
         ui.add_space(8.0);
 
         match &snapshot.command_code {

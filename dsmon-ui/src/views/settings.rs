@@ -21,6 +21,8 @@ pub enum Action {
     Cancel,
     /// Open the releases page in the browser.
     OpenReleases,
+    /// Apply the draft's theme without saving, so the change is visible at once.
+    Preview,
 }
 
 /// Page state, owned by the application.
@@ -59,9 +61,10 @@ impl State {
 /// Draws the page.
 pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Action> {
     let mut action = None;
+    let mut preview = false;
 
     credentials_card(ui, view, state);
-    general_card(ui, view, state);
+    general_card(ui, view, state, &mut preview);
     alerts_card(ui, view, state);
     data_card(ui, view, state);
     about_card(ui, view, &mut action);
@@ -83,6 +86,10 @@ pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Act
         }
     });
 
+    // A theme change previews at once; an explicit Save or Cancel wins.
+    if action.is_none() && preview {
+        action = Some(Action::Preview);
+    }
     action
 }
 
@@ -111,7 +118,11 @@ fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
 
     card(ui, palette, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(view.text("group_credentials")).strong());
+            ui.label(
+                RichText::new(view.text("group_credentials"))
+                    .color(palette.text_primary)
+                    .strong(),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.checkbox(&mut state.reveal_keys, view.text("show_key"));
             });
@@ -172,11 +183,15 @@ fn key_field(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut Stri
     });
 }
 
-fn general_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
+fn general_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State, preview: &mut bool) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
-        ui.label(RichText::new(view.text("group_general")).strong());
+        ui.label(
+            RichText::new(view.text("group_general"))
+                .color(palette.text_primary)
+                .strong(),
+        );
         ui.add_space(8.0);
 
         row(ui, palette, view.text("interval_label"), |ui| {
@@ -202,31 +217,45 @@ fn general_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
         });
 
         row(ui, palette, view.text("theme_label"), |ui| {
+            let mut changed = false;
             egui::ComboBox::from_id_salt("theme-style")
                 .selected_text(view.text(Style::from_config(&state.draft.theme).label_key()))
                 .show_ui(ui, |ui| {
                     for style in Style::ALL {
-                        ui.selectable_value(
-                            &mut state.draft.theme,
-                            style.as_config().to_owned(),
-                            view.text(style.label_key()),
-                        );
+                        if ui
+                            .selectable_value(
+                                &mut state.draft.theme,
+                                style.as_config().to_owned(),
+                                view.text(style.label_key()),
+                            )
+                            .changed()
+                        {
+                            changed = true;
+                        }
                     }
                 });
+            *preview |= changed;
         });
 
         row(ui, palette, view.text("appearance_label"), |ui| {
+            let mut changed = false;
             egui::ComboBox::from_id_salt("ui-theme")
                 .selected_text(mode_label(view, &state.draft.ui_theme))
                 .show_ui(ui, |ui| {
                     for value in UI_THEMES {
-                        ui.selectable_value(
-                            &mut state.draft.ui_theme,
-                            value.to_owned(),
-                            mode_label(view, value),
-                        );
+                        if ui
+                            .selectable_value(
+                                &mut state.draft.ui_theme,
+                                value.to_owned(),
+                                mode_label(view, value),
+                            )
+                            .changed()
+                        {
+                            changed = true;
+                        }
                     }
                 });
+            *preview |= changed;
         });
 
         ui.add_space(4.0);
@@ -249,7 +278,11 @@ fn alerts_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
-        ui.label(RichText::new(view.text("group_query")).strong());
+        ui.label(
+            RichText::new(view.text("group_query"))
+                .color(palette.text_primary)
+                .strong(),
+        );
         ui.add_space(8.0);
 
         row(ui, palette, view.text("threshold_label"), |ui| {
@@ -281,7 +314,11 @@ fn data_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
-        ui.label(RichText::new(view.text("retention_label")).strong());
+        ui.label(
+            RichText::new(view.text("retention_label"))
+                .color(palette.text_primary)
+                .strong(),
+        );
         ui.add_space(8.0);
 
         row(ui, palette, view.text("retention_label"), |ui| {
@@ -306,7 +343,11 @@ fn about_card(ui: &mut egui::Ui, view: &View<'_>, action: &mut Option<Action>) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
-        ui.label(RichText::new(dsmon_core::APP_NAME).strong());
+        ui.label(
+            RichText::new(dsmon_core::APP_NAME)
+                .color(palette.text_primary)
+                .strong(),
+        );
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.label(

@@ -176,9 +176,160 @@ fn label_scale(label: &str, size: u32) -> f32 {
     }
 }
 
+/// Which reading the icon reflects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum State {
+    Ok,
+    Low,
+    Degraded,
+    NoData,
+}
+
+/// The tray icon's colour scheme: one of the six presets, or custom hex values.
+///
+/// The presets are the ones the previous build shipped, so the icon keeps the
+/// look users already recognise.
+#[derive(Debug, Clone, Default)]
+pub struct IconTheme {
+    pub style: String,
+    pub custom: std::collections::BTreeMap<String, String>,
+}
+
+impl IconTheme {
+    /// Fill colour for a state.
+    pub fn state_color(&self, state: State) -> [u8; 3] {
+        if self.style == "custom" {
+            if let Some(color) = self.custom_color(state) {
+                return color;
+            }
+        }
+        preset_color(&self.style, state)
+    }
+
+    fn custom_color(&self, state: State) -> Option<[u8; 3]> {
+        let key = match state {
+            State::Ok => "ok",
+            State::Low => "low",
+            State::Degraded => "degraded",
+            State::NoData => "nodata",
+        };
+        let value = self.custom.get(key)?.trim().trim_start_matches('#');
+        if value.len() != 6 {
+            return None;
+        }
+        let rgb = u32::from_str_radix(value, 16).ok()?;
+        Some([
+            ((rgb >> 16) & 0xff) as u8,
+            ((rgb >> 8) & 0xff) as u8,
+            (rgb & 0xff) as u8,
+        ])
+    }
+}
+
+/// The six presets, as `(ok, low, degraded, nodata)`.
+fn preset_color(style: &str, state: State) -> [u8; 3] {
+    let (ok, low, degraded, nodata) = match style {
+        "contrast" => (
+            [0x2d, 0x80, 0x74],
+            [0xd4, 0x34, 0x2e],
+            [0x8b, 0x69, 0x14],
+            [0x55, 0x55, 0x55],
+        ),
+        "bright" => (
+            [0xc8, 0xeb, 0xe6],
+            [0xf5, 0xd2, 0xcd],
+            [0xeb, 0xdc, 0xcd],
+            [0xd7, 0xd7, 0xdc],
+        ),
+        "dark_mode" => (
+            [0x50, 0x9b, 0x94],
+            [0xd7, 0x64, 0x5a],
+            [0x9b, 0x8c, 0x73],
+            [0x7d, 0x7d, 0x82],
+        ),
+        "mono" => (
+            [0x55, 0x55, 0x55],
+            [0x22, 0x22, 0x22],
+            [0x77, 0x77, 0x77],
+            [0x99, 0x99, 0x99],
+        ),
+        _ => (
+            [0x3c, 0x69, 0x66],
+            [0xb9, 0x46, 0x3c],
+            [0x78, 0x69, 0x5a],
+            [0x69, 0x69, 0x6e],
+        ),
+    };
+
+    match state {
+        State::Ok => ok,
+        State::Low => low,
+        State::Degraded => degraded,
+        State::NoData => nodata,
+    }
+}
+
+/// Black or white, whichever reads better on `fill`.
+pub fn readable_on(fill: [u8; 3]) -> [u8; 3] {
+    let luminance =
+        0.299 * f64::from(fill[0]) + 0.587 * f64::from(fill[1]) + 0.114 * f64::from(fill[2]);
+    if luminance > 170.0 {
+        [0, 0, 0]
+    } else {
+        [255, 255, 255]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_preset_covers_every_state() {
+        let default_theme = IconTheme {
+            style: "default".to_owned(),
+            custom: Default::default(),
+        };
+        assert_eq!(default_theme.state_color(State::Ok), [0x3c, 0x69, 0x66]);
+        assert_eq!(default_theme.state_color(State::Low), [0xb9, 0x46, 0x3c]);
+
+        for style in [
+            "default",
+            "contrast",
+            "bright",
+            "dark_mode",
+            "mono",
+            "custom",
+        ] {
+            let theme = IconTheme {
+                style: style.to_owned(),
+                custom: Default::default(),
+            };
+            for state in [State::Ok, State::Low, State::Degraded, State::NoData] {
+                let color = theme.state_color(state);
+                assert_ne!(color, [0, 0, 0], "{style} {state:?} should be defined");
+            }
+        }
+    }
+
+    #[test]
+    fn custom_style_prefers_the_user_colours() {
+        let mut custom = std::collections::BTreeMap::new();
+        custom.insert("ok".to_owned(), "#112233".to_owned());
+        let theme = IconTheme {
+            style: "custom".to_owned(),
+            custom,
+        };
+        assert_eq!(theme.state_color(State::Ok), [0x11, 0x22, 0x33]);
+        // A missing entry falls back to the default preset.
+        assert_eq!(theme.state_color(State::Low), [0xb9, 0x46, 0x3c]);
+    }
+
+    #[test]
+    fn readable_on_picks_the_contrasting_ink() {
+        assert_eq!(readable_on([0x3c, 0x69, 0x66]), [255, 255, 255]);
+        assert_eq!(readable_on([0xc8, 0xeb, 0xe6]), [0, 0, 0]);
+    }
 
     #[test]
     fn icon_label_collapses_long_figures() {

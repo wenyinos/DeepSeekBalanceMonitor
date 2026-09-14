@@ -1,12 +1,10 @@
 //! Windows tray: the Win32 notification area via `tray-icon`.
 
-use dsmon_core::icon::{self, IconSpec};
+use dsmon_core::icon::{self, IconSpec, IconTheme, State};
 use tray_icon::{
     menu::{Menu, MenuItem},
     TrayIcon, TrayIconBuilder,
 };
-
-use crate::theme::Palette;
 
 /// Keeps the tray icon registered for as long as it is held.
 pub struct TrayHandle {
@@ -16,22 +14,14 @@ pub struct TrayHandle {
 /// Registers the tray icon together with its menu.
 ///
 /// The menu entries are wired to the UI in stage 3, when the shared command
-/// channel exists; stage 0 only needs the icon to appear and stay alive.
+/// channel exists; for now only the icon and the quit entry are live.
 pub fn spawn(
     label: &str,
-    palette: Palette,
+    state: State,
+    theme: IconTheme,
     on_quit: impl Fn() + Send + Sync + 'static,
 ) -> TrayHandle {
-    let rendered = icon::render(&IconSpec {
-        label,
-        background: [
-            palette.bg_panel.r(),
-            palette.bg_panel.g(),
-            palette.bg_panel.b(),
-        ],
-        foreground: [palette.accent.r(), palette.accent.g(), palette.accent.b()],
-        size: 64,
-    });
+    let rendered = render_icon(label, state, &theme);
 
     let image = tray_icon::Icon::from_rgba(rendered.rgba, rendered.width, rendered.height)
         .expect("generated icon is a valid RGBA bitmap");
@@ -51,4 +41,17 @@ pub fn spawn(
     quit.set_activate_handler(Box::new(move |_| on_quit()));
 
     TrayHandle { _icon: icon }
+}
+
+/// The icon: a rounded square in the state's colour with the figure on top, the
+/// same shape the previous build drew.
+fn render_icon(label: &str, state: State, theme: &IconTheme) -> icon::TrayIcon {
+    let fill = theme.state_color(state);
+    let ink = icon::readable_on(fill);
+    icon::render(&IconSpec {
+        label,
+        background: fill,
+        foreground: ink,
+        size: 64,
+    })
 }

@@ -114,7 +114,11 @@ fn chart_card(ui: &mut egui::Ui, view: &View<'_>, state: &State) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
-        ui.label(RichText::new(view.text("history_chart")).strong());
+        ui.label(
+            RichText::new(view.text("history_chart"))
+                .color(palette.text_primary)
+                .strong(),
+        );
         ui.add_space(8.0);
 
         if state.records.len() < 2 {
@@ -170,7 +174,11 @@ fn summary_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, action: &mut 
 
     card(ui, palette, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(view.text("history_trend")).strong());
+            ui.label(
+                RichText::new(view.text("history_trend"))
+                    .color(palette.text_primary)
+                    .strong(),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(view.text("export")).clicked() {
                     *action = Some(Action::Export);

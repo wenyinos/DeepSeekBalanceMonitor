@@ -33,11 +33,16 @@ impl Page {
 
 /// Starts the interface. Both platform binaries call this.
 pub fn run() -> eframe::Result<()> {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title(dsmon_core::APP_NAME)
+        .with_inner_size([960.0, 620.0])
+        .with_min_inner_size([760.0, 520.0]);
+    if let Some(icon) = window_icon() {
+        viewport = viewport.with_icon(icon);
+    }
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(dsmon_core::APP_NAME)
-            .with_inner_size([960.0, 620.0])
-            .with_min_inner_size([760.0, 520.0]),
+        viewport,
         ..Default::default()
     };
 
@@ -63,9 +68,7 @@ impl App {
         crate::fonts::install(&cc.egui_ctx);
 
         let config = AppConfig::load();
-        let style = theme::Style::from_config(&config.theme);
-        theme::install(&cc.egui_ctx, style, &config.icon_colors);
-        theme::set_mode(&cc.egui_ctx, theme::mode_from_config(&config.ui_theme));
+        apply_theme(&cc.egui_ctx, &config);
 
         let monitor = Monitor::start(config.clone());
         let settings = views::settings::State::new(config.clone());
@@ -73,7 +76,8 @@ impl App {
         let quit_ctx = cc.egui_ctx.clone();
         let tray = crate::tray::spawn(
             "--",
-            theme::current(&cc.egui_ctx, style, &config.icon_colors),
+            dsmon_core::icon::State::NoData,
+            icon_theme(&config),
             move || {
                 quit_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             },
@@ -123,9 +127,7 @@ impl App {
         }
 
         self.config = draft;
-        let style = theme::Style::from_config(&self.config.theme);
-        theme::install(ctx, style, &self.config.icon_colors);
-        theme::set_mode(ctx, theme::mode_from_config(&self.config.ui_theme));
+        apply_theme(ctx, &self.config);
         let lang = self.config.ui_language.clone();
         self.settings.reset(self.config.clone());
         self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
@@ -167,7 +169,11 @@ impl eframe::App for App {
             )
             .show(ui, |ui| {
                 ui.add_space(6.0);
-                ui.label(egui::RichText::new(dsmon_core::APP_NAME).strong());
+                ui.label(
+                    egui::RichText::new(dsmon_core::APP_NAME)
+                        .color(palette.text_primary)
+                        .strong(),
+                );
                 ui.add_space(14.0);
 
                 for page in Page::ALL {
@@ -231,6 +237,9 @@ impl eframe::App for App {
                                 views::settings::Action::OpenReleases => {
                                     open_url(views::settings::RELEASES_URL)
                                 }
+                                views::settings::Action::Preview => {
+                                    apply_theme(ui.ctx(), &self.settings.draft)
+                                }
                             }
                         }
                     }
@@ -270,6 +279,38 @@ fn nav_item(ui: &mut egui::Ui, palette: &Palette, label: &str, selected: bool) -
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     response
+}
+
+/// The window icon, scaled down from the bundled artwork.
+fn window_icon() -> Option<egui::IconData> {
+    let bytes = include_bytes!("../../assets/AppIcon.png");
+    let image = image::load_from_memory(bytes).ok()?;
+    let image = image
+        .resize(256, 256, image::imageops::FilterType::Lanczos3)
+        .to_rgba8();
+    Some(egui::IconData {
+        rgba: image.into_raw(),
+        width: 256,
+        height: 256,
+    })
+}
+
+/// The tray icon's colour scheme, taken from the configuration.
+fn icon_theme(config: &AppConfig) -> dsmon_core::icon::IconTheme {
+    dsmon_core::icon::IconTheme {
+        style: config.theme.clone(),
+        custom: config.icon_colors.clone(),
+    }
+}
+
+/// Applies a configuration's theme, without writing anything to disk.
+fn apply_theme(ctx: &egui::Context, config: &AppConfig) {
+    theme::install(
+        ctx,
+        theme::Style::from_config(&config.theme),
+        &config.icon_colors,
+    );
+    theme::set_mode(ctx, theme::mode_from_config(&config.ui_theme));
 }
 
 /// Where an export lands: the configured directory, or the home directory.

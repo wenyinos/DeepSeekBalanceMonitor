@@ -12,6 +12,7 @@ chrono.workspace = true
 eframe.workspace = true
 egui.workspace = true
 egui_plot.workspace = true
+image.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { workspace = true, features = ["blocking"] }
