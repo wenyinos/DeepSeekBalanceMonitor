@@ -6,8 +6,16 @@
 //! binaries are thin entry points over `dsmon-ui`, which in turn builds on this
 //! crate.
 
+pub mod config;
+pub mod crypto;
+pub mod demo;
+pub mod history;
 pub mod icon;
+pub mod model;
 pub mod paths;
+pub mod platforms;
+pub mod storage;
+pub mod time;
 
 /// Application version, taken from the workspace package metadata.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
