@@ -20,8 +20,6 @@ enum Page {
 }
 
 impl Page {
-    const ALL: [Page; 3] = [Page::Status, Page::Subscriptions, Page::Settings];
-
     fn label(self, lang: &str) -> &'static str {
         match self {
             Page::Status => tr(lang, "balance_title"),
@@ -232,14 +230,26 @@ impl eframe::App for App {
                 );
                 ui.add_space(14.0);
 
-                for page in Page::ALL {
+                // One entry per balance platform, taken from the catalog: each
+                // reuses the same page shape, so adding a provider means writing
+                // its client, not another screen.
+                for meta in dsmon_core::catalog::implemented()
+                    .filter(|meta| meta.mode == dsmon_core::catalog::Mode::Payg)
+                {
+                    let selected = self.page == Page::Status;
+                    let label = format!("{} {}", meta.display_name, tr(&lang, "balance_word"));
+                    if nav_item(ui, &palette, &label, selected).clicked() && !selected {
+                        self.page = Page::Status;
+                        self.reload_history();
+                    }
+                }
+
+                for page in [Page::Subscriptions, Page::Settings] {
                     let selected = self.page == page;
                     if nav_item(ui, &palette, page.label(&lang), selected).clicked() && !selected {
                         self.page = page;
-                        match page {
-                            Page::Status => self.reload_history(),
-                            Page::Subscriptions => self.subscriptions.reload(),
-                            Page::Settings => {}
+                        if page == Page::Subscriptions {
+                            self.subscriptions.reload();
                         }
                     }
                 }

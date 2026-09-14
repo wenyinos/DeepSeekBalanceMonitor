@@ -8,6 +8,7 @@ use egui::RichText;
 
 use super::{card, View};
 use crate::theme::{Palette, Style};
+use dsmon_core::catalog::Mode;
 
 /// Where the release page lives, opened from the About card.
 pub const RELEASES_URL: &str = "https://github.com/wenyinos/DeepSeekBalanceMonitor/releases";
@@ -177,21 +178,34 @@ fn credentials_card(
 
         ui.add_space(10.0);
 
-        // Every platform the catalog knows about gets a field, so a key can be
-        // entered before its client exists.
-        for meta in dsmon_core::catalog::implemented() {
-            let value = state.keys.entry(meta.key.to_owned()).or_default();
-            key_field(ui, palette, meta.display_name, value);
-        }
+        // Balance providers first, then subscriptions: the two report different
+        // things and are read in different places.
+        for (heading, mode) in [
+            ("payg_accounts", Mode::Payg),
+            ("package_accounts", Mode::Package),
+        ] {
+            ui.label(
+                RichText::new(view.text(heading))
+                    .color(palette.text_secondary)
+                    .size(12.0),
+            );
+            ui.add_space(6.0);
 
-        ui.add_space(6.0);
-        ui.collapsing(view.text("pending_platforms"), |ui| {
-            ui.add_space(4.0);
-            for meta in dsmon_core::catalog::pending() {
+            for meta in dsmon_core::catalog::implemented().filter(|meta| meta.mode == mode) {
                 let value = state.keys.entry(meta.key.to_owned()).or_default();
                 key_field(ui, palette, meta.display_name, value);
             }
-        });
+
+            ui.collapsing(view.text("pending_platforms"), |ui| {
+                ui.add_space(4.0);
+                for meta in dsmon_core::catalog::pending().filter(|meta| meta.mode == mode) {
+                    let value = state.keys.entry(meta.key.to_owned()).or_default();
+                    key_field(ui, palette, meta.display_name, value);
+                }
+            });
+
+            ui.add_space(10.0);
+        }
     });
 }
 
