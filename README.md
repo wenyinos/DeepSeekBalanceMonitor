@@ -92,8 +92,9 @@ falls back to it on its own.
 
 ```bash
 cargo test --workspace --locked
-cargo build --release -p dsmon                          # Linux: target/release/dsmon
-cargo build --release -p deepseek-balance-monitor --target aarch64-pc-windows-msvc
+cargo build --release -p dsmon-ui --bin dsmon           # Linux: target/release/dsmon
+cargo build --release -p dsmon-ui --bin deepseek-balance-monitor \
+  --target aarch64-pc-windows-msvc
 ```
 
 Toolchain: stable. The Linux packages are built in a Debian 12 container so the binary keeps a

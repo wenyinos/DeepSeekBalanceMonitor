@@ -6,7 +6,7 @@ use std::{
 
 fn main() {
     println!("cargo:rerun-if-changed=app.manifest");
-    println!("cargo:rerun-if-changed=../../assets/app.ico");
+    println!("cargo:rerun-if-changed=../assets/app.ico");
 
     let target = env::var("TARGET").unwrap_or_default();
     if !target.contains("windows-msvc") {
@@ -17,7 +17,8 @@ fn main() {
         env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by Cargo"),
     )
     .join("app.manifest");
-    // The application's icon lives with the other shared artwork.
+    // The application's icon lives with the other shared artwork, one
+    // directory above this crate.
     let icon = manifest
         .parent()
         .and_then(|directory| directory.parent())

@@ -74,7 +74,7 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Build release binary
-        run: cargo build --release --locked -p dsmon
+        run: cargo build --release --locked -p dsmon-ui --bin dsmon
 
       - name: Report the glibc floor
         run: |

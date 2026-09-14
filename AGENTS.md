@@ -9,9 +9,10 @@
 
 - 工具链为 **stable**（根 `rust-toolchain.toml`）；1.x 的 `cargo +1.77.2` 已作废，勿再用。
 - 测试：`cargo test --workspace --locked`；格式：`cargo fmt --all --check`。
-- Linux 可执行文件是 workspace 成员 `rust-linux`，产物名 `dsmon`。
+- 两个平台的入口都在 `dsmon-ui/src/bin/`：`dsmon`（Linux）与 `deepseek-balance-monitor`（Windows）；
+  构建用 `cargo build --release -p dsmon-ui --bin <名字>`。
 - 开发时启动界面：`cargo run -p dsmon-ui --example preview`（不走平台入口）。
-- 两个平台入口都是十几行，只调用 `dsmon_ui::run()`；界面代码在仓库里只有一份。
+- 两个入口都是十几行，只调用 `dsmon_ui::run()`；界面代码在仓库里只有一份。
 
 ## 关键陷阱
 

@@ -69,7 +69,7 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Build release executable
-        run: cargo build --release --locked --target ${{ matrix.target }} -p deepseek-balance-monitor
+        run: cargo build --release --locked --target ${{ matrix.target }} -p dsmon-ui --bin deepseek-balance-monitor
 
       - name: Resolve the version
         id: version

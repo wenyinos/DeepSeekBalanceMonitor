@@ -16,7 +16,7 @@
 cargo test --workspace --locked         # 全部测试（与 CI 一致）
 cargo test -p dsmon-core                # 只跑后端
 cargo fmt --all --check                 # CI 校验格式
-cargo build --release -p dsmon          # Linux 可执行文件：target/release/dsmon
+cargo build --release -p dsmon-ui --bin dsmon   # Linux 可执行文件：target/release/dsmon
 cargo run -p dsmon-ui --example preview # 开发时直接启动界面（不走平台入口）
 
 # 打包（需要 dpkg-deb / rpmbuild / ImageMagick，CI 在容器里跑）
@@ -29,7 +29,7 @@ Rust 工具链为 **stable**（根 `rust-toolchain.toml`）。1.x 的 1.77.2 固
 ## 架构
 
 ```
-Cargo.toml                 # workspace：四个成员，共用 toolchain 与锁文件
+Cargo.toml                 # workspace：两个成员（core 与 ui），共用 toolchain 与锁文件
 dsmon-core/                # 平台无关，无 GUI 依赖
   catalog.rs               # 14 个平台条目（key/显示名/payg|package/窗口清单/是否已实现）
   config.rs                # AppConfig（config.json）
@@ -44,7 +44,7 @@ dsmon-core/                # 平台无关，无 GUI 依赖
   icon.rs                  # 托盘图标位图渲染 + 应用图标解码
   autostart.rs             # 开机自启：Windows 注册表 Run / Linux ~/.config/autostart
   demo.rs                  # 演示模式（API Key 填 demo 触发）
-dsmon-ui/                  # 唯一一份界面
+dsmon-ui/                  # 唯一一份界面；两个平台的可执行文件也从这里产出
   app.rs                   # 应用外壳：窗口、侧边栏、页面分发、logic/ui 回调
   theme.rs                 # 6 套图标配色 × 日/夜双主题，语义色与 Visuals 生成
   fonts.rs                 # 系统字体 + 内嵌 ShareTech（数字）
@@ -53,8 +53,9 @@ dsmon-ui/                  # 唯一一份界面
   tray/                    # 托盘：Linux ksni(SNI) / Windows tray-icon，菜单与命令队列
   instance.rs              # 单实例：Linux D-Bus 名 / Windows 命名互斥体+事件
   views/                   # 页面：status（余额/趋势/连接）、subscriptions、settings
-rust-linux/                # 入口 12 行：调用 dsmon_ui::run()，产物名 dsmon
-rust-windows/              # 入口 13 行 + build.rs/app.manifest（exe 图标与 DPI 声明）
+  src/bin/dsmon.rs         # Linux 可执行文件（12 行，调用 dsmon_ui::run()）
+  src/bin/deepseek-balance-monitor.rs  # Windows 可执行文件（13 行，含 windows_subsystem）
+  build.rs / app.manifest  # Windows 侧：exe 图标与 DPI 声明（只在 windows-msvc 目标生效）
 packaging/                 # .desktop 与 deb/rpm 打包脚本
 ```
 

@@ -1,4 +1,4 @@
-//! Linux entry point.
+//! The Linux executable, `dsmon`.
 //!
 //! The interface and the backend are shared with the Windows build, so there is
 //! nothing to do here but start them.

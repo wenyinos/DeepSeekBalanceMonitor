@@ -79,8 +79,9 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
 
 ```bash
 cargo test --workspace --locked
-cargo build --release -p dsmon                          # Linux：target/release/dsmon
-cargo build --release -p deepseek-balance-monitor --target aarch64-pc-windows-msvc
+cargo build --release -p dsmon-ui --bin dsmon           # Linux：target/release/dsmon
+cargo build --release -p dsmon-ui --bin deepseek-balance-monitor \
+  --target aarch64-pc-windows-msvc
 ```
 
 工具链为 stable。Linux 包在 Debian 12 容器里构建，以保持 glibc 2.36 基线：
