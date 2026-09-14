@@ -17,7 +17,6 @@ use super::{Command, Status};
 /// Menu ids, as they come back through `MenuEvent`.
 const ID_OPEN: &str = "open-window";
 const ID_REFRESH: &str = "refresh";
-const ID_SCHEME: &str = "scheme";
 const ID_SETTINGS: &str = "settings";
 const ID_QUIT: &str = "quit";
 
@@ -32,17 +31,15 @@ pub struct TrayHandle {
 struct Items {
     open: MenuItem,
     refresh: MenuItem,
-    scheme: MenuItem,
     settings: MenuItem,
     quit: MenuItem,
 }
 
 impl Items {
-    fn entries(&self) -> [(&MenuItem, &str); 5] {
+    fn entries(&self) -> [(&MenuItem, &str); 4] {
         [
             (&self.open, "open_window"),
             (&self.refresh, "check_now"),
-            (&self.scheme, "toggle_theme"),
             (&self.settings, "settings"),
             (&self.quit, "quit"),
         ]
@@ -92,7 +89,6 @@ pub fn spawn(
     let menu = Menu::new();
     let open = MenuItem::with_id(ID_OPEN, text("open_window"), true, None);
     let refresh = MenuItem::with_id(ID_REFRESH, text("check_now"), true, None);
-    let scheme = MenuItem::with_id(ID_SCHEME, text("toggle_theme"), true, None);
     let settings = MenuItem::with_id(ID_SETTINGS, text("settings"), true, None);
     let quit = MenuItem::with_id(ID_QUIT, text("quit"), true, None);
 
@@ -100,7 +96,6 @@ pub fn spawn(
     for entry in [
         &open as &dyn tray_icon::menu::IsMenuItem,
         &refresh,
-        &scheme,
         &separator,
         &settings,
         &quit,
@@ -133,7 +128,6 @@ pub fn spawn(
         items: Items {
             open,
             refresh,
-            scheme,
             settings,
             quit,
         },
@@ -148,7 +142,6 @@ fn install_handlers(commands: Arc<Mutex<Vec<Command>>>, ctx: egui::Context) {
         let command = match event.id.0.as_str() {
             ID_OPEN => Some(Command::OpenWindow),
             ID_REFRESH => Some(Command::Refresh),
-            ID_SCHEME => Some(Command::ToggleScheme),
             ID_SETTINGS => Some(Command::OpenSettings),
             ID_QUIT => Some(Command::Quit),
             _ => None,

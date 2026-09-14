@@ -193,7 +193,6 @@ impl App {
             match command {
                 Command::OpenWindow => show_window(ctx),
                 Command::Refresh => self.monitor.refresh(),
-                Command::ToggleScheme => self.toggle_scheme(ctx),
                 Command::OpenSettings => {
                     self.page = Page::Settings;
                     show_window(ctx);
@@ -207,7 +206,7 @@ impl App {
     }
 
     /// Flips the interface between the light and the dark scheme and remembers
-    /// the choice.
+    /// the choice. The sidebar button is the only way in.
     fn toggle_scheme(&mut self, ctx: &egui::Context) {
         let mode = theme::toggled(ctx.theme());
         theme::set_mode(ctx, mode);

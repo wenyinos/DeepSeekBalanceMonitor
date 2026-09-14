@@ -97,7 +97,6 @@ impl Tray for MonitorTray {
         vec![
             self.entry("open_window", Command::OpenWindow),
             self.entry("check_now", Command::Refresh),
-            self.entry("toggle_theme", Command::ToggleScheme),
             MenuItem::Separator,
             self.entry("settings", Command::OpenSettings),
             self.entry("quit", Command::Quit),

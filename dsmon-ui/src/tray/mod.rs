@@ -32,8 +32,6 @@ pub enum Command {
     OpenWindow,
     /// Poll again straight away.
     Refresh,
-    /// Switch the interface between the light and the dark scheme.
-    ToggleScheme,
     /// Bring up the main window on the settings page.
     OpenSettings,
     Quit,

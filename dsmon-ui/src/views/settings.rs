@@ -2,7 +2,7 @@
 
 use dsmon_core::config::{
     AppConfig, ALERT_MODES, LANGUAGES, MAX_INTERVAL_MINUTES, MAX_RETENTION_DAYS,
-    MAX_THRESHOLD_YUAN, MIN_INTERVAL_MINUTES, MIN_RETENTION_DAYS, UI_THEMES,
+    MAX_THRESHOLD_YUAN, MIN_INTERVAL_MINUTES, MIN_RETENTION_DAYS,
 };
 use egui::RichText;
 
@@ -122,15 +122,6 @@ fn row(ui: &mut egui::Ui, palette: &Palette, label: &str, control: impl FnOnce(&
         });
     });
     ui.add_space(6.0);
-}
-
-/// Label for one of the [`UI_THEMES`] values.
-fn mode_label(view: &View<'_>, value: &str) -> &'static str {
-    match value {
-        "light" => view.text("day_mode"),
-        "dark" => view.text("night_mode"),
-        _ => view.text("theme_system"),
-    }
 }
 
 fn credentials_card(
@@ -295,27 +286,6 @@ fn general_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State, preview: 
                                 &mut state.draft.theme,
                                 style.as_config().to_owned(),
                                 view.text(style.label_key()),
-                            )
-                            .changed()
-                        {
-                            changed = true;
-                        }
-                    }
-                });
-            *preview |= changed;
-        });
-
-        row(ui, palette, view.text("appearance_label"), |ui| {
-            let mut changed = false;
-            egui::ComboBox::from_id_salt("ui-theme")
-                .selected_text(mode_label(view, &state.draft.ui_theme))
-                .show_ui(ui, |ui| {
-                    for value in UI_THEMES {
-                        if ui
-                            .selectable_value(
-                                &mut state.draft.ui_theme,
-                                value.to_owned(),
-                                mode_label(view, value),
                             )
                             .changed()
                         {
