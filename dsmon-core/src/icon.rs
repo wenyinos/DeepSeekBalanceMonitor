@@ -34,17 +34,27 @@ pub struct IconSpec<'a> {
 
 /// Shortens a figure so it still renders legibly at tray size.
 ///
-/// Anything above two characters collapses to `OK`, matching the behaviour of
-/// the previous Windows build.
+/// Below ten the tenths are kept — that is where a balance is worth watching
+/// closely — and above it only the whole part is shown, which is all the room
+/// an icon has. Either way the figure is truncated rather than rounded: the
+/// icon answers "is there enough left to keep going", and rounding 1.55 up to
+/// 1.6 would claim more than the account holds. Above two digits it collapses
+/// to `OK`.
 pub fn icon_label(amount: f64) -> String {
     if !amount.is_finite() || amount < 0.0 {
         return "--".to_string();
     }
-    let rounded = amount.round();
-    if rounded > 99.0 {
+
+    if amount < 10.0 {
+        let tenths = (amount * 10.0).trunc() / 10.0;
+        return format!("{tenths:.1}");
+    }
+
+    let whole = amount.trunc();
+    if whole > 99.0 {
         "OK".to_string()
     } else {
-        format!("{rounded:.0}")
+        format!("{whole:.0}")
     }
 }
 
@@ -363,6 +373,26 @@ mod tests {
         assert_eq!(icon_label(99.0), "99");
         assert_eq!(icon_label(100.0), "OK");
         assert_eq!(icon_label(f64::NAN), "--");
+    }
+
+    /// Below ten the icon keeps a decimal, which is where a balance is worth
+    /// watching closely; above it the whole part is all that fits.
+    #[test]
+    fn icon_label_keeps_a_decimal_below_ten() {
+        assert_eq!(icon_label(1.55), "1.5");
+        assert_eq!(icon_label(0.99), "0.9");
+        assert_eq!(icon_label(9.99), "9.9");
+        assert_eq!(icon_label(9.0), "9.0");
+        assert_eq!(icon_label(10.0), "10");
+        assert_eq!(icon_label(12.4), "12");
+    }
+
+    /// A balance is never rounded up: 1.55 must not read as 2 or 1.6.
+    #[test]
+    fn icon_label_never_overstates_the_balance() {
+        assert_eq!(icon_label(1.99), "1.9");
+        assert_eq!(icon_label(99.9), "99");
+        assert_eq!(icon_label(0.09), "0.0");
     }
 
     #[test]
