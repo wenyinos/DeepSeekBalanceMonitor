@@ -12,6 +12,9 @@ use egui::RichText;
 use egui_plot::{Line, Plot, PlotPoints};
 
 use super::{card, progress_line, usage_color, View};
+
+/// Fixed height of a chart card's heading row.
+const HEADING_ROW_HEIGHT: f32 = 30.0;
 use crate::theme::Palette;
 
 /// What the page asks the application to do.
@@ -263,45 +266,55 @@ fn usage_chart(
 
     card(ui, palette, |ui| {
         ui.set_min_height(super::SUBSCRIPTION_CHART_HEIGHT);
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(title)
-                    .size(16.0)
-                    .color(palette.text_primary)
-                    .strong(),
-            );
 
-            if let Some(day) = billing_day {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // The field, its label and the heading all share one size:
-                    // egui aligns rows by the middle of each item, so mixing
-                    // sizes leaves them sitting on different baselines.
-                    ui.scope(|ui| {
-                        ui.style_mut()
-                            .text_styles
-                            .insert(egui::TextStyle::Button, egui::FontId::proportional(16.0));
+        // The heading row has a fixed height: the numeric field is taller than
+        // the heading, which would otherwise push this card's chart a few pixels
+        // lower than the other card's.
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), HEADING_ROW_HEIGHT),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.label(
+                    RichText::new(title)
+                        .size(16.0)
+                        .color(palette.text_primary)
+                        .strong(),
+                );
 
-                        let mut edited = day;
-                        if ui
-                            .add(
-                                egui::DragValue::new(&mut edited)
-                                    .range(1..=dsmon_core::config::MAX_BILLING_DAY)
-                                    .speed(0.2),
-                            )
-                            .changed()
-                        {
-                            action = Some(edited);
-                        }
+                if let Some(day) = billing_day {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // The field, its label and the heading all share one size:
+                        // egui aligns rows by the middle of each item, so mixing
+                        // sizes leaves them sitting on different baselines.
+                        ui.scope(|ui| {
+                            ui.style_mut()
+                                .text_styles
+                                .insert(egui::TextStyle::Button, egui::FontId::proportional(16.0));
+
+                            let mut edited = day;
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut edited)
+                                        .range(1..=dsmon_core::config::MAX_BILLING_DAY)
+                                        .speed(0.2),
+                                )
+                                .changed()
+                            {
+                                action = Some(edited);
+                            }
+                        });
+
+                        ui.label(
+                            // A short Latin caption, like "Days" and "Currency" on
+                            // the status page: it keeps the digits' glyph height.
+                            RichText::new("Day")
+                                .size(16.0)
+                                .color(palette.text_secondary),
+                        );
                     });
-
-                    ui.label(
-                        RichText::new(view.text("billing_day"))
-                            .size(16.0)
-                            .color(palette.text_secondary),
-                    );
-                });
-            }
-        });
+                }
+            },
+        );
 
         ui.add_space(8.0);
 
