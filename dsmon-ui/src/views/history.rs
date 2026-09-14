@@ -56,7 +56,7 @@ pub fn show_summary(ui: &mut egui::Ui, view: &View<'_>, state: &State) -> Option
 pub fn show_chart(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Action> {
     let mut action = None;
     filters_card(ui, view, state, &mut action);
-    chart_card(ui, view, state);
+    chart_card(ui, view, state, ui.available_height());
     action
 }
 
@@ -70,21 +70,25 @@ fn filters_card(
 
     card(ui, palette, |ui| {
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
             ui.label(
                 RichText::new(view.text("history_days"))
                     .color(palette.text_secondary)
                     .small(),
             );
 
-            for days in RANGES {
-                let selected = state.days == days;
-                if ui.selectable_label(selected, format!("{days}d")).clicked() && !selected {
-                    state.days = days;
-                    *action = Some(Action::Reload);
+            ui.scope(|ui| {
+                ui.spacing_mut().button_padding = egui::vec2(8.0, 3.0);
+                for days in RANGES {
+                    let selected = state.days == days;
+                    if ui.selectable_label(selected, format!("{days}d")).clicked() && !selected {
+                        state.days = days;
+                        *action = Some(Action::Reload);
+                    }
                 }
-            }
+            });
 
-            ui.add_space(12.0);
+            ui.add_space(14.0);
             ui.label(
                 RichText::new(view.text("history_currency_filter"))
                     .color(palette.text_secondary)
@@ -118,7 +122,7 @@ fn filters_card(
     });
 }
 
-fn chart_card(ui: &mut egui::Ui, view: &View<'_>, state: &State) {
+fn chart_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, available: f32) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
@@ -152,8 +156,10 @@ fn chart_card(ui: &mut egui::Ui, view: &View<'_>, state: &State) {
         let grid = palette.border;
         let text = palette.text_secondary;
 
+        // Fill what is left after the card chrome, so the page never scrolls.
+        let plot_height = (available - 52.0).max(140.0);
         Plot::new("history-plot")
-            .height(220.0)
+            .height(plot_height)
             .allow_drag(false)
             .allow_zoom(false)
             .allow_scroll(false)
@@ -181,6 +187,7 @@ fn summary_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, action: &mut 
     let palette = view.palette;
 
     card(ui, palette, |ui| {
+        ui.set_min_height(super::SUMMARY_CARD_HEIGHT);
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(view.text("history_trend"))

@@ -213,8 +213,9 @@ impl eframe::App for App {
                     .inner_margin(Margin::same(16)),
             )
             .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| match self.page {
-                    Page::Subscriptions => views::subscriptions::show(ui, &view, &snapshot),
+                // The status page fills the window so it never scrolls; the
+                // other pages scroll when their content grows.
+                match self.page {
                     Page::Status => {
                         if let Some(action) =
                             views::status::show(ui, &view, &snapshot, &mut self.history)
@@ -226,23 +227,31 @@ impl eframe::App for App {
                             }
                         }
                     }
+                    Page::Subscriptions => {
+                        egui::ScrollArea::vertical()
+                            .show(ui, |ui| views::subscriptions::show(ui, &view, &snapshot));
+                    }
                     Page::Settings => {
-                        if let Some(action) = views::settings::show(ui, &view, &mut self.settings) {
-                            match action {
-                                views::settings::Action::Save => self.save_settings(ui.ctx()),
-                                views::settings::Action::Cancel => {
-                                    self.settings.reset(self.config.clone())
-                                }
-                                views::settings::Action::OpenReleases => {
-                                    open_url(views::settings::RELEASES_URL)
-                                }
-                                views::settings::Action::Preview => {
-                                    apply_theme(ui.ctx(), &self.settings.draft)
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            if let Some(action) =
+                                views::settings::show(ui, &view, &mut self.settings)
+                            {
+                                match action {
+                                    views::settings::Action::Save => self.save_settings(ui.ctx()),
+                                    views::settings::Action::Cancel => {
+                                        self.settings.reset(self.config.clone())
+                                    }
+                                    views::settings::Action::OpenReleases => {
+                                        open_url(views::settings::RELEASES_URL)
+                                    }
+                                    views::settings::Action::Preview => {
+                                        apply_theme(ui.ctx(), &self.settings.draft)
+                                    }
                                 }
                             }
-                        }
+                        });
                     }
-                });
+                }
             });
     }
 }

@@ -56,6 +56,7 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
     let palette = view.palette;
 
     card(ui, palette, |ui| {
+        ui.set_min_height(super::SUMMARY_CARD_HEIGHT);
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(view.text("balance_title"))
@@ -148,6 +149,7 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
+        ui.set_min_height(super::SUMMARY_CARD_HEIGHT);
         ui.label(
             RichText::new(view.text("service_status"))
                 .color(palette.text_primary)
