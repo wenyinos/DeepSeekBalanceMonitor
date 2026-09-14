@@ -28,6 +28,9 @@ use crate::i18n::tr;
 /// What the tray asks the running application to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
+    /// Show the reading as a notification, which is what a click on the icon
+    /// has always meant.
+    ShowBalance,
     /// Bring the main window to the front.
     OpenWindow,
     /// Poll again straight away.

@@ -21,7 +21,7 @@ use chrono::{DateTime, Local};
 
 use dsmon_core::config::AppConfig;
 use dsmon_core::history::format_amount;
-use dsmon_core::model::preferred_balance;
+use dsmon_core::model::{preferred_balance, Balance, ConsumptionRate};
 use dsmon_core::monitor::Snapshot;
 use dsmon_core::storage;
 
@@ -165,6 +165,130 @@ impl Watch {
                 currency,
             ),
         })
+    }
+}
+
+/// The summary the previous build raised when the tray icon was clicked: what
+/// the balance is, how fast it is going, how the service is and how old the
+/// reading is.
+pub fn balance_message(snapshot: &Snapshot, lang: &str) -> Message {
+    let separator = if lang == "en" { ": " } else { "：" };
+    let mut lines = Vec::new();
+
+    if let Some((currency, balance)) = snapshot
+        .balances
+        .get(storage::KEY_DEEPSEEK)
+        .and_then(preferred_balance)
+    {
+        lines.push(format!("💰 {}", balance_line(lang, currency, balance)));
+        if let Some(rate) = snapshot.consumption_rates.get(storage::KEY_DEEPSEEK) {
+            lines.push(format!("📊 {}", rate_line(lang, rate)));
+        }
+    }
+
+    let status = if snapshot.service_status.is_empty() {
+        "unknown"
+    } else {
+        snapshot.service_status.as_str()
+    };
+    // The previous build ran the state straight into the label here while the
+    // line below it kept its separator; one of the two had to give.
+    lines.push(format!(
+        "📡 {}{separator}{}",
+        tr(lang, "service_status"),
+        status_label(lang, status)
+    ));
+
+    if let Some(error) = &snapshot.last_error {
+        lines.push(format!("🕐 {}{separator}{error}", tr(lang, "query_error")));
+    } else if let Some(checked) = snapshot.last_check {
+        lines.push(format!(
+            "🕐 {}{separator}{}",
+            tr(lang, "last_check"),
+            relative_time(lang, checked, Local::now())
+        ));
+    } else {
+        lines.push(format!("🕐 {}", tr(lang, "not_checked")));
+    }
+
+    Message {
+        title: tr(lang, "bal_title").to_owned(),
+        body: lines.join("\n"),
+    }
+}
+
+/// The balance as one line, with what it is made of.
+fn balance_line(lang: &str, currency: &str, balance: &Balance) -> String {
+    if lang == "en" {
+        format!(
+            "{} {} (Topped {}, Granted {})",
+            format_amount(balance.total_balance),
+            currency,
+            format_amount(balance.topped_up_balance),
+            format_amount(balance.granted_balance)
+        )
+    } else {
+        format!(
+            "{} {}（充值 {}，赠送 {}）",
+            format_amount(balance.total_balance),
+            currency,
+            format_amount(balance.topped_up_balance),
+            format_amount(balance.granted_balance)
+        )
+    }
+}
+
+/// How fast the balance is going and how long it lasts at that rate.
+fn rate_line(lang: &str, rate: &ConsumptionRate) -> String {
+    let days = (rate.busy_hours_left / 24.0).floor() as i64;
+    let hours = (rate.busy_hours_left % 24.0).floor() as i64;
+
+    if lang == "en" {
+        format!(
+            "Busy: {:.2}/hr | Est. {}d {}h remaining",
+            rate.hourly_rate, days, hours
+        )
+    } else {
+        format!(
+            "忙时消耗 {:.2}/小时 | 预计可用 {} 天 {} 小时",
+            rate.hourly_rate, days, hours
+        )
+    }
+}
+
+/// The service state as a lamp and its words.
+fn status_label(lang: &str, status: &str) -> String {
+    let lamp = match status {
+        "none" => "🟢",
+        "minor" | "maintenance" => "🟡",
+        "major" => "🟠",
+        "critical" => "🔴",
+        _ => "⚪",
+    };
+    format!("{lamp} {}", status_text(lang, status))
+}
+
+/// How long ago a reading was taken, in words rather than a timestamp.
+fn relative_time(lang: &str, value: DateTime<Local>, now: DateTime<Local>) -> String {
+    let seconds = (now - value).num_seconds().max(0);
+    let chinese = lang != "en";
+
+    if seconds < 60 {
+        return if chinese { "刚刚" } else { "just now" }.to_owned();
+    }
+
+    let (count, unit, english_unit) = if seconds < 3600 {
+        (seconds / 60, "分钟", "minutes")
+    } else if seconds < 86400 {
+        (seconds / 3600, "小时", "hours")
+    } else {
+        (seconds / 86400, "天", "days")
+    };
+
+    if chinese {
+        format!("{count} {unit}前")
+    } else {
+        format!("{count} {english_unit} ago")
     }
 }
 
@@ -339,6 +463,87 @@ mod tests {
         let mut snapshot = reading(0.1, "critical");
         snapshot.demo = true;
         assert!(watch.judge(&snapshot, &config(), "en").is_empty());
+    }
+
+    #[test]
+    fn the_tray_summary_carries_the_reading_the_rate_and_the_time() {
+        let mut snapshot = reading(12.5, "none");
+        snapshot
+            .balances
+            .get_mut(storage::KEY_DEEPSEEK)
+            .unwrap()
+            .insert(
+                "CNY".to_owned(),
+                Balance {
+                    total_balance: 12.5,
+                    topped_up_balance: 10.0,
+                    granted_balance: 2.5,
+                },
+            );
+        snapshot.consumption_rates.insert(
+            storage::KEY_DEEPSEEK.to_owned(),
+            ConsumptionRate {
+                hourly_rate: 0.25,
+                busy_hours_left: 30.0,
+                currency: "CNY".to_owned(),
+            },
+        );
+        snapshot.last_check = Some(Local::now() - chrono::Duration::minutes(3));
+
+        let message = balance_message(&snapshot, "zh");
+        assert_eq!(message.title, "DeepSeek 余额：");
+        assert!(
+            message
+                .body
+                .contains("💰 12.50 CNY（充值 10.00，赠送 2.50）"),
+            "{}",
+            message.body
+        );
+        assert!(
+            message
+                .body
+                .contains("📊 忙时消耗 0.25/小时 | 预计可用 1 天 6 小时"),
+            "{}",
+            message.body
+        );
+        assert!(
+            message.body.contains("📡 服务状态：🟢 服务正常"),
+            "{}",
+            message.body
+        );
+        assert!(
+            message.body.contains("🕐 上次查询：3 分钟前"),
+            "{}",
+            message.body
+        );
+    }
+
+    #[test]
+    fn a_failed_reading_takes_the_place_of_the_timestamp() {
+        let mut snapshot = reading(0.0, "unknown");
+        snapshot.last_error = Some("boom".to_owned());
+
+        let message = balance_message(&snapshot, "en");
+        assert!(
+            message.body.contains("🕐 Query error: boom"),
+            "{}",
+            message.body
+        );
+    }
+
+    #[test]
+    fn how_long_ago_a_reading_was_is_said_in_words() {
+        let now = Local::now();
+        let ago = |seconds: i64| relative_time("zh", now - chrono::Duration::seconds(seconds), now);
+
+        assert_eq!(ago(30), "刚刚");
+        assert_eq!(ago(90), "1 分钟前");
+        assert_eq!(ago(2 * 3600), "2 小时前");
+        assert_eq!(ago(3 * 86400), "3 天前");
+        assert_eq!(
+            relative_time("en", now - chrono::Duration::seconds(90), now),
+            "1 minutes ago"
+        );
     }
 
     #[test]

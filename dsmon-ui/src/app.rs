@@ -215,6 +215,13 @@ impl App {
 
         for command in self.tray.take_commands() {
             match command {
+                Command::ShowBalance => {
+                    let lang = self.config.ui_language.clone();
+                    crate::notify::send(crate::notify::balance_message(
+                        &self.monitor.snapshot(),
+                        &lang,
+                    ));
+                }
                 Command::OpenWindow => show_window(ctx),
                 Command::Refresh => self.monitor.refresh(),
                 Command::OpenSettings => {

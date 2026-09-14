@@ -112,7 +112,7 @@ pub fn spawn(
     let image = tray_icon::Icon::from_rgba(rendered.rgba, rendered.width, rendered.height)
         .expect("generated icon is a valid RGBA bitmap");
 
-    // A left click opens the window, so the menu waits for the right button.
+    // A left click shows the reading, so the menu waits for the right button.
     let icon = TrayIconBuilder::new()
         .with_tooltip(dsmon_core::APP_NAME)
         .with_icon(image)
@@ -163,7 +163,7 @@ fn install_handlers(commands: Arc<Mutex<Vec<Command>>>, ctx: egui::Context) {
             ..
         } = event
         {
-            push(&commands, Command::OpenWindow);
+            push(&commands, Command::ShowBalance);
             ctx.request_repaint();
         }
     }));

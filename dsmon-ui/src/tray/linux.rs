@@ -88,9 +88,9 @@ impl Tray for MonitorTray {
         }
     }
 
-    /// Left click: the window is what the tray stands for.
+    /// Left click: the reading, as a notification.
     fn activate(&mut self, _x: i32, _y: i32) {
-        self.send(Command::OpenWindow);
+        self.send(Command::ShowBalance);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
