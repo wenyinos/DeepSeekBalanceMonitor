@@ -1,27 +1,60 @@
 //! Linux tray: StatusNotifierItem over D-Bus.
 //!
 //! No GTK and no libappindicator, so the binary stays self-contained.
+//!
+//! Redrawing goes through `Handle::update`: ksni compares the icon it is
+//! serving against the new one and emits `NewIcon` when it differs, which is
+//! what makes the panel repaint. Nothing else needs to be told.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use dsmon_core::icon::{self, IconSpec, IconTheme, State};
+use dsmon_core::icon::{self, IconSpec, IconTheme};
 use ksni::{
     blocking::{Handle, TrayMethods},
-    menu::StandardItem,
-    Icon, MenuItem, Tray,
+    menu::{CheckmarkItem, MenuItem, StandardItem},
+    Icon, ToolTip, Tray,
 };
+
+use super::{Command, Status};
 
 /// Keeps the tray registered for as long as it is held.
 pub struct TrayHandle {
-    _handle: Handle<MonitorTray>,
+    handle: Handle<MonitorTray>,
 }
 
-struct MonitorTray {
-    title: String,
-    label: String,
-    state: State,
+/// The item the panel draws, and everything its menu needs.
+pub struct MonitorTray {
+    lang: String,
+    status: Status,
     theme: IconTheme,
-    on_quit: Arc<dyn Fn() + Send + Sync>,
+    widget_visible: bool,
+    commands: Arc<Mutex<Vec<Command>>>,
+    ctx: egui::Context,
+}
+
+impl MonitorTray {
+    /// Hands a command to the interface and wakes it, so the reaction does not
+    /// wait for the next frame.
+    fn send(&self, command: Command) {
+        if let Ok(mut queue) = self.commands.lock() {
+            queue.push(command);
+        }
+        self.ctx.request_repaint();
+    }
+
+    fn label(&self, key: &str) -> String {
+        crate::i18n::tr(&self.lang, key).to_owned()
+    }
+
+    /// A menu entry that sends `command` when picked.
+    fn entry(&self, key: &str, command: Command) -> MenuItem<Self> {
+        StandardItem {
+            label: self.label(key),
+            activate: Box::new(move |tray: &mut Self| tray.send(command)),
+            ..Default::default()
+        }
+        .into()
+    }
 }
 
 impl Tray for MonitorTray {
@@ -30,7 +63,13 @@ impl Tray for MonitorTray {
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
-        let rendered = render_icon(&self.label, self.state, &self.theme);
+        let fill = self.theme.state_color(self.status.state);
+        let rendered = icon::render(&IconSpec {
+            label: &self.status.label,
+            background: fill,
+            foreground: icon::readable_on(fill),
+            size: 64,
+        });
         vec![Icon {
             width: rendered.width as i32,
             height: rendered.height as i32,
@@ -39,52 +78,88 @@ impl Tray for MonitorTray {
     }
 
     fn title(&self) -> String {
-        self.title.clone()
+        dsmon_core::APP_NAME.to_owned()
+    }
+
+    fn tool_tip(&self) -> ToolTip {
+        ToolTip {
+            title: dsmon_core::APP_NAME.to_owned(),
+            description: self.status.tooltip.clone(),
+            ..Default::default()
+        }
+    }
+
+    /// Left click: the widget is what the tray is a shortcut to.
+    fn activate(&mut self, _x: i32, _y: i32) {
+        self.send(Command::ToggleWidget);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        let on_quit = Arc::clone(&self.on_quit);
-        vec![StandardItem {
-            label: "退出".to_owned(),
-            activate: Box::new(move |_| on_quit()),
-            ..Default::default()
-        }
-        .into()]
+        vec![
+            self.entry("open_window", Command::OpenWindow),
+            CheckmarkItem {
+                label: self.label("widget_entry"),
+                checked: self.widget_visible,
+                activate: Box::new(|tray: &mut Self| tray.send(Command::ToggleWidget)),
+                ..Default::default()
+            }
+            .into(),
+            self.entry("check_now", Command::Refresh),
+            self.entry("toggle_theme", Command::ToggleScheme),
+            MenuItem::Separator,
+            self.entry("settings", Command::OpenSettings),
+            self.entry("quit", Command::Quit),
+        ]
     }
 }
 
-/// Registers the tray icon. `on_quit` runs on the D-Bus thread when the user
-/// picks the quit entry.
+impl TrayHandle {
+    /// Draws a new icon and hover text. ksni signals the change to the panel.
+    pub fn draw(&self, status: &Status, theme: &IconTheme) {
+        let status = status.clone();
+        let theme = theme.clone();
+        let _ = self.handle.update(move |tray| {
+            tray.status = status;
+            tray.theme = theme;
+        });
+    }
+
+    pub fn set_language(&self, lang: &str) {
+        let lang = lang.to_owned();
+        let _ = self.handle.update(move |tray| tray.lang = lang);
+    }
+
+    pub fn set_widget_visible(&self, visible: bool) {
+        let _ = self
+            .handle
+            .update(move |tray| tray.widget_visible = visible);
+    }
+}
+
+/// Registers the tray icon; the interface drives it through the returned handle.
 pub fn spawn(
-    label: &str,
-    state: State,
-    theme: IconTheme,
-    on_quit: impl Fn() + Send + Sync + 'static,
+    lang: &str,
+    theme: &IconTheme,
+    commands: Arc<Mutex<Vec<Command>>>,
+    ctx: egui::Context,
 ) -> TrayHandle {
     let tray = MonitorTray {
-        title: dsmon_core::APP_NAME.to_owned(),
-        label: label.to_owned(),
-        state,
-        theme,
-        on_quit: Arc::new(on_quit),
+        lang: lang.to_owned(),
+        status: Status {
+            label: "...".to_owned(),
+            state: icon::State::NoData,
+            tooltip: crate::i18n::tr(lang, "checking").to_owned(),
+        },
+        theme: theme.clone(),
+        widget_visible: false,
+        commands,
+        ctx,
     };
+
     let handle = tray
         .spawn()
         .expect("the session bus accepts a StatusNotifierItem");
-    TrayHandle { _handle: handle }
-}
-
-/// The icon: a rounded square in the state's colour with the figure on top, the
-/// same shape the previous build drew.
-fn render_icon(label: &str, state: State, theme: &IconTheme) -> icon::TrayIcon {
-    let fill = theme.state_color(state);
-    let ink = icon::readable_on(fill);
-    icon::render(&IconSpec {
-        label,
-        background: fill,
-        foreground: ink,
-        size: 64,
-    })
+    TrayHandle { handle }
 }
 
 /// StatusNotifierItem expects ARGB32 in network byte order.
@@ -112,7 +187,13 @@ mod tests {
             style: "default".to_owned(),
             custom: Default::default(),
         };
-        let rendered = render_icon("42", State::Ok, &theme);
+        let fill = theme.state_color(icon::State::Ok);
+        let rendered = icon::render(&IconSpec {
+            label: "42",
+            background: fill,
+            foreground: icon::readable_on(fill),
+            size: 64,
+        });
         assert_eq!(rendered.width, 64);
         // Centre pixel carries the fill colour from the preset table.
         let centre = ((32 * 64 + 32) * 4) as usize;

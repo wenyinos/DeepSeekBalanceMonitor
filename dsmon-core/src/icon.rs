@@ -189,7 +189,7 @@ pub enum State {
 ///
 /// The presets are the ones the previous build shipped, so the icon keeps the
 /// look users already recognise.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct IconTheme {
     pub style: String,
     pub custom: std::collections::BTreeMap<String, String>,

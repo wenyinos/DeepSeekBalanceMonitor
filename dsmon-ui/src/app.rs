@@ -63,8 +63,11 @@ struct App {
     settings: views::settings::State,
     /// Platforms that hold a key, independent of what the last poll returned.
     configured: std::collections::BTreeSet<String>,
-    /// Kept alive so the tray icon stays registered for the whole session.
-    _tray: crate::tray::TrayHandle,
+    /// The tray icon and the commands picked in its menu.
+    tray: crate::tray::Tray,
+    /// Set when the tray asked to quit, so the close request is honoured
+    /// instead of the window hiding itself.
+    quitting: bool,
 }
 
 impl App {
@@ -78,15 +81,8 @@ impl App {
         let configured = configured_platforms();
         let settings = views::settings::State::new(config.clone(), configured.clone());
 
-        let quit_ctx = cc.egui_ctx.clone();
-        let tray = crate::tray::spawn(
-            "--",
-            dsmon_core::icon::State::NoData,
-            icon_theme(&config),
-            move || {
-                quit_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            },
-        );
+        let tray =
+            crate::tray::Tray::spawn(&cc.egui_ctx, &config.ui_language, &icon_theme(&config));
 
         let billing_day = config.billing_day_command_code;
         let mut app = Self {
@@ -97,7 +93,8 @@ impl App {
             subscriptions: views::subscriptions::State::new(billing_day),
             settings,
             configured,
-            _tray: tray,
+            tray,
+            quitting: false,
         };
         app.reload_history();
         app.subscriptions.reload();
@@ -176,12 +173,61 @@ impl App {
             return;
         }
 
+        let language_changed = self.config.ui_language != draft.ui_language;
         self.config = draft;
         apply_theme(ctx, &self.config);
         let lang = self.config.ui_language.clone();
+        if language_changed {
+            self.tray.set_language(&lang);
+        }
+        self.tray.set_widget_visible(self.config.widget_enabled);
         self.settings.reset(self.config.clone());
         self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
         self.monitor.refresh();
+    }
+
+    /// Acts on whatever the user picked in the tray menu.
+    fn drain_tray_commands(&mut self, ctx: &egui::Context) {
+        use crate::tray::Command;
+
+        for command in self.tray.take_commands() {
+            match command {
+                Command::ToggleWidget => {
+                    self.config.widget_enabled = !self.config.widget_enabled;
+                    let _ = self.config.save();
+                    self.tray.set_widget_visible(self.config.widget_enabled);
+                }
+                Command::OpenWindow => show_window(ctx),
+                Command::Refresh => self.monitor.refresh(),
+                Command::ToggleScheme => self.toggle_scheme(ctx),
+                Command::OpenSettings => {
+                    self.page = Page::Settings;
+                    show_window(ctx);
+                }
+                Command::Quit => {
+                    self.quitting = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
+    }
+
+    /// Flips the interface between the light and the dark scheme and remembers
+    /// the choice.
+    fn toggle_scheme(&mut self, ctx: &egui::Context) {
+        let mode = theme::toggled(ctx.theme());
+        theme::set_mode(ctx, mode);
+        self.config.ui_theme = theme::mode_to_config(mode).to_owned();
+        let _ = self.config.save();
+    }
+
+    /// Closing the window leaves the application running in the tray.
+    fn hide_on_close(&self, ctx: &egui::Context) {
+        if self.quitting || !ctx.input(|input| input.viewport().close_requested()) {
+            return;
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
     }
 
     /// Copies the earlier build's data in, without touching its database.
@@ -228,7 +274,25 @@ impl eframe::App for App {
             lang: &lang,
         };
         let snapshot = self.monitor.snapshot();
-        let mut switch = None;
+        let mut switch = false;
+
+        // Frames are drawn on demand, so without a heartbeat a reading that
+        // lands between two interactions would sit unseen — on screen and in
+        // the tray.
+        ui.ctx().request_repaint_after(if snapshot.checking {
+            std::time::Duration::from_millis(500)
+        } else {
+            std::time::Duration::from_secs(1)
+        });
+
+        // The tray carries the latest reading and answers what was picked in
+        // it; the window hides rather than exits when it is closed.
+        self.drain_tray_commands(ui.ctx());
+        self.tray.publish(
+            &crate::tray::status(&snapshot, &self.config, &lang),
+            &icon_theme(&self.config),
+        );
+        self.hide_on_close(ui.ctx());
 
         egui::Panel::left("navigation")
             .exact_size(190.0)
@@ -285,15 +349,13 @@ impl eframe::App for App {
                         tr(&lang, "night_mode")
                     };
                     if ui.button(label).clicked() {
-                        switch = Some(theme::toggled(ui.ctx().theme()));
+                        switch = true;
                     }
                 });
             });
 
-        if let Some(mode) = switch {
-            theme::set_mode(ui.ctx(), mode);
-            self.config.ui_theme = theme::mode_to_config(mode).to_owned();
-            let _ = self.config.save();
+        if switch {
+            self.toggle_scheme(ui.ctx());
         }
 
         egui::CentralPanel::default()
@@ -472,6 +534,12 @@ fn home_dir() -> PathBuf {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Brings the main window back from the tray.
+fn show_window(ctx: &egui::Context) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
 }
 
 /// Hands a URL to the desktop.

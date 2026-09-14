@@ -1,57 +1,193 @@
 //! Windows tray: the Win32 notification area via `tray-icon`.
+//!
+//! The menu belongs to muda, and both menu picks and clicks arrive through its
+//! global channels. Handlers are installed here rather than polled, so a click
+//! reaches the interface even while it is idle.
 
-use dsmon_core::icon::{self, IconSpec, IconTheme, State};
+use std::sync::{Arc, Mutex};
+
+use dsmon_core::icon::{self, IconSpec, IconTheme};
 use tray_icon::{
-    menu::{Menu, MenuItem},
-    TrayIcon, TrayIconBuilder,
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
+    MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
+
+use super::{Command, Status};
+
+/// Menu ids, as they come back through `MenuEvent`.
+const ID_OPEN: &str = "open-window";
+const ID_WIDGET: &str = "widget";
+const ID_REFRESH: &str = "refresh";
+const ID_SCHEME: &str = "scheme";
+const ID_SETTINGS: &str = "settings";
+const ID_QUIT: &str = "quit";
 
 /// Keeps the tray icon registered for as long as it is held.
 pub struct TrayHandle {
-    _icon: TrayIcon,
+    icon: TrayIcon,
+    /// Entries whose text or tick follows the application state, so they have
+    /// to be reachable after the menu is built.
+    items: Items,
+}
+
+struct Items {
+    open: MenuItem,
+    widget: CheckMenuItem,
+    refresh: MenuItem,
+    scheme: MenuItem,
+    settings: MenuItem,
+    quit: MenuItem,
+}
+
+impl Items {
+    fn entries(&self) -> [(&MenuItem, &str); 5] {
+        [
+            (&self.open, "open_window"),
+            (&self.refresh, "check_now"),
+            (&self.scheme, "toggle_theme"),
+            (&self.settings, "settings"),
+            (&self.quit, "quit"),
+        ]
+    }
+}
+
+impl TrayHandle {
+    /// Redraws the icon and its hover text.
+    pub fn draw(&self, status: &Status, theme: &IconTheme) {
+        let fill = theme.state_color(status.state);
+        let rendered = icon::render(&IconSpec {
+            label: &status.label,
+            background: fill,
+            foreground: icon::readable_on(fill),
+            size: 64,
+        });
+
+        match tray_icon::Icon::from_rgba(rendered.rgba, rendered.width, rendered.height) {
+            Ok(image) => {
+                let _ = self.icon.set_icon(Some(image));
+            }
+            Err(error) => {
+                let _ = dsmon_core::storage::log_line(&format!("Icon update failed: {error}"));
+            }
+        }
+
+        let tooltip = format!("{}\n{}", dsmon_core::APP_NAME, status.tooltip);
+        let _ = self.icon.set_tooltip(Some(tooltip));
+    }
+
+    pub fn set_language(&self, lang: &str) {
+        for (item, key) in self.items.entries() {
+            item.set_text(crate::i18n::tr(lang, key));
+        }
+        self.items
+            .widget
+            .set_text(crate::i18n::tr(lang, "widget_entry"));
+    }
+
+    pub fn set_widget_visible(&self, visible: bool) {
+        self.items.widget.set_checked(visible);
+    }
 }
 
 /// Registers the tray icon together with its menu.
-///
-/// The menu entries are wired to the UI in stage 3, when the shared command
-/// channel exists; for now only the icon and the quit entry are live.
 pub fn spawn(
-    label: &str,
-    state: State,
-    theme: IconTheme,
-    on_quit: impl Fn() + Send + Sync + 'static,
+    lang: &str,
+    theme: &IconTheme,
+    commands: Arc<Mutex<Vec<Command>>>,
+    ctx: egui::Context,
 ) -> TrayHandle {
-    let rendered = render_icon(label, state, &theme);
+    let text = |key: &str| crate::i18n::tr(lang, key).to_owned();
 
+    let menu = Menu::new();
+    let open = MenuItem::with_id(ID_OPEN, text("open_window"), true, None);
+    let widget = CheckMenuItem::with_id(ID_WIDGET, text("widget_entry"), true, false, None);
+    let refresh = MenuItem::with_id(ID_REFRESH, text("check_now"), true, None);
+    let scheme = MenuItem::with_id(ID_SCHEME, text("toggle_theme"), true, None);
+    let settings = MenuItem::with_id(ID_SETTINGS, text("settings"), true, None);
+    let quit = MenuItem::with_id(ID_QUIT, text("quit"), true, None);
+
+    let separator = tray_icon::menu::PredefinedMenuItem::separator();
+    for entry in [
+        &open as &dyn tray_icon::menu::IsMenuItem,
+        &widget,
+        &refresh,
+        &scheme,
+        &separator,
+        &settings,
+        &quit,
+    ] {
+        let _ = menu.append(entry);
+    }
+
+    let rendered = icon::render(&IconSpec {
+        label: "...",
+        background: theme.state_color(icon::State::NoData),
+        foreground: icon::readable_on(theme.state_color(icon::State::NoData)),
+        size: 64,
+    });
     let image = tray_icon::Icon::from_rgba(rendered.rgba, rendered.width, rendered.height)
         .expect("generated icon is a valid RGBA bitmap");
 
-    let menu = Menu::new();
-    let quit = MenuItem::new("退出", true, None);
-    let _ = menu.append(&quit);
-
+    // A left click belongs to the widget, so the menu waits for the right
+    // button.
     let icon = TrayIconBuilder::new()
         .with_tooltip(dsmon_core::APP_NAME)
         .with_icon(image)
         .with_menu(Box::new(menu))
+        .with_menu_on_left_click(false)
         .build()
         .expect("tray icon registers with the shell");
 
-    let on_quit = std::sync::Arc::new(on_quit);
-    quit.set_activate_handler(Box::new(move |_| on_quit()));
+    install_handlers(Arc::clone(&commands), ctx);
 
-    TrayHandle { _icon: icon }
+    TrayHandle {
+        icon,
+        items: Items {
+            open,
+            widget,
+            refresh,
+            scheme,
+            settings,
+            quit,
+        },
+    }
 }
 
-/// The icon: a rounded square in the state's colour with the figure on top, the
-/// same shape the previous build drew.
-fn render_icon(label: &str, state: State, theme: &IconTheme) -> icon::TrayIcon {
-    let fill = theme.state_color(state);
-    let ink = icon::readable_on(fill);
-    icon::render(&IconSpec {
-        label,
-        background: fill,
-        foreground: ink,
-        size: 64,
-    })
+/// Routes menu picks and clicks into the command queue and wakes the interface.
+fn install_handlers(commands: Arc<Mutex<Vec<Command>>>, ctx: egui::Context) {
+    let menu_commands = Arc::clone(&commands);
+    let menu_ctx = ctx.clone();
+    MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+        let command = match event.id.0.as_str() {
+            ID_OPEN => Some(Command::OpenWindow),
+            ID_WIDGET => Some(Command::ToggleWidget),
+            ID_REFRESH => Some(Command::Refresh),
+            ID_SCHEME => Some(Command::ToggleScheme),
+            ID_SETTINGS => Some(Command::OpenSettings),
+            ID_QUIT => Some(Command::Quit),
+            _ => None,
+        };
+        if let Some(command) = command {
+            push(&menu_commands, command);
+            menu_ctx.request_repaint();
+        }
+    }));
+
+    TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
+        if let TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+        } = event
+        {
+            push(&commands, Command::ToggleWidget);
+            ctx.request_repaint();
+        }
+    }));
+}
+
+fn push(commands: &Arc<Mutex<Vec<Command>>>, command: Command) {
+    if let Ok(mut queue) = commands.lock() {
+        queue.push(command);
+    }
 }
