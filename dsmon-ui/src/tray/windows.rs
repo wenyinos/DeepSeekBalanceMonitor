@@ -118,9 +118,13 @@ pub fn spawn(
         .with_icon(image)
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
+        // A balloon has to name the icon it belongs to, and this is the name
+        // the notification module knows it by.
+        .with_guid(crate::notify::windows::ICON_GUID)
         .build()
         .expect("tray icon registers with the shell");
 
+    crate::notify::windows::remember_icon(icon.window_handle());
     install_handlers(Arc::clone(&commands), ctx);
 
     TrayHandle {

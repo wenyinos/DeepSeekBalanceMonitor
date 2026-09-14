@@ -258,7 +258,10 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
 
         ui.horizontal(|ui| {
             status_dot(ui, status_color(palette, status));
-            ui.label(RichText::new(status_text(view, status)).color(palette.text_primary));
+            ui.label(
+                RichText::new(crate::i18n::status_text(view.lang, status))
+                    .color(palette.text_primary),
+            );
         });
 
         ui.add_space(6.0);
@@ -297,17 +300,6 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
             }
         }
     });
-}
-
-fn status_text(view: &View<'_>, status: &str) -> &'static str {
-    view.text(match status {
-        "none" => "status_none",
-        "minor" => "status_minor",
-        "major" => "status_major",
-        "critical" => "status_critical",
-        "maintenance" => "status_maintenance",
-        _ => "status_unknown",
-    })
 }
 
 fn format_busy_hours(hours: f64) -> String {

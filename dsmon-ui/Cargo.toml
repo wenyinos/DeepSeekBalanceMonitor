@@ -15,6 +15,11 @@ egui_plot.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { workspace = true, features = ["blocking"] }
+zbus = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 tray-icon.workspace = true
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+] }

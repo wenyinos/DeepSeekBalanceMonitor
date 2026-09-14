@@ -26,4 +26,5 @@ egui = "0.36"
 egui_plot = "0.37"
 
 ksni = "0.3"
+zbus = { version = "5", default-features = false, features = ["blocking-api"] }
 tray-icon = "0.25"

@@ -70,6 +70,11 @@ struct App {
     configured: std::collections::BTreeSet<String>,
     /// The tray icon and the commands picked in its menu.
     tray: crate::tray::Tray,
+    /// What the last reading left behind, for the notifications it calls for.
+    alerts: crate::notify::Watch,
+    /// Set by a start that was asked to stay out of the way, until the window
+    /// has been drawn once and can be hidden.
+    hide_at_start: bool,
     /// Set when the tray asked to quit, so the close request is honoured
     /// instead of the window hiding itself.
     quitting: bool,
@@ -106,10 +111,13 @@ impl App {
             settings,
             configured,
             tray,
+            alerts: crate::notify::Watch::default(),
+            hide_at_start: starts_minimized(),
             quitting: false,
         };
         app.reload_history();
         app.subscriptions.reload();
+        app.announce_start_up();
         app
     }
 
@@ -186,7 +194,11 @@ impl App {
         }
 
         let language_changed = self.config.ui_language != draft.ui_language;
+        let auto_start_changed = self.config.auto_start != draft.auto_start;
         self.config = draft;
+        if auto_start_changed {
+            self.apply_auto_start();
+        }
         apply_theme(ctx, &self.config);
         let lang = self.config.ui_language.clone();
         if language_changed {
@@ -238,6 +250,28 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+    }
+
+    /// Writes or removes the entry that starts this build with the session.
+    fn apply_auto_start(&mut self) {
+        let lang = self.config.ui_language.clone();
+        if let Err(error) = dsmon_core::autostart::set_enabled(self.config.auto_start) {
+            self.settings.notice = Some(format!("{} {error}", tr(&lang, "auto_start_failed")));
+        }
+    }
+
+    /// The two notices the previous build raised once, at start-up: nothing is
+    /// configured yet, or the database had to be built again.
+    fn announce_start_up(&mut self) {
+        let lang = self.config.ui_language.clone();
+
+        if self.configured.is_empty() {
+            self.page = Page::Settings;
+            crate::notify::send(crate::notify::missing_key_message(&lang));
+        }
+        if storage::take_recreated_notice() {
+            crate::notify::send(crate::notify::recreated_database_message(&lang));
         }
     }
 
@@ -320,6 +354,17 @@ impl eframe::App for App {
             &crate::tray::status(&snapshot, &self.config, &lang),
             &icon_theme(&self.config),
         );
+
+        for message in self.alerts.judge(&snapshot, &self.config, &lang) {
+            crate::notify::send(message);
+        }
+
+        // A start asked for by the session stays out of the way. eframe shows
+        // every window once it has painted, so asking before that would be
+        // undone; asking here leaves it hidden with the tray in charge.
+        if std::mem::take(&mut self.hide_at_start) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
 
         self.hide_on_close(ctx);
     }
@@ -615,6 +660,12 @@ fn window_can_hide() -> bool {
     {
         true
     }
+}
+
+/// Whether the session asked for a start without the window: the entry written
+/// for starting at login passes `--minimized`.
+fn starts_minimized() -> bool {
+    std::env::args().any(|argument| argument == "--minimized")
 }
 
 /// Starts through XWayland rather than on Wayland itself.

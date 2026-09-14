@@ -6,6 +6,7 @@
 mod app;
 pub mod fonts;
 pub mod i18n;
+pub mod notify;
 pub mod theme;
 pub mod tray;
 pub mod views;

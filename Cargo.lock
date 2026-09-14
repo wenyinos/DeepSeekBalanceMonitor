@@ -892,6 +892,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -905,6 +906,8 @@ dependencies = [
  "egui_plot",
  "ksni",
  "tray-icon",
+ "windows-sys 0.61.2",
+ "zbus",
 ]
 
 [[package]]

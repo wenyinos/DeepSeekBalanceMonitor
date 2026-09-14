@@ -50,6 +50,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "threshold_label") => "Low balance threshold:",
             ("en", "language_label") => "Language:",
             ("en", "auto_start") => "Auto-start on boot",
+            ("en", "auto_start_failed") => "Could not change the start-up entry:",
             ("en", "alert_mode_label") => "Low Balance Alert:",
             ("en", "alert_mode_never") => "Never",
             ("en", "alert_mode_always") => "Always",
@@ -213,6 +214,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "threshold_label") => "余额预警线：",
             (_, "language_label") => "语言 / Language:",
             (_, "auto_start") => "开机自动启动",
+            (_, "auto_start_failed") => "无法修改开机启动项：",
             (_, "alert_mode_label") => "低余额提醒：",
             (_, "alert_mode_never") => "不提醒",
             (_, "alert_mode_always") => "持续提醒",
@@ -335,6 +337,24 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             _ => "",
         }
 }
+
+/// What a service status says, for anything that has to name it: the health
+/// card and the notification that a status moved.
+pub fn status_text(lang: &str, status: &str) -> &'static str {
+    tr(
+        lang,
+        match status {
+            "none" => "status_none",
+            "minor" => "status_minor",
+            "major" => "status_major",
+            "critical" => "status_critical",
+            "maintenance" => "status_maintenance",
+            _ => "status_unknown",
+        },
+    )
+}
+
+/// A start with one of the four service states, for the tests.
 
 /// Label for the cleanup button. It names the window it clears, which is the
 /// retention setting the polling loop already prunes at.

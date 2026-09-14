@@ -62,6 +62,16 @@ pub fn state_dir() -> PathBuf {
     }
 }
 
+/// The entry a desktop reads at login, for starting with the session.
+///
+/// Always under the user's own autostart directory: the XDG one on Linux, and
+/// nothing at all on Windows, where the registry holds the same idea.
+pub fn autostart_file() -> PathBuf {
+    base_dir("XDG_CONFIG_HOME", ".config")
+        .join("autostart")
+        .join("deepseek-balance-monitor.desktop")
+}
+
 pub fn config_file() -> PathBuf {
     config_dir().join("config.json")
 }

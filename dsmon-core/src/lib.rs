@@ -6,6 +6,7 @@
 //! binaries are thin entry points over `dsmon-ui`, which in turn builds on this
 //! crate.
 
+pub mod autostart;
 pub mod catalog;
 pub mod config;
 pub mod crypto;
