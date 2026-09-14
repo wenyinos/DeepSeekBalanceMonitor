@@ -34,8 +34,9 @@ pub const MAX_THRESHOLD_YUAN: f64 = 10_000.0;
 pub const MIN_RETENTION_DAYS: u64 = 1;
 pub const MAX_RETENTION_DAYS: u64 = 3650;
 /// Billing days are capped at 28 so every month has the date.
-/// Billing days stop at 28 so the date exists in every month.
-pub const MAX_BILLING_DAY: u8 = 28;
+/// Highest billing day a month can be said to have; shorter months fall back
+/// to their last day.
+pub const MAX_BILLING_DAY: u8 = 31;
 pub const MIN_WIDGET_OPACITY: f32 = 0.5;
 pub const MAX_WIDGET_OPACITY: f32 = 1.0;
 
@@ -252,7 +253,9 @@ impl AppConfig {
         if !WIDGET_SIZES.contains(&self.widget_size.as_str()) {
             self.widget_size = default_widget_size();
         }
-        self.billing_day_command_code = self.billing_day_command_code.clamp(1, 28);
+        self.billing_day_command_code = self
+            .billing_day_command_code
+            .clamp(1, MAX_BILLING_DAY);
     }
 }
 

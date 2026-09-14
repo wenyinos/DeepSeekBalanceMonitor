@@ -346,11 +346,11 @@ pub fn daily_usage(points: &[SubscriptionPoint]) -> Vec<DailyUsage> {
 
 /// Start of the billing cycle containing `today`.
 ///
-/// Billing days are capped at 28 so the date exists in every month; when this
-/// month's date has not arrived yet, the cycle began last month.
+/// When this month's billing date has not arrived yet, the cycle began last
+/// month.
 pub fn cycle_start(today: NaiveDate, billing_day: u8) -> NaiveDate {
-    let day = u32::from(billing_day.clamp(1, 28));
-    match NaiveDate::from_ymd_opt(today.year(), today.month(), day) {
+    let day = u32::from(billing_day.clamp(1, crate::config::MAX_BILLING_DAY));
+    match date_in_month(today.year(), today.month(), day) {
         Some(date) if date <= today => date,
         _ => {
             let (year, month) = if today.month() == 1 {
@@ -358,9 +358,23 @@ pub fn cycle_start(today: NaiveDate, billing_day: u8) -> NaiveDate {
             } else {
                 (today.year(), today.month() - 1)
             };
-            NaiveDate::from_ymd_opt(year, month, day).unwrap_or(today)
+            date_in_month(year, month, day).unwrap_or(today)
         }
     }
+}
+
+/// The given day of a month, or that month's last day when it is shorter.
+///
+/// A billing day of 31 lands on the 30th of April and the 28th of February,
+/// rather than being rejected.
+fn date_in_month(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
+    let next_month = if month == 12 {
+        NaiveDate::from_ymd_opt(year + 1, 1, 1)?
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1)?
+    };
+    let last_day = next_month.pred_opt()?.day();
+    NaiveDate::from_ymd_opt(year, month, day.min(last_day))
 }
 
 /// Renders records as CSV, matching the column order the old CLI exported.
@@ -523,9 +537,13 @@ mod tests {
         assert_eq!(cycle_start(day(2026, 3, 25), 20), day(2026, 3, 20));
         // January wraps back into the previous year.
         assert_eq!(cycle_start(day(2026, 1, 5), 20), day(2025, 12, 20));
-        // Out-of-range days are clamped rather than rejected; the 28th of March
-        // has not arrived on the 15th, so the cycle began back in February.
+        // A billing day past the end of a month uses that month's last day.
         assert_eq!(cycle_start(day(2026, 3, 15), 31), day(2026, 2, 28));
+        assert_eq!(cycle_start(day(2026, 4, 15), 31), day(2026, 3, 31));
+        assert_eq!(cycle_start(day(2026, 5, 15), 31), day(2026, 4, 30));
+        // And the date itself is honoured when the month is long enough.
+        assert_eq!(cycle_start(day(2026, 1, 31), 31), day(2026, 1, 31));
+        assert_eq!(cycle_start(day(2026, 3, 31), 31), day(2026, 3, 31));
     }
 
     #[test]

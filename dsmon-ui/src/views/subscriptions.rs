@@ -248,25 +248,36 @@ fn usage_chart(
 
             if let Some(day) = billing_day {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mut edited = day;
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut edited)
-                                .range(1..=dsmon_core::config::MAX_BILLING_DAY)
-                                .speed(0.2),
-                        )
-                        .changed()
-                    {
-                        action = Some(Action::BillingDay(edited));
-                    }
+                    // The field, its label and the heading all share one size:
+                    // egui aligns rows by the middle of each item, so mixing
+                    // sizes leaves them sitting on different baselines.
+                    ui.scope(|ui| {
+                        ui.style_mut()
+                            .text_styles
+                            .insert(egui::TextStyle::Button, egui::FontId::proportional(16.0));
+
+                        let mut edited = day;
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut edited)
+                                    .range(1..=dsmon_core::config::MAX_BILLING_DAY)
+                                    .speed(0.2),
+                            )
+                            .changed()
+                        {
+                            action = Some(Action::BillingDay(edited));
+                        }
+                    });
+
                     ui.label(
                         RichText::new(view.text("billing_day"))
-                            .color(palette.text_secondary)
-                            .size(12.0),
+                            .size(16.0)
+                            .color(palette.text_secondary),
                     );
                 });
             }
         });
+
         ui.add_space(8.0);
 
         let usage = daily_usage(points);
