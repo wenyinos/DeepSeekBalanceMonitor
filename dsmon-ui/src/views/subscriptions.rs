@@ -88,6 +88,7 @@ fn opencode_go_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, sta
     let palette = view.palette;
 
     card(ui, palette, |ui| {
+        ui.set_min_height(super::SUBSCRIPTION_CARD_HEIGHT);
         ui.label(
             RichText::new(view.text("og_title"))
                 .size(16.0)
@@ -119,11 +120,12 @@ fn opencode_go_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, sta
                 );
             }
             Subscription::Failed(error) => {
-                ui.label(
-                    RichText::new(format!("{} {error}", view.text("og_refresh_failed")))
-                        .color(palette.destructive)
-                        .size(12.0),
-                );
+                let message = format!("{} {error}", view.text("og_refresh_failed"));
+                ui.add(
+                    egui::Label::new(RichText::new(message).color(palette.destructive).size(12.0))
+                        .truncate(),
+                )
+                .on_hover_text(error);
             }
         }
     });
@@ -144,6 +146,7 @@ fn command_code_card(
     let palette = view.palette;
 
     card(ui, palette, |ui| {
+        ui.set_min_height(super::SUBSCRIPTION_CARD_HEIGHT);
         ui.label(
             RichText::new(view.text("group_cc"))
                 .size(16.0)
@@ -170,11 +173,12 @@ fn command_code_card(
                 );
             }
             Subscription::Failed(error) => {
-                ui.label(
-                    RichText::new(format!("{} {error}", view.text("cc_refresh_failed")))
-                        .color(palette.destructive)
-                        .size(12.0),
-                );
+                let message = format!("{} {error}", view.text("cc_refresh_failed"));
+                ui.add(
+                    egui::Label::new(RichText::new(message).color(palette.destructive).size(12.0))
+                        .truncate(),
+                )
+                .on_hover_text(error);
             }
         }
     });
@@ -258,6 +262,7 @@ fn usage_chart(
     let mut action = None;
 
     card(ui, palette, |ui| {
+        ui.set_min_height(super::SUBSCRIPTION_CHART_HEIGHT);
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(title)

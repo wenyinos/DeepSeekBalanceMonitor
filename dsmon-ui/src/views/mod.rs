@@ -27,6 +27,14 @@ impl View<'_> {
 /// up with each other regardless of how much each one has to say.
 pub const SUMMARY_CARD_HEIGHT: f32 = 122.0;
 
+/// Height shared by the two subscription cards, so an unconfigured provider or a
+/// long API error does not reshape the page.
+pub const SUBSCRIPTION_CARD_HEIGHT: f32 = 170.0;
+
+/// Height shared by the two subscription charts, which differ by a line: only
+/// Command Code carries the billing-day field.
+pub const SUBSCRIPTION_CHART_HEIGHT: f32 = 232.0;
+
 /// Panel with the standard card styling.
 pub fn card(ui: &mut egui::Ui, palette: &Palette, contents: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::NONE
