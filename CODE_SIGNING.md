@@ -375,13 +375,16 @@ Release 中的 `checksums.txt` 文件格式：
 |---|---|
 | 触发 | tag `v*`（与 Linux 工作流同一个 tag，两者都会发布） |
 | 架构 | 矩阵 `x64` / `arm64`（`x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`），各自独立签名 |
-| 产物 | `deepseek-balance-monitor-<版本>-windows-<x64\|arm64>.exe`（便携）与同名 `.msi`（安装包，WiX v5） |
-| 上传的未签名 artifact | `unsigned-windows-<arch>`，含 exe 与 msi 两个文件 |
+| 产物 | `deepseek-balance-monitor-<版本>-windows-<x64\|arm64>.msi`（**只发布安装包**） |
+| 上传的未签名 artifact | `unsigned-exe-<arch>` 与 `unsigned-msi-<arch>`，两次签名各传一个 |
 | 签名策略 | 仍为 `release` |
 
-**需要同步调整的地方**：SignPath 的 Artifact Configuration 目前只匹配 `.exe`，启用 MSI 后要
-把 `.msi` 一并纳入匹配规则，否则签名步骤会因找不到可签文件而失败（未配置签名时流程照旧跳过，
-产物保持未签名）。
+**签名顺序**：先签 exe（此时它只是中间产物）→ 用签好的 exe 打 MSI → 再签 MSI → 只发布 MSI。
+这样安装到 Program Files 的 exe 自身也带签名，用户第一次运行时不会被告知「未知发布者」。
+
+**需要同步调整的地方**：SignPath 的 Artifact Configuration 目前只匹配 `.exe`，需要把 `.msi`
+一并纳入匹配规则，否则第二次签名会因找不到可签文件而失败（未配置签名时流程照旧跳过，只发布
+未签名的 MSI）。
 
 MSI 由 WiX v5 构建：`dotnet tool install --global wix`，然后
 
@@ -399,5 +402,5 @@ git tag -a v2.0.0 -m "v2.0.0"
 git push origin v2.0.0
 ```
 
-两个工作流各自出包：Linux 为 `.deb`/`.rpm`（amd64 与 arm64 各一份），Windows 为 `.exe` 与
-`.msi`（x64 与 arm64 各一份），并各带一份 SHA256 校验和。
+两个工作流各自出包：Linux 为 `.deb`/`.rpm`（amd64 与 arm64 各一份），Windows 为 `.msi`
+（x64 与 arm64 各一份），并各带一份 SHA256 校验和。

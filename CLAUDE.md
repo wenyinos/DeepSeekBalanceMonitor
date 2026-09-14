@@ -133,10 +133,11 @@ packaging/                 # .desktop 与 deb/rpm 打包脚本
     容器里构建（glibc 2.36 基线），出 `.deb` 与 `.rpm`（脚本把 amd64/arm64 翻译成 deb 的
     `amd64/arm64` 与 rpm 的 `x86_64/aarch64`）；包依赖声明 `xwayland` 与 CJK 字体。
   - Windows：`windows.yml` 矩阵 x64/arm64（`x86_64-pc-windows-msvc` /
-    `aarch64-pc-windows-msvc`），出便携 exe 与 **MSI 安装包**（WiX v5，
-    `packaging/windows/product.wxs`，`-arch x64|arm64`）。
-- Windows 走 SignPath 签名（见 `CODE_SIGNING.md`），exe 与 msi 都要签：SignPath 的
-  artifact configuration 需要同时接受这两种类型。
+    `aarch64-pc-windows-msvc`），**只发布 MSI**（WiX v5，`packaging/windows/product.wxs`，
+    `-arch x64|arm64`）；便携 exe 只作为打进 MSI 的中间产物，不对外发布。
+- Windows 走 SignPath 签名（见 `CODE_SIGNING.md`），顺序是 **先签 exe、再用它打 MSI、最后签
+  MSI**——这样装进 Program Files 的 exe 自身也带签名。SignPath 的 artifact configuration
+  需要同时接受 `.exe` 与 `.msi`。
 
 ## 注意事项
 

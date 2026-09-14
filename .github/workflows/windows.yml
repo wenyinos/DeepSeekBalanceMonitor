@@ -40,6 +40,7 @@ jobs:
       SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
       SIGNPATH_ORG_ID: ${{ vars.SIGNPATH_ORG_ID }}
       SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+      SIGNING_CONFIGURED: ${{ secrets.SIGNPATH_API_TOKEN != '' && vars.SIGNPATH_ORG_ID != '' && vars.SIGNPATH_PROJECT_SLUG != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -80,8 +81,39 @@ jobs:
             $version = (cargo metadata --no-deps --format-version 1 |
               ConvertFrom-Json).packages[0].version
           }
-          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "asset=deepseek-balance-monitor-$version-windows-${{ matrix.arch }}" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "version: $version"
+
+      - name: Name the executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/deepseek-balance-monitor.exe" `
+            "build/${{ steps.version.outputs.asset }}.exe"
+
+      # The executable is signed before it goes into the installer, so the copy
+      # that ends up in Program Files carries a signature of its own.
+      - name: Upload the executable for signing
+        id: upload-exe
+        if: env.SIGNING_CONFIGURED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-exe-${{ matrix.arch }}
+          path: build/*.exe
+
+      - name: Sign the executable
+        id: sign-exe
+        if: env.SIGNING_CONFIGURED == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORG_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: 'release'
+          github-artifact-id: ${{ steps.upload-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-exe
 
       - name: Install WiX
         run: |
@@ -91,82 +123,79 @@ jobs:
       - name: Build the installer
         shell: pwsh
         run: |
-          $version = "${{ steps.version.outputs.value }}"
-          $exe = "target/${{ matrix.target }}/release/deepseek-balance-monitor.exe"
-          $asset = "deepseek-balance-monitor-$version-windows-${{ matrix.arch }}"
+          $exe = "build/${{ steps.version.outputs.asset }}.exe"
+          if (Test-Path "signed-exe") {
+            $signed = Get-ChildItem "signed-exe" -Filter "*.exe" -File -Recurse | Select-Object -First 1
+            if ($signed) {
+              Copy-Item $signed.FullName $exe -Force
+              Write-Host "the installer wraps the signed executable"
+            }
+          } else {
+            Write-Host "signing is not configured; the installer wraps the unsigned executable"
+          }
 
-          Copy-Item $exe "$asset.exe"
           wix build packaging/windows/product.wxs `
             -arch ${{ matrix.arch }} `
-            -d Version=$version `
+            -d Version=${{ steps.version.outputs.value }} `
             -d ExePath=$exe `
-            -o "$asset.msi"
+            -o "build/${{ steps.version.outputs.asset }}.msi"
 
-          (Get-FileHash "$asset.exe" -Algorithm SHA256).Hash + "  $asset.exe" |
-            Out-File "checksums-${{ matrix.arch }}.txt" -Encoding ascii
-          (Get-FileHash "$asset.msi" -Algorithm SHA256).Hash + "  $asset.msi" |
-            Out-File "checksums-${{ matrix.arch }}.txt" -Encoding ascii -Append
-          Get-Content "checksums-${{ matrix.arch }}.txt"
-
-      - name: Upload unsigned packages
-        id: upload-unsigned
-        if: ${{ env.SIGNPATH_API_TOKEN != '' && env.SIGNPATH_ORG_ID != '' && env.SIGNPATH_PROJECT_SLUG != '' }}
+      - name: Upload the installer for signing
+        id: upload-msi
+        if: env.SIGNING_CONFIGURED == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-windows-${{ matrix.arch }}
-          path: |
-            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.exe
-            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.msi
+          name: unsigned-msi-${{ matrix.arch }}
+          path: build/*.msi
 
-      # Both the executable and the installer are signed. The SignPath artifact
-      # configuration has to accept .msi as well as .exe.
-      - name: Sign the packages
-        id: sign
-        if: ${{ env.SIGNPATH_API_TOKEN != '' && env.SIGNPATH_ORG_ID != '' && env.SIGNPATH_PROJECT_SLUG != '' }}
+      - name: Sign the installer
+        id: sign-msi
+        if: env.SIGNING_CONFIGURED == 'true'
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ env.SIGNPATH_API_TOKEN }}
           organization-id: ${{ env.SIGNPATH_ORG_ID }}
           project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: 'release'
-          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          github-artifact-id: ${{ steps.upload-msi.outputs.artifact-id }}
           wait-for-completion: true
-          output-artifact-directory: target-signed
+          output-artifact-directory: signed-msi
 
-      - name: Use the signed packages
+      - name: Use the signed installer
         shell: pwsh
         run: |
-          $asset = "deepseek-balance-monitor-${{ steps.version.outputs.value }}-windows-${{ matrix.arch }}"
-          if (Test-Path "target-signed") {
-            foreach ($extension in @("exe", "msi")) {
-              $signed = Get-ChildItem "target-signed" -Filter "*.$extension" -File -Recurse | Select-Object -First 1
-              if ($signed) {
-                Copy-Item $signed.FullName "$asset.$extension" -Force
-                Write-Host "using the signed $extension"
-              } else {
-                Write-Host "no signed $extension came back; using the unsigned one"
-              }
+          $msi = "build/${{ steps.version.outputs.asset }}.msi"
+          if (Test-Path "signed-msi") {
+            $signed = Get-ChildItem "signed-msi" -Filter "*.msi" -File -Recurse | Select-Object -First 1
+            if ($signed) {
+              Copy-Item $signed.FullName $msi -Force
+              Write-Host "using the signed installer"
             }
-          } else {
-            Write-Host "signing is not configured; using the unsigned packages"
           }
 
-      - name: Upload packages
+      - name: Write the checksum
+        shell: pwsh
+        run: |
+          $asset = "${{ steps.version.outputs.asset }}.msi"
+          "$((Get-FileHash "build/$asset" -Algorithm SHA256).Hash)  $asset" |
+            Out-File "build/checksums-${{ matrix.arch }}.txt" -Encoding ascii
+          Get-Content "build/checksums-${{ matrix.arch }}.txt"
+
+      # The installer is the deliverable; the executable is only ever wrapped.
+      - name: Upload the installer
         uses: actions/upload-artifact@v4
         with:
           name: deepseek-balance-monitor-windows-${{ matrix.arch }}
           path: |
-            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.exe
-            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.msi
-            checksums-${{ matrix.arch }}.txt
+            build/*.msi
+            build/checksums-${{ matrix.arch }}.txt
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.exe
-            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.msi
-            checksums-${{ matrix.arch }}.txt
+            build/*.msi
+            build/checksums-${{ matrix.arch }}.txt
           generate_release_notes: true
           overwrite_files: true
