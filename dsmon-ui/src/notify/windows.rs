@@ -40,9 +40,9 @@ pub fn send(message: &Message) -> Result<(), String> {
         hWnd: hwnd,
         uFlags: NIF_INFO | NIF_GUID,
         guidItem: GUID::from_u128(ICON_GUID),
-        // No icon beside the message: the shell's warning and information
-        // marks are louder than a balance reading, and the mark the previous
-        // build showed was taken from the warning sign in its own title text.
+        // No mark beside the message: the desktop shows none for its own
+        // notifications either, and the shell's warning and information marks
+        // are louder than a balance reading.
         dwInfoFlags: NIIF_NONE,
         ..unsafe { std::mem::zeroed() }
     };
