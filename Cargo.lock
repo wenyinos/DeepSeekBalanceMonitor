@@ -803,6 +803,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
+name = "deepseek-balance-monitor"
+version = "2.0.0"
+dependencies = [
+ "dsmon-core",
+ "dsmon-ui",
+]
+
+[[package]]
 name = "dirs"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -879,6 +887,14 @@ name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
+
+[[package]]
+name = "dsmon"
+version = "2.0.0"
+dependencies = [
+ "dsmon-core",
+ "dsmon-ui",
+]
 
 [[package]]
 name = "dsmon-core"

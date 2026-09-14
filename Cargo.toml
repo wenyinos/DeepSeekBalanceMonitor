@@ -1,9 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["dsmon-core", "dsmon-ui"]
-# rust-linux and rust-windows are folded into the workspace in stage 4,
-# once their legacy sources are replaced by thin entry points.
-exclude = ["rust-linux", "rust-windows"]
+members = ["dsmon-core", "dsmon-ui", "rust-linux", "rust-windows"]
 
 [workspace.package]
 version = "2.0.0"
