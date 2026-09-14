@@ -58,6 +58,7 @@ struct App {
     config: AppConfig,
     monitor: Monitor,
     history: views::history::State,
+    subscriptions: views::subscriptions::State,
     settings: views::settings::State,
     /// Kept alive so the tray icon stays registered for the whole session.
     _tray: crate::tray::TrayHandle,
@@ -83,15 +84,18 @@ impl App {
             },
         );
 
+        let billing_day = config.billing_day_command_code;
         let mut app = Self {
             page: Page::Status,
             config,
             monitor,
             history: views::history::State::default(),
+            subscriptions: views::subscriptions::State::new(billing_day),
             settings,
             _tray: tray,
         };
         app.reload_history();
+        app.subscriptions.reload();
         app
     }
 
@@ -206,8 +210,10 @@ impl eframe::App for App {
                     let selected = self.page == page;
                     if nav_item(ui, &palette, page.label(&lang), selected).clicked() && !selected {
                         self.page = page;
-                        if page == Page::Status {
-                            self.reload_history();
+                        match page {
+                            Page::Status => self.reload_history(),
+                            Page::Subscriptions => self.subscriptions.reload(),
+                            Page::Settings => {}
                         }
                     }
                 }
@@ -254,8 +260,22 @@ impl eframe::App for App {
                         }
                     }
                     Page::Subscriptions => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| views::subscriptions::show(ui, &view, &snapshot));
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            if let Some(action) = views::subscriptions::show(
+                                ui,
+                                &view,
+                                &snapshot,
+                                &mut self.subscriptions,
+                            ) {
+                                match action {
+                                    views::subscriptions::Action::BillingDay(day) => {
+                                        self.subscriptions.billing_day = day;
+                                        self.config.billing_day_command_code = day;
+                                        let _ = self.config.save();
+                                    }
+                                }
+                            }
+                        });
                     }
                     Page::Settings => {
                         egui::ScrollArea::vertical().show(ui, |ui| {

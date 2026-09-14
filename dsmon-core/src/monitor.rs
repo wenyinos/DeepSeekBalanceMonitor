@@ -138,6 +138,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>) {
 
     match result {
         Ok(outcome) => {
+            record_subscription_usage(&outcome);
             guard.balances = outcome.balances;
             guard.service_status = outcome.service_status;
             guard.consumption_rate = outcome.consumption_rate;
@@ -186,6 +187,7 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
     let service_status = platforms::status::fetch(proxy);
     storage::save_balance_history(&balances, &service_status)?;
     let _ = storage::prune_balance_history(config.retention_days);
+    let _ = storage::prune_subscription_history(config.retention_days);
 
     let consumption_rate =
         history::consumption_rate_with_fallback(config.retention_days, config.interval_minutes)
@@ -214,6 +216,32 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
         opencode_go: fetch_opencode_go(platforms::effective_proxy(config)),
         command_code: fetch_command_code(platforms::effective_proxy(config)),
     })
+}
+
+/// Logs the monthly allowance so the subscription page can chart it.
+///
+/// OpenCode Go reports a percentage, so its pool is recorded as a 0-100 scale;
+/// Command Code reports dollars against the plan's pool.
+fn record_subscription_usage(outcome: &Outcome) {
+    if let Subscription::Loaded(quota) = &outcome.opencode_go {
+        if let Some(monthly) = &quota.monthly {
+            let _ = storage::save_subscription_usage(
+                storage::PROVIDER_OPENCODE_GO,
+                monthly.usage_percent,
+                100.0,
+            );
+        }
+    }
+
+    if let Subscription::Loaded(quota) = &outcome.command_code {
+        if let Some(monthly) = &quota.monthly {
+            let _ = storage::save_subscription_usage(
+                storage::PROVIDER_COMMAND_CODE,
+                monthly.used,
+                monthly.cap,
+            );
+        }
+    }
 }
 
 fn fetch_opencode_go(proxy: &str) -> Subscription<OpenCodeGoQuota> {

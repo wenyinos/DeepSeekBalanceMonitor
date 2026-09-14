@@ -10,12 +10,20 @@ use chrono::{Duration as ChronoDuration, Local};
 use rusqlite::{params, Connection, Error as SqlError};
 
 use crate::crypto;
-use crate::model::{Balances, HistoryRecord};
+use crate::model::{Balances, HistoryRecord, SubscriptionPoint};
 use crate::paths;
 use crate::time;
 
 /// Two readings closer than this count as the same one.
 const DEDUP_SECONDS: i64 = 120;
+
+/// Subscription allowances move slowly, so identical readings are skipped for
+/// longer than balance ones.
+const SUBSCRIPTION_DEDUP_SECONDS: i64 = 600;
+
+/// Provider keys used in the `subscription_history` table.
+pub const PROVIDER_OPENCODE_GO: &str = "opencode_go";
+pub const PROVIDER_COMMAND_CODE: &str = "command_code";
 
 /// Secret names used in the `secure_settings` table.
 pub const KEY_DEEPSEEK: &str = "api_key";
@@ -60,6 +68,23 @@ pub fn open_db() -> Result<Connection, String> {
     )
     .map_err(|error| error.to_string())?;
     ensure_service_status_column(&conn)?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS subscription_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            used REAL NOT NULL,
+            cap REAL NOT NULL
+        )",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_subscription_history_provider_timestamp
+            ON subscription_history (provider, timestamp)",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS secure_settings (
             key TEXT PRIMARY KEY,
@@ -273,6 +298,83 @@ fn collect(
         records.push(row.map_err(|error| error.to_string())?);
     }
     Ok(records)
+}
+
+/// Appends a monthly-allowance reading, skipping ones identical to a recent
+/// entry so an idle allowance does not fill the table.
+pub fn save_subscription_usage(provider: &str, used: f64, cap: f64) -> Result<(), String> {
+    let conn = open_db()?;
+    let timestamp = time::now();
+    let cutoff =
+        time::format_local(Local::now() - ChronoDuration::seconds(SUBSCRIPTION_DEDUP_SECONDS));
+
+    let duplicate: i64 = conn
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM subscription_history
+                WHERE provider = ?1
+                  AND timestamp >= ?2
+                  AND ABS(used - ?3) < 0.000001
+                  AND ABS(cap - ?4) < 0.000001
+                LIMIT 1
+            )",
+            params![provider, &cutoff, used, cap],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if duplicate != 0 {
+        return Ok(());
+    }
+
+    conn.execute(
+        "INSERT INTO subscription_history (timestamp, provider, used, cap) VALUES (?1, ?2, ?3, ?4)",
+        params![&timestamp, provider, used, cap],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Readings for one provider within `days`, oldest first.
+pub fn subscription_usage_history(
+    provider: &str,
+    days: u64,
+) -> Result<Vec<SubscriptionPoint>, String> {
+    let conn = open_db()?;
+    let cutoff = time::format_local(Local::now() - ChronoDuration::days(days as i64));
+    let mut stmt = conn
+        .prepare(
+            "SELECT timestamp, used, cap FROM subscription_history
+             WHERE provider = ?1 AND timestamp >= ?2
+             ORDER BY timestamp ASC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![provider, cutoff], |row| {
+            Ok(SubscriptionPoint {
+                timestamp: row.get(0)?,
+                used: row.get(1)?,
+                cap: row.get(2)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    let mut points = Vec::new();
+    for row in rows {
+        points.push(row.map_err(|error| error.to_string())?);
+    }
+    Ok(points)
+}
+
+/// Drops subscription readings older than the retention window.
+pub fn prune_subscription_history(retention_days: u64) -> Result<(), String> {
+    let conn = open_db()?;
+    let cutoff = time::format_local(Local::now() - ChronoDuration::days(retention_days as i64));
+    conn.execute(
+        "DELETE FROM subscription_history WHERE timestamp < ?1",
+        params![cutoff],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 /// Reads and decrypts a stored secret. Empty values read as absent.

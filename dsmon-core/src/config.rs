@@ -33,6 +33,9 @@ pub const MAX_INTERVAL_MINUTES: u64 = 1440;
 pub const MAX_THRESHOLD_YUAN: f64 = 10_000.0;
 pub const MIN_RETENTION_DAYS: u64 = 1;
 pub const MAX_RETENTION_DAYS: u64 = 3650;
+/// Billing days are capped at 28 so every month has the date.
+/// Billing days stop at 28 so the date exists in every month.
+pub const MAX_BILLING_DAY: u8 = 28;
 pub const MIN_WIDGET_OPACITY: f32 = 0.5;
 pub const MAX_WIDGET_OPACITY: f32 = 1.0;
 
@@ -81,6 +84,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub widget_pos: Option<[f32; 2]>,
 
+    /// Day of the month Command Code renews on, 1-28. Its API reports no
+    /// period end, unlike OpenCode Go, so the cycle is taken from here.
+    #[serde(default = "default_billing_day")]
+    pub billing_day_command_code: u8,
+
     #[serde(default)]
     pub window_size: Option<[f32; 2]>,
     #[serde(default)]
@@ -114,6 +122,7 @@ impl Default for AppConfig {
             widget_always_on_top: true,
             widget_show_trend: true,
             widget_pos: None,
+            billing_day_command_code: default_billing_day(),
             window_size: None,
             window_pos: None,
             tray_hint_shown: false,
@@ -151,6 +160,10 @@ fn default_ui_theme() -> String {
 
 fn default_theme() -> String {
     "default".to_owned()
+}
+
+fn default_billing_day() -> u8 {
+    1
 }
 
 fn default_widget_size() -> String {
@@ -239,6 +252,7 @@ impl AppConfig {
         if !WIDGET_SIZES.contains(&self.widget_size.as_str()) {
             self.widget_size = default_widget_size();
         }
+        self.billing_day_command_code = self.billing_day_command_code.clamp(1, 28);
     }
 }
 

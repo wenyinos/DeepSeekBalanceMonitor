@@ -39,6 +39,23 @@ pub struct HistorySummary {
     pub change_total: f64,
 }
 
+/// One logged reading of a subscription's monthly allowance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SubscriptionPoint {
+    pub timestamp: String,
+    /// Allowance consumed so far in the current cycle.
+    pub used: f64,
+    /// Size of the monthly pool, derived from the plan's window caps.
+    pub cap: f64,
+}
+
+impl SubscriptionPoint {
+    /// What is left of the monthly pool.
+    pub fn remaining(&self) -> f64 {
+        (self.cap - self.used).max(0.0)
+    }
+}
+
 /// Busy-hour consumption estimate for the preferred currency.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConsumptionRate {

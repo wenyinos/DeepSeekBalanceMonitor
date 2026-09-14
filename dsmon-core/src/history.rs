@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{Duration as ChronoDuration, Local, NaiveDateTime};
+use chrono::{Datelike, Duration as ChronoDuration, Local, NaiveDate, NaiveDateTime};
 
-use crate::model::{ConsumptionRate, HistoryRecord, HistorySummary};
+use crate::model::{ConsumptionRate, HistoryRecord, HistorySummary, SubscriptionPoint};
 use crate::storage;
 use crate::time;
 
@@ -308,6 +308,61 @@ pub fn consumption_rate_from_records(
     }))
 }
 
+/// One day's consumption, derived from consecutive readings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DailyUsage {
+    /// `YYYY-MM-DD`.
+    pub date: String,
+    pub used: f64,
+}
+
+/// Collapses subscription readings into per-day consumption.
+///
+/// The last reading of each day stands for that day, and the difference to the
+/// previous day is what that day burned. A drop means the allowance was renewed,
+/// so the day is skipped rather than recorded as negative usage.
+pub fn daily_usage(points: &[SubscriptionPoint]) -> Vec<DailyUsage> {
+    let mut last_reading: BTreeMap<String, f64> = BTreeMap::new();
+    for point in points {
+        // Timestamps are `YYYY-MM-DD HH:MM:SS`; the date is the first ten bytes.
+        if let Some(date) = point.timestamp.get(..10) {
+            last_reading.insert(date.to_owned(), point.used);
+        }
+    }
+
+    let mut usage = Vec::new();
+    let mut previous: Option<f64> = None;
+    for (date, used) in last_reading {
+        if let Some(previous) = previous {
+            let delta = used - previous;
+            if delta >= 0.0 {
+                usage.push(DailyUsage { date, used: delta });
+            }
+        }
+        previous = Some(used);
+    }
+    usage
+}
+
+/// Start of the billing cycle containing `today`.
+///
+/// Billing days are capped at 28 so the date exists in every month; when this
+/// month's date has not arrived yet, the cycle began last month.
+pub fn cycle_start(today: NaiveDate, billing_day: u8) -> NaiveDate {
+    let day = u32::from(billing_day.clamp(1, 28));
+    match NaiveDate::from_ymd_opt(today.year(), today.month(), day) {
+        Some(date) if date <= today => date,
+        _ => {
+            let (year, month) = if today.month() == 1 {
+                (today.year() - 1, 12)
+            } else {
+                (today.year(), today.month() - 1)
+            };
+            NaiveDate::from_ymd_opt(year, month, day).unwrap_or(today)
+        }
+    }
+}
+
 /// Renders records as CSV, matching the column order the old CLI exported.
 pub fn history_csv(records: &[HistoryRecord]) -> String {
     let mut lines = vec!["timestamp,currency,total,topped,granted,service_status".to_owned()];
@@ -417,6 +472,60 @@ mod tests {
             .unwrap()
             .expect("a rate is produced");
         assert!(rate.hourly_rate > 0.0);
+    }
+
+    fn point(timestamp: &str, used: f64) -> SubscriptionPoint {
+        SubscriptionPoint {
+            timestamp: timestamp.to_owned(),
+            used,
+            cap: 100.0,
+        }
+    }
+
+    #[test]
+    fn computes_per_day_usage() {
+        let points = vec![
+            point("2026-01-01 10:00:00", 10.0),
+            point("2026-01-01 22:00:00", 12.0),
+            point("2026-01-02 09:00:00", 15.0),
+            point("2026-01-03 09:00:00", 20.0),
+        ];
+        let usage = daily_usage(&points);
+        // The first day has nothing to compare against; the rest count their
+        // increase over the previous day's last reading.
+        assert_eq!(usage.len(), 2);
+        assert_eq!(usage[0].date, "2026-01-02");
+        assert_eq!(usage[0].used, 3.0);
+        assert_eq!(usage[1].date, "2026-01-03");
+        assert_eq!(usage[1].used, 5.0);
+    }
+
+    #[test]
+    fn a_renewal_is_not_negative_usage() {
+        let points = vec![
+            point("2026-01-01 09:00:00", 90.0),
+            point("2026-01-02 09:00:00", 2.0),
+            point("2026-01-03 09:00:00", 6.0),
+        ];
+        let usage = daily_usage(&points);
+        assert_eq!(usage.len(), 1, "the reset day is skipped");
+        assert_eq!(usage[0].date, "2026-01-03");
+        assert_eq!(usage[0].used, 4.0);
+    }
+
+    #[test]
+    fn finds_the_cycle_start() {
+        let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).unwrap();
+        // Billing day 1: the cycle starts this month.
+        assert_eq!(cycle_start(day(2026, 3, 15), 1), day(2026, 3, 1));
+        // Billing day 20: not reached yet, so the cycle began last month.
+        assert_eq!(cycle_start(day(2026, 3, 15), 20), day(2026, 2, 20));
+        assert_eq!(cycle_start(day(2026, 3, 25), 20), day(2026, 3, 20));
+        // January wraps back into the previous year.
+        assert_eq!(cycle_start(day(2026, 1, 5), 20), day(2025, 12, 20));
+        // Out-of-range days are clamped rather than rejected; the 28th of March
+        // has not arrived on the 15th, so the cycle began back in February.
+        assert_eq!(cycle_start(day(2026, 3, 15), 31), day(2026, 2, 28));
     }
 
     #[test]
