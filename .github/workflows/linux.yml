@@ -1,0 +1,110 @@
+name: Linux
+
+# The same trigger as the Windows build: a version tag publishes, anything else
+# only checks. `v*` is the tag this version publishes under.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v[0-9]*"
+    paths:
+      - "dsmon-core/**"
+      - "dsmon-ui/**"
+      - "rust-linux/**"
+      - "assets/**"
+      - "packaging/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/linux.yml"
+  pull_request:
+    paths:
+      - "dsmon-core/**"
+      - "dsmon-ui/**"
+      - "rust-linux/**"
+      - "assets/**"
+      - "packaging/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/linux.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    # Debian 12 carries glibc 2.36, which is the oldest this version supports
+    # (Debian 12, Ubuntu 24.04, Fedora 38 and later). Building here is what
+    # keeps newer symbols out of the binary, so no separate check is needed.
+    container: debian:12
+    permissions:
+      contents: write
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl file gcc g++ libc6-dev make pkg-config \
+            imagemagick rpm
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+      - name: Build release binary
+        run: cargo build --release --locked -p dsmon
+
+      - name: Report the glibc floor
+        run: |
+          file target/release/dsmon
+          echo -n "highest glibc symbol: "
+          objdump -T target/release/dsmon | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1
+
+      - name: Resolve the version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(cargo metadata --no-deps --format-version 1 \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "version: $version"
+
+      - name: Build packages
+        run: |
+          packaging/build-packages.sh "${{ steps.version.outputs.value }}" \
+            target/release/dsmon dist
+          cd dist && sha256sum *.deb *.rpm > checksums.txt && cat checksums.txt
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-balance-monitor-linux
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/checksums.txt
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.deb
+            dist/*.rpm
+            dist/checksums.txt
+          generate_release_notes: true
+          overwrite_files: true

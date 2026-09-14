@@ -1,0 +1,130 @@
+name: Windows
+
+# The same trigger as the Linux build: a version tag publishes, anything else
+# only checks. Only x86_64 is built — the baseline is Windows 10 build 19041,
+# where a 32-bit build has nothing left to serve.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v[0-9]*"
+    paths:
+      - "dsmon-core/**"
+      - "dsmon-ui/**"
+      - "rust-windows/**"
+      - "assets/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/windows.yml"
+  pull_request:
+    paths:
+      - "dsmon-core/**"
+      - "dsmon-ui/**"
+      - "rust-windows/**"
+      - "assets/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGNPATH_ORG_ID: ${{ vars.SIGNPATH_ORG_ID }}
+      SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+      - name: Build release executable
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p deepseek-balance-monitor
+
+      - name: Resolve the version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${env:GITHUB_REF_NAME}" -like "v*") {
+            $version = "${env:GITHUB_REF_NAME}".Substring(1)
+          } else {
+            $version = (cargo metadata --no-deps --format-version 1 |
+              ConvertFrom-Json).packages[0].version
+          }
+          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "version: $version"
+
+      - name: Create the versioned executable
+        shell: pwsh
+        run: |
+          $asset = "deepseek-balance-monitor-${{ steps.version.outputs.value }}-windows-x86_64.exe"
+          Copy-Item "target/x86_64-pc-windows-msvc/release/deepseek-balance-monitor.exe" $asset
+          (Get-FileHash $asset -Algorithm SHA256).Hash | Out-File checksums.txt -Encoding ascii
+          Get-Content checksums.txt
+
+      - name: Upload unsigned executable
+        id: upload-unsigned
+        if: ${{ env.SIGNPATH_API_TOKEN != '' && env.SIGNPATH_ORG_ID != '' && env.SIGNPATH_PROJECT_SLUG != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-exe
+          path: deepseek-balance-monitor-*-windows-*.exe
+
+      - name: Sign the executable
+        id: sign
+        if: ${{ env.SIGNPATH_API_TOKEN != '' && env.SIGNPATH_ORG_ID != '' && env.SIGNPATH_PROJECT_SLUG != '' }}
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORG_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: 'release'
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: target-signed
+
+      - name: Use the signed executable
+        shell: pwsh
+        run: |
+          if (Test-Path "target-signed") {
+            $signed = Get-ChildItem "target-signed" -Filter "*.exe" -File -Recurse | Select-Object -First 1
+            if ($signed) {
+              Copy-Item $signed.FullName "deepseek-balance-monitor-${{ steps.version.outputs.value }}-windows-x86_64.exe" -Force
+              Write-Host "using the signed executable"
+            }
+          } else {
+            Write-Host "signing is not configured; using the unsigned executable"
+          }
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-balance-monitor-windows
+          path: |
+            deepseek-balance-monitor-*-windows-*.exe
+            checksums.txt
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            deepseek-balance-monitor-*-windows-*.exe
+            checksums.txt
+          generate_release_notes: true
+          overwrite_files: true

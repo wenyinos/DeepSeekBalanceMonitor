@@ -1,33 +1,41 @@
 # AGENTS.md
 
-跨平台 DeepSeek API 余额监控工具。**权威项目细节见 `CLAUDE.md`（架构、算法、i18n、密钥存储、多平台矩阵）**，本文件只列 agent 容易踩坑的高信号事实。
-
-## 多实现同步（最高优先级约定）
-
-同一功能有 Python（`src/`、`main.py`）与 Rust 双实现，另有 Rainmeter（Windows）与 Plasma 6（Linux）小组件：
-
-- 改 API 客户端 / 忙时速率算法 / 告警逻辑时，**必须同步检查 Python 与 Rust 两端**
-- `src/` 是 Python 运行时，`main.py` 仅入口，勿改动
+跨平台 DeepSeek 余额监控（2.0，纯 Rust）。**权威项目细节见 `CLAUDE.md`**（架构、存储格式、
+平台集成矩阵、打包），本文件只列 agent 容易踩坑的高信号事实。
 
 ## 命令与工具链
 
-- Python 测试（与 CI 一致）：`python -m unittest discover -s tests -v`
-  - 单文件：`python -m unittest discover -s tests -p test_core.py`
-  - 测试文件无 `__main__` 入口，不能直接 `python tests/test_core.py`
-- Rust **工具链固定 1.77.2**（`rust-toolchain.toml` 强制），务必用 `cargo +1.77.2 ...`，勿用系统默认工具链：
-  - `cd rust-linux && cargo +1.77.2 test --locked` / `cargo +1.77.2 fmt --check`
-  - `cd rust-windows && cargo +1.77.2 build --release --target x86_64-pc-windows-msvc --locked`
-- Linux 安装产物为 `dsmon`（rust-linux crate 名）；CI 在 rockylinux:8 容器构建并检查 glibc 符号，保持 RHEL 8 兼容
+- 工具链为 **stable**（根 `rust-toolchain.toml`）；1.x 的 `cargo +1.77.2` 已作废，勿再用。
+- 测试：`cargo test --workspace --locked`；格式：`cargo fmt --all --check`。
+- Linux 可执行文件是 workspace 成员 `rust-linux`，产物名 `dsmon`。
+- 开发时启动界面：`cargo run -p dsmon-ui --example preview`（不走平台入口）。
+- 两个平台入口都是十几行，只调用 `dsmon_ui::run()`；界面代码在仓库里只有一份。
 
 ## 关键陷阱
 
-- **API Key 永不写入 `config.json`**：Python 用 Fernet+SQLite（`src/secure_settings.py`），Rust 用 SQLite `secure_settings` 表；Opencode Go 凭据同样加密入库
-- Python 版 UI 文案集中在 `src/config.py` 的 `_T` 字典，新增文案必须加进去，不硬编码；CLI 输出固定英文
-- `get_consumption_rate()` 返回 `hourly_rate`（忙时小时速率），非旧版 `daily_rate`
-- API Key 设为 `demo` 会触发 rust-linux 演示模式（`src/demo.rs`）
-- Python 版 tkinter + pystray 双事件循环，改动时避免死锁
+- **`App::logic` 与 `App::ui` 的区别**：eframe 只在有窗口绘制时调用 `ui`。托盘驱动、通知
+  判定、关闭请求的应答必须放在 `logic`，否则窗口最小化/被遮挡时这些功能会静默失效。
+- **egui 关闭请求**：窗口关闭要发 `ViewportCommand::CancelClose` 才拦得住；eframe 还会在
+  第一帧后强制 `set_visible(true)`，所以「启动即隐藏」要等首帧之后再做。
+- **Linux 默认走 XWayland**（`app.rs::prefer_x11`）：Wayland 下窗口既不能隐藏也不能唤回。
+  测试本机行为时注意 `DSMON_NATIVE_WAYLAND=1` 会切到原生 Wayland，行为不同。
+- **X11 图标尺寸上限**：`_NET_WM_ICON` 单次属性请求最多 65535 个字，256×256 图标超两个字会
+  被静默丢弃（窗口变成没有图标）。窗口图标固定用 128px。
+- **依赖 feature 会互相打架**：`ksni` 的默认 feature 会打开 `zbus/tokio`，导致 zbus 选择
+  Tokio 执行器而在本进程里 panic（没有 Tokio 运行时）。workspace 里已关掉 ksni 默认 feature
+  并显式选 `async-io`，勿改回去。
+- **托盘图标是代码绘制的**（余额数字 + 状态色块），不是图片文件；`assets/app.ico` 只用于
+  窗口/任务栏与 Windows exe。
+- **API Key 永不写入 `config.json`**：按平台 key 加密存于 SQLite `secure_settings`。
+  1.x 的 `balance_history.db` 只读，本版用 `dsmon.db`，两者互不影响。
+- **数据库删除不等于缩小文件**：只有 `wal_checkpoint + VACUUM`（设置页的手动清理）才回收空间。
+- **文案**：全部在 `dsmon-ui/src/i18n.rs`，中英都要加；`every_key_the_interface_uses_is_answered`
+  测试会检查界面用到的每个键。
+- 清理测试实例时不要用 `pkill -x dsmon`：本机可能装着 1.x 的 `/usr/local/bin/dsmon`
+  （systemd 用户服务），同名会被一起杀掉。按路径锚定匹配（`pkill -f '^\./target/debug/dsmon'`）。
 
 ## 发布触发
 
-- tag `v*` → Python 构建（GitHub Actions）；`rust-v*` → Rust 构建
-- 发布 / 签名 / Rainmeter 打包细节见 `CLAUDE.md` 与 `CODE_SIGNING.md`
+- tag `v*` → Linux（.deb/.rpm）与 Windows（签名 exe）两个 workflow 都发布；push/PR 只检查。
+- Linux 在 `debian:12` 容器构建（glibc 2.36 基线），包依赖含 `xwayland` 与 CJK 字体。
+- 签名细节见 `CODE_SIGNING.md`。

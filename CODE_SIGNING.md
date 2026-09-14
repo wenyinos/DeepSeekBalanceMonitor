@@ -21,7 +21,7 @@ Windows Defender SmartScreen 主要看两个信号：
 
 ## 推荐方案：SignPath.io（免费版）
 
-本仓库的 Windows release workflow 已集成 SignPath.io 代码签名服务。开源项目应先通过 SignPath Foundation 申请免费 SignPath.io 订阅和证书授权，获批后再配置 GitHub Secrets/Variables，后续发布时 workflow 会自动签名。
+本仓库的 Windows workflow（`.github/workflows/windows.yml`）已集成 SignPath.io 代码签名服务。开源项目应先通过 SignPath Foundation 申请免费 SignPath.io 订阅和证书授权，获批后再配置 GitHub Secrets/Variables，后续发布时 workflow 会自动签名。
 
 适用场景：
 
@@ -152,29 +152,15 @@ permissions:
 
 ## 本项目 workflow 行为
 
-### Python Windows workflow
+### Windows workflow（`.github/workflows/windows.yml`）
 
 签名文件：
 ```
-dist/DeepSeekBalanceMonitor.exe
+deepseek-balance-monitor-<version>-windows-x86_64.exe
 ```
 
 流程：
-1. 使用 PyInstaller 构建 EXE
-2. 上传未签名的 EXE 为 GitHub Artifact
-3. SignPath 从 Artifact 获取文件并签名
-4. 下载签名后的文件
-5. 替换原文件并上传到 GitHub Release
-
-### Rust Windows workflow
-
-签名文件：
-```
-rust-windows/target/*-pc-windows-msvc/release/deepseek-balance-monitor-*-windows-*.exe
-```
-
-流程：
-1. 构建 x86_64 和 i686 两个架构的 EXE
+1. 构建 x86_64 的 EXE（平台基线为 Windows 10 build 19041，不再出 32 位）
 2. 创建带版本号的 EXE 副本
 3. 上传未签名的 EXE 为 GitHub Artifact
 4. SignPath 从 Artifact 获取文件并签名
@@ -192,19 +178,12 @@ rust-windows/target/*-pc-windows-msvc/release/deepseek-balance-monitor-*-windows
 
 ## 发布流程
 
-### Rust Windows
-
 ```bash
-git tag -a rust-v1.2 -m "Rust v1.2"
-git push origin rust-v1.2
+git tag -a v2.0.0 -m "v2.0.0"
+git push origin v2.0.0
 ```
 
-### Python Windows
-
-```bash
-git tag -a v1.2 -m "v1.2"
-git push origin v1.2
-```
+`v*` tag 会同时触发 Linux 与 Windows 两个 workflow，各自出产物并挂到 Release。
 
 ### 发布后检查
 
@@ -249,10 +228,10 @@ Linux 版本使用 SHA256 校验和验证文件完整性。
 
 ```bash
 # 下载 tarball（替换为实际版本号）
-wget https://github.com/OWNER/REPO/releases/download/rust-v1.2/deepseek-balance-monitor-1.2-linux-x86_64.tar.gz
+wget https://github.com/OWNER/REPO/releases/download/v2.0.0/deepseek-balance-monitor_2.0.0_amd64.deb
 
 # 下载校验和文件
-wget https://github.com/OWNER/REPO/releases/download/rust-v1.2/checksums.txt
+wget https://github.com/OWNER/REPO/releases/download/v2.0.0/checksums.txt
 ```
 
 2. 验证校验和：

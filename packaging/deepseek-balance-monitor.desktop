@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=DeepSeek Balance Monitor
+Name[zh_CN]=DeepSeek 余额监控
+Comment=Shows the DeepSeek account balance in the tray
+Comment[zh_CN]=在托盘显示 DeepSeek 账户余额
+Exec=dsmon
+Icon=deepseek-balance-monitor
+Terminal=false
+Categories=Utility;
+Keywords=deepseek;balance;tray;
+StartupWMClass=deepseek-balance-monitor
