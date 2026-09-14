@@ -24,7 +24,8 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "group_appearance") => "Icon Appearance",
             ("en", "api_key_label") => "DeepSeek API Key:",
             ("en", "save_keys") => "Save keys",
-            ("en", "keys_hint") => "Blank keeps the stored key; enter 0 to clear it.",
+            ("en", "keys_hint") =>
+                "Blank keeps the stored key; enter 0 to clear it. Paste with Ctrl+V.",
             ("en", "clear_confirm") => "This clears the keys marked with 0. It cannot be undone.",
             ("en", "confirm") => "Confirm",
             ("en", "daily_usage") => "Daily usage",
@@ -174,7 +175,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "group_appearance") => "图标外观",
             (_, "api_key_label") => "DeepSeek API Key:",
             (_, "save_keys") => "保存密钥",
-            (_, "keys_hint") => "留空保持原密钥，输入 0 清除。",
+            (_, "keys_hint") => "留空保持原密钥，输入 0 清除，粘贴请用 Ctrl+V。",
             (_, "clear_confirm") => "将清除标记为 0 的密钥，此操作无法撤销。",
             (_, "confirm") => "确认清除",
             (_, "daily_usage") => "每日用量",
