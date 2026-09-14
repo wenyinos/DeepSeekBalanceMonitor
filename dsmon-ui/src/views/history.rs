@@ -72,7 +72,10 @@ fn filters_card(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             ui.label(
-                RichText::new(view.text("history_days"))
+                // Latin captions: sitting beside "1d"/"30d", they share
+                // the digits' glyph height so the row reads as one size. A Han
+                // caption fills its em box and looks larger at the same point size.
+                RichText::new("Days")
                     .text_style(egui::TextStyle::Button)
                     .color(palette.text_secondary),
             );
@@ -123,7 +126,7 @@ fn filters_card(
                     });
 
                 ui.label(
-                    RichText::new(view.text("history_currency_filter"))
+                    RichText::new("Currency")
                         .text_style(egui::TextStyle::Button)
                         .color(palette.text_secondary),
                 );
