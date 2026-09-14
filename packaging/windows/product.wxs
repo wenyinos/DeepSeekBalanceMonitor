@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The MSI installer, built by .github/workflows/windows.yml:
+
+    wix build packaging/windows/product.wxs -arch x64 \
+      -d Version=2.0.0 -d ExePath=target/.../deepseek-balance-monitor.exe \
+      -o deepseek-balance-monitor-2.0.0-windows-x64.msi
+
+  `-arch` takes x86, x64 or arm64; the per-machine scope and Program Files
+  directory follow whichever is given.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="DeepSeek Balance Monitor"
+      Manufacturer="wenyinos"
+      Version="$(var.Version)"
+      UpgradeCode="7c4e5b2a-9f31-4d6e-8a17-2b5c9e0d4f31"
+      Scope="perMachine"
+      Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- The icon lives inside the executable; Add/Remove Programs takes it from there. -->
+    <Icon Id="ApplicationIcon" SourceFile="$(var.ExePath)" />
+    <Property Id="ARPPRODUCTICON" Value="ApplicationIcon" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/wenyinos/DeepSeekBalanceMonitor" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="DeepSeek Balance Monitor" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationMenuFolder" Name="DeepSeek Balance Monitor" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="Application" Directory="INSTALLFOLDER">
+      <Component Id="ApplicationFiles" Guid="1b2d3f4a-5c6e-4a8b-9d0e-1f2a3b4c5d6e">
+        <File Id="ApplicationExecutable" Source="$(var.ExePath)" KeyPath="yes" />
+      </Component>
+
+      <!-- The shortcut lives in the user's own menu, so its component keeps a
+           per-user key path and removes its folder on uninstall. -->
+      <Component Id="StartMenuEntry" Guid="2c3e4a5b-6d7f-4b9c-8e1f-2a3b4c5d6e7f">
+        <Shortcut Id="StartMenuShortcut"
+                  Directory="ApplicationMenuFolder"
+                  Name="DeepSeek Balance Monitor"
+                  Description="Shows the DeepSeek account balance in the tray"
+                  Target="[#ApplicationExecutable]"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveApplicationMenuFolder" Directory="ApplicationMenuFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\wenyinos\DeepSeekBalanceMonitor"
+                       Name="startMenuEntry" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="DeepSeek Balance Monitor" Level="1">
+      <ComponentGroupRef Id="Application" />
+    </Feature>
+  </Package>
+</Wix>

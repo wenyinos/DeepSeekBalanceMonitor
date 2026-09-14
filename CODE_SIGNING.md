@@ -364,3 +364,40 @@ Release 中的 `checksums.txt` 文件格式：
 - 使用最小权限角色。
 - 使用带时间戳的签名。
 - 证书或 secret 泄露后立即吊销并轮换。
+
+
+## 2.0 的签名流程（当前）
+
+2.0 是纯 Rust 应用，Windows 工作流为 `.github/workflows/windows.yml`，签名流程与上面一致，
+差别在产物与架构：
+
+| 项 | 值 |
+|---|---|
+| 触发 | tag `v*`（与 Linux 工作流同一个 tag，两者都会发布） |
+| 架构 | 矩阵 `x64` / `arm64`（`x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`），各自独立签名 |
+| 产物 | `deepseek-balance-monitor-<版本>-windows-<x64\|arm64>.exe`（便携）与同名 `.msi`（安装包，WiX v5） |
+| 上传的未签名 artifact | `unsigned-windows-<arch>`，含 exe 与 msi 两个文件 |
+| 签名策略 | 仍为 `release` |
+
+**需要同步调整的地方**：SignPath 的 Artifact Configuration 目前只匹配 `.exe`，启用 MSI 后要
+把 `.msi` 一并纳入匹配规则，否则签名步骤会因找不到可签文件而失败（未配置签名时流程照旧跳过，
+产物保持未签名）。
+
+MSI 由 WiX v5 构建：`dotnet tool install --global wix`，然后
+
+```
+wix build packaging/windows/product.wxs -arch x64 -d Version=<版本> -d ExePath=<exe 路径> -o <输出>.msi
+```
+
+`-arch` 取 `x86` / `x64` / `arm64`，安装范围为 per-machine，装到 Program Files 并创建开始菜单
+快捷方式；安装包图标取自 exe 内嵌的 `assets/app.ico`。
+
+## 2.0 的发布命令
+
+```bash
+git tag -a v2.0.0 -m "v2.0.0"
+git push origin v2.0.0
+```
+
+两个工作流各自出包：Linux 为 `.deb`/`.rpm`（amd64 与 arm64 各一份），Windows 为 `.exe` 与
+`.msi`（x64 与 arm64 各一份），并各带一份 SHA256 校验和。

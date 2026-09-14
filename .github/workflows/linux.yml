@@ -31,7 +31,18 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    # Both architectures this version ships for, each built on a runner of that
+    # architecture: the packages are made from a binary built on the same kind
+    # of machine they will run on.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     # Debian 12 carries glibc 2.36, which is the oldest this version supports
     # (Debian 12, Ubuntu 24.04, Fedora 38 and later). Building here is what
     # keeps newer symbols out of the binary, so no separate check is needed.
@@ -86,13 +97,13 @@ jobs:
       - name: Build packages
         run: |
           packaging/build-packages.sh "${{ steps.version.outputs.value }}" \
-            target/release/dsmon dist
+            "${{ matrix.arch }}" target/release/dsmon dist
           cd dist && sha256sum *.deb *.rpm > checksums.txt && cat checksums.txt
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: deepseek-balance-monitor-linux
+          name: deepseek-balance-monitor-linux-${{ matrix.arch }}
           path: |
             dist/*.deb
             dist/*.rpm

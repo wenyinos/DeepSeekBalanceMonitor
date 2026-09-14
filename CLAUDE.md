@@ -126,12 +126,17 @@ packaging/                 # .desktop 与 deb/rpm 打包脚本
 
 ## 发布与打包
 
-- tag `v*` → 两个 workflow 都发布（`linux.yml` 出 .deb/.rpm，`windows.yml` 出签名 exe）；
-  其余 push/PR 只做检查。
-- Linux 在 `debian:12` 容器构建（glibc 2.36 基线，对应 Debian 12 / Ubuntu 24.04 /
-  Fedora 38+），产物 `dsmon`；包依赖声明 `xwayland` 与 CJK 字体
-  （`fonts-noto-cjk` / `google-noto-sans-cjk-fonts`）。
-- Windows 走 SignPath 签名（见 `CODE_SIGNING.md`），只出 x86_64。
+- tag `v*` → 两个 workflow 都发布；其余 push/PR 只做检查。
+- **两个平台各出两种架构**，都在同架构的 runner 上原生构建（交叉编译只用于 Windows 的
+  arm64 目标）：
+  - Linux：`linux.yml` 矩阵 amd64/arm64（`ubuntu-24.04` / `ubuntu-24.04-arm`），在 `debian:12`
+    容器里构建（glibc 2.36 基线），出 `.deb` 与 `.rpm`（脚本把 amd64/arm64 翻译成 deb 的
+    `amd64/arm64` 与 rpm 的 `x86_64/aarch64`）；包依赖声明 `xwayland` 与 CJK 字体。
+  - Windows：`windows.yml` 矩阵 x64/arm64（`x86_64-pc-windows-msvc` /
+    `aarch64-pc-windows-msvc`），出便携 exe 与 **MSI 安装包**（WiX v5，
+    `packaging/windows/product.wxs`，`-arch x64|arm64`）。
+- Windows 走 SignPath 签名（见 `CODE_SIGNING.md`），exe 与 msi 都要签：SignPath 的
+  artifact configuration 需要同时接受这两种类型。
 
 ## 注意事项
 

@@ -1,7 +1,11 @@
 #!/bin/sh
 # Builds the .deb and .rpm for one release binary.
 #
-#   packaging/build-packages.sh <version> <binary> [output-directory]
+#   packaging/build-packages.sh <version> <architecture> <binary> [output-directory]
+#
+# The architecture is the name the distribution uses, `amd64` or `arm64`, and
+# is translated to what each package format calls it (`x86_64` / `aarch64` for
+# RPM). The binary has to have been built for that architecture.
 #
 # Needs `dpkg-deb` for the Debian package, `rpmbuild` for the RPM, and
 # ImageMagick to turn the application icon into the PNG sizes a desktop wants.
@@ -9,13 +13,23 @@
 
 set -eu
 
-version="${1:?usage: build-packages.sh <version> <binary> [output-directory]}"
-binary="${2:?usage: build-packages.sh <version> <binary> [output-directory]}"
-output="${3:-dist}"
+version="${1:?usage: build-packages.sh <version> <architecture> <binary> [output-directory]}"
+architecture="${2:?usage: build-packages.sh <version> <architecture> <binary> [output-directory]}"
+binary="${3:?usage: build-packages.sh <version> <architecture> <binary> [output-directory]}"
+output="${4:-dist}"
+
+case "$architecture" in
+    amd64) deb_arch=amd64; rpm_arch=x86_64 ;;
+    arm64) deb_arch=arm64; rpm_arch=aarch64 ;;
+    *)
+        echo "unknown architecture: $architecture (expected amd64 or arm64)" >&2
+        exit 2
+        ;;
+esac
 
 repository="$(cd "$(dirname "$0")/.." && pwd)"
 name="deepseek-balance-monitor"
-arch="amd64"
+arch="$deb_arch"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -69,6 +83,7 @@ cat > "$rpm_top/SPECS/$name.spec" <<EOF
 Name:           $name
 Version:        $version
 Release:        1
+BuildArch:      $rpm_arch
 Summary:        DeepSeek account balance in the tray
 License:        MIT
 URL:            https://github.com/wenyinos/DeepSeekBalanceMonitor
@@ -103,5 +118,5 @@ rpmbuild -bb --define "_topdir $rpm_top" --define "_binary_payload w2.xzdio" \
     "$rpm_top/SPECS/$name.spec"
 find "$rpm_top/RPMS" -name '*.rpm' -exec cp {} "$output/" \;
 
-echo "Packages in $output:"
+echo "Packages in $output ($architecture):"
 ls -1 "$output"

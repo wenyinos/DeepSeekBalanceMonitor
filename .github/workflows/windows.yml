@@ -1,8 +1,7 @@
 name: Windows
 
 # The same trigger as the Linux build: a version tag publishes, anything else
-# only checks. Only x86_64 is built — the baseline is Windows 10 build 19041,
-# where a 32-bit build has nothing left to serve.
+# only checks.
 on:
   push:
     branches:
@@ -14,6 +13,7 @@ on:
       - "dsmon-ui/**"
       - "rust-windows/**"
       - "assets/**"
+      - "packaging/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/windows.yml"
@@ -23,6 +23,7 @@ on:
       - "dsmon-ui/**"
       - "rust-windows/**"
       - "assets/**"
+      - "packaging/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/windows.yml"
@@ -39,22 +40,35 @@ jobs:
       SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
       SIGNPATH_ORG_ID: ${{ vars.SIGNPATH_ORG_ID }}
       SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Rust
-        run: rustup toolchain install stable --profile minimal --component rustfmt
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup target add ${{ matrix.target }}
 
       - name: Check formatting
         run: cargo fmt --all --check
 
+      # The same code on either architecture: running the suite twice would
+      # only take twice as long.
       - name: Run tests
+        if: matrix.arch == 'x64'
         run: cargo test --workspace --locked
 
       - name: Build release executable
-        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p deepseek-balance-monitor
+        run: cargo build --release --locked --target ${{ matrix.target }} -p deepseek-balance-monitor
 
       - name: Resolve the version
         id: version
@@ -69,23 +83,44 @@ jobs:
           "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "version: $version"
 
-      - name: Create the versioned executable
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build the installer
         shell: pwsh
         run: |
-          $asset = "deepseek-balance-monitor-${{ steps.version.outputs.value }}-windows-x86_64.exe"
-          Copy-Item "target/x86_64-pc-windows-msvc/release/deepseek-balance-monitor.exe" $asset
-          (Get-FileHash $asset -Algorithm SHA256).Hash | Out-File checksums.txt -Encoding ascii
-          Get-Content checksums.txt
+          $version = "${{ steps.version.outputs.value }}"
+          $exe = "target/${{ matrix.target }}/release/deepseek-balance-monitor.exe"
+          $asset = "deepseek-balance-monitor-$version-windows-${{ matrix.arch }}"
 
-      - name: Upload unsigned executable
+          Copy-Item $exe "$asset.exe"
+          wix build packaging/windows/product.wxs `
+            -arch ${{ matrix.arch }} `
+            -d Version=$version `
+            -d ExePath=$exe `
+            -o "$asset.msi"
+
+          (Get-FileHash "$asset.exe" -Algorithm SHA256).Hash + "  $asset.exe" |
+            Out-File "checksums-${{ matrix.arch }}.txt" -Encoding ascii
+          (Get-FileHash "$asset.msi" -Algorithm SHA256).Hash + "  $asset.msi" |
+            Out-File "checksums-${{ matrix.arch }}.txt" -Encoding ascii -Append
+          Get-Content "checksums-${{ matrix.arch }}.txt"
+
+      - name: Upload unsigned packages
         id: upload-unsigned
         if: ${{ env.SIGNPATH_API_TOKEN != '' && env.SIGNPATH_ORG_ID != '' && env.SIGNPATH_PROJECT_SLUG != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-windows-exe
-          path: deepseek-balance-monitor-*-windows-*.exe
+          name: unsigned-windows-${{ matrix.arch }}
+          path: |
+            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.exe
+            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.msi
 
-      - name: Sign the executable
+      # Both the executable and the installer are signed. The SignPath artifact
+      # configuration has to accept .msi as well as .exe.
+      - name: Sign the packages
         id: sign
         if: ${{ env.SIGNPATH_API_TOKEN != '' && env.SIGNPATH_ORG_ID != '' && env.SIGNPATH_PROJECT_SLUG != '' }}
         uses: signpath/github-action-submit-signing-request@v2
@@ -98,33 +133,40 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: target-signed
 
-      - name: Use the signed executable
+      - name: Use the signed packages
         shell: pwsh
         run: |
+          $asset = "deepseek-balance-monitor-${{ steps.version.outputs.value }}-windows-${{ matrix.arch }}"
           if (Test-Path "target-signed") {
-            $signed = Get-ChildItem "target-signed" -Filter "*.exe" -File -Recurse | Select-Object -First 1
-            if ($signed) {
-              Copy-Item $signed.FullName "deepseek-balance-monitor-${{ steps.version.outputs.value }}-windows-x86_64.exe" -Force
-              Write-Host "using the signed executable"
+            foreach ($extension in @("exe", "msi")) {
+              $signed = Get-ChildItem "target-signed" -Filter "*.$extension" -File -Recurse | Select-Object -First 1
+              if ($signed) {
+                Copy-Item $signed.FullName "$asset.$extension" -Force
+                Write-Host "using the signed $extension"
+              } else {
+                Write-Host "no signed $extension came back; using the unsigned one"
+              }
             }
           } else {
-            Write-Host "signing is not configured; using the unsigned executable"
+            Write-Host "signing is not configured; using the unsigned packages"
           }
 
-      - name: Upload executable
+      - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: deepseek-balance-monitor-windows
+          name: deepseek-balance-monitor-windows-${{ matrix.arch }}
           path: |
-            deepseek-balance-monitor-*-windows-*.exe
-            checksums.txt
+            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.exe
+            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.msi
+            checksums-${{ matrix.arch }}.txt
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            deepseek-balance-monitor-*-windows-*.exe
-            checksums.txt
+            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.exe
+            deepseek-balance-monitor-*-windows-${{ matrix.arch }}.msi
+            checksums-${{ matrix.arch }}.txt
           generate_release_notes: true
           overwrite_files: true
