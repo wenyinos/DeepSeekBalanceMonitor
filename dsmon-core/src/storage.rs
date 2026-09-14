@@ -48,6 +48,7 @@ pub fn open_db() -> Result<Connection, String> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS balance_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            platform TEXT NOT NULL DEFAULT 'deepseek',
             timestamp TEXT NOT NULL,
             currency TEXT NOT NULL,
             total REAL NOT NULL,
@@ -69,6 +70,7 @@ pub fn open_db() -> Result<Connection, String> {
     )
     .map_err(|error| error.to_string())?;
     ensure_service_status_column(&conn)?;
+    ensure_platform_column(&conn)?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS subscription_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,6 +100,28 @@ pub fn open_db() -> Result<Connection, String> {
 
     mark_initialized().map_err(|error| error.to_string())?;
     Ok(conn)
+}
+
+/// Adds the `platform` column to databases created before it existed. Rows
+/// already present belong to DeepSeek, which was the only provider then.
+fn ensure_platform_column(conn: &Connection) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(balance_history)")
+        .map_err(|error| error.to_string())?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?;
+    for column in columns {
+        if column.map_err(|error| error.to_string())? == "platform" {
+            return Ok(());
+        }
+    }
+    conn.execute(
+        "ALTER TABLE balance_history ADD COLUMN platform TEXT NOT NULL DEFAULT 'deepseek'",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 /// Adds the `service_status` column to databases created before it existed.
@@ -144,7 +168,11 @@ fn mark_initialized() -> std::io::Result<()> {
 }
 
 /// Appends the current balances, skipping readings identical to a recent one.
-pub fn save_balance_history(balances: &Balances, service_status: &str) -> Result<(), String> {
+pub fn save_balance_history(
+    platform: &str,
+    balances: &Balances,
+    service_status: &str,
+) -> Result<(), String> {
     let mut conn = open_db()?;
     let timestamp = time::now();
     let dedup_cutoff = time::format_local(Local::now() - ChronoDuration::seconds(DEDUP_SECONDS));
@@ -155,14 +183,16 @@ pub fn save_balance_history(balances: &Balances, service_status: &str) -> Result
             .query_row(
                 "SELECT EXISTS(
                     SELECT 1 FROM balance_history
-                    WHERE currency = ?1
-                      AND timestamp >= ?2
+                    WHERE platform = ?1
+                      AND currency = ?2
+                      AND timestamp >= ?3
                       AND ABS(total - ?3) < 0.000001
                       AND ABS(topped - ?4) < 0.000001
                       AND ABS(granted - ?5) < 0.000001
                     LIMIT 1
                 )",
                 params![
+                    platform,
                     currency.as_str(),
                     &dedup_cutoff,
                     balance.total_balance,
@@ -177,9 +207,10 @@ pub fn save_balance_history(balances: &Balances, service_status: &str) -> Result
         }
 
         tx.execute(
-            "INSERT INTO balance_history (timestamp, currency, total, topped, granted, service_status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO balance_history (platform, timestamp, currency, total, topped, granted, service_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
+                platform,
                 &timestamp,
                 currency.as_str(),
                 balance.total_balance,
@@ -195,7 +226,11 @@ pub fn save_balance_history(balances: &Balances, service_status: &str) -> Result
 }
 
 /// The most recent `limit` records within `days`, oldest first.
-pub fn recent_balance_history(days: u64, limit: usize) -> Result<Vec<HistoryRecord>, String> {
+pub fn recent_balance_history(
+    platform: &str,
+    days: u64,
+    limit: usize,
+) -> Result<Vec<HistoryRecord>, String> {
     let conn = open_db()?;
     let cutoff = time::format_local(Local::now() - ChronoDuration::days(days as i64));
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -204,17 +239,18 @@ pub fn recent_balance_history(days: u64, limit: usize) -> Result<Vec<HistoryReco
             "SELECT timestamp, currency, total, topped, granted, service_status FROM (
                 SELECT timestamp, currency, total, topped, granted, service_status
                 FROM balance_history
-                WHERE timestamp >= ?1
+                WHERE platform = ?1 AND timestamp >= ?2
                 ORDER BY timestamp DESC
-                LIMIT ?2
+                LIMIT ?3
              ) ORDER BY timestamp ASC",
         )
         .map_err(|error| error.to_string())?;
-    collect(stmt.query_map(params![cutoff, limit], record_from_row))
+    collect(stmt.query_map(params![platform, cutoff, limit], record_from_row))
 }
 
 /// Records within `days`, optionally filtered to one currency, oldest first.
 pub fn history_records(
+    platform: &str,
     days: u64,
     currency: Option<&str>,
     limit: usize,
@@ -227,36 +263,36 @@ pub fn history_records(
         Some(_) => conn
             .prepare(
                 "SELECT timestamp, currency, total, topped, granted, service_status FROM balance_history \
-                 WHERE timestamp >= ?1 AND currency = ?2 ORDER BY timestamp ASC LIMIT ?3",
+                 WHERE platform = ?1 AND timestamp >= ?2 AND currency = ?3 ORDER BY timestamp ASC LIMIT ?4",
             )
             .map_err(|error| error.to_string())?,
         None => conn
             .prepare(
                 "SELECT timestamp, currency, total, topped, granted, service_status FROM balance_history \
-                 WHERE timestamp >= ?1 ORDER BY timestamp ASC LIMIT ?2",
+                 WHERE platform = ?1 AND timestamp >= ?2 ORDER BY timestamp ASC LIMIT ?3",
             )
             .map_err(|error| error.to_string())?,
     };
 
     match currency {
         Some(currency) => {
-            collect(stmt.query_map(params![cutoff, currency, limit], record_from_row))
+            collect(stmt.query_map(params![platform, cutoff, currency, limit], record_from_row))
         }
-        None => collect(stmt.query_map(params![cutoff, limit], record_from_row)),
+        None => collect(stmt.query_map(params![platform, cutoff, limit], record_from_row)),
     }
 }
 
 /// Currencies that appear in the last `days` of history.
-pub fn history_currencies(days: u64) -> Result<Vec<String>, String> {
+pub fn history_currencies(platform: &str, days: u64) -> Result<Vec<String>, String> {
     let conn = open_db()?;
     let cutoff = time::format_local(Local::now() - ChronoDuration::days(days as i64));
     let mut stmt = conn
         .prepare(
-            "SELECT DISTINCT currency FROM balance_history WHERE timestamp >= ?1 ORDER BY currency",
+            "SELECT DISTINCT currency FROM balance_history WHERE platform = ?1 AND timestamp >= ?2 ORDER BY currency",
         )
         .map_err(|error| error.to_string())?;
     let rows = stmt
-        .query_map(params![cutoff], |row| row.get::<_, String>(0))
+        .query_map(params![platform, cutoff], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?;
     let mut currencies = Vec::new();
     for row in rows {

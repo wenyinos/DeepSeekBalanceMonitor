@@ -53,16 +53,18 @@ pub fn summarize_history(records: &[HistoryRecord]) -> Vec<HistorySummary> {
 
 /// Busy-hour rate over the last `hours`, for the most recently seen currency.
 pub fn consumption_rate(
+    platform: &str,
     hours: i64,
     interval_minutes: u64,
 ) -> Result<Option<ConsumptionRate>, String> {
     let conn = storage::open_db()?;
     let currency = match conn.query_row(
         "SELECT currency FROM balance_history
+         WHERE platform = ?1
          GROUP BY currency
          ORDER BY MAX(timestamp) DESC, MAX(total) DESC
          LIMIT 1",
-        [],
+        rusqlite::params![platform],
         |row| row.get::<_, String>(0),
     ) {
         Ok(value) => value,
@@ -75,12 +77,12 @@ pub fn consumption_rate(
         .prepare(
             "SELECT timestamp, currency, total, topped, granted, service_status
              FROM balance_history
-             WHERE timestamp >= ?1 AND currency = ?2
+             WHERE platform = ?1 AND timestamp >= ?2 AND currency = ?3
              ORDER BY timestamp ASC",
         )
         .map_err(|error| error.to_string())?;
     let rows = stmt
-        .query_map(rusqlite::params![cutoff, currency], |row| {
+        .query_map(rusqlite::params![platform, cutoff, currency], |row| {
             Ok(HistoryRecord {
                 timestamp: row.get(0)?,
                 currency: row.get(1)?,
@@ -101,10 +103,11 @@ pub fn consumption_rate(
 
 /// Seven days of data, widening to the retention window when that is empty.
 pub fn consumption_rate_with_fallback(
+    platform: &str,
     retention_days: u64,
     interval_minutes: u64,
 ) -> Result<Option<ConsumptionRate>, String> {
-    if let Some(rate) = consumption_rate(7 * 24, interval_minutes)? {
+    if let Some(rate) = consumption_rate(platform, 7 * 24, interval_minutes)? {
         return Ok(Some(rate));
     }
 
@@ -115,7 +118,7 @@ pub fn consumption_rate_with_fallback(
     if fallback_hours <= 7 * 24 {
         return Ok(None);
     }
-    consumption_rate(fallback_hours, interval_minutes)
+    consumption_rate(platform, fallback_hours, interval_minutes)
 }
 
 /// Estimates the burn rate from `topped_up` readings.

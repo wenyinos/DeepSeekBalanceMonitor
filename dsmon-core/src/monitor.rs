@@ -40,7 +40,8 @@ pub struct Snapshot {
     /// Why a platform's last reading failed, keyed the same way.
     pub balance_errors: std::collections::BTreeMap<String, String>,
     pub service_status: String,
-    pub consumption_rate: Option<ConsumptionRate>,
+    /// Burn-rate estimates per platform.
+    pub consumption_rates: std::collections::BTreeMap<String, ConsumptionRate>,
     pub opencode_go: Subscription<OpenCodeGoQuota>,
     pub command_code: Subscription<CommandCodeQuota>,
     pub last_check: Option<DateTime<Local>>,
@@ -171,7 +172,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
             guard.balances = outcome.balances;
             guard.balance_errors = outcome.balance_errors;
             guard.service_status = outcome.service_status;
-            guard.consumption_rate = outcome.consumption_rate;
+            guard.consumption_rates = outcome.consumption_rates;
             guard.opencode_go = outcome.opencode_go;
             guard.command_code = outcome.command_code;
             guard.last_error = None;
@@ -210,7 +211,7 @@ struct Outcome {
     balances: std::collections::BTreeMap<String, Balances>,
     balance_errors: std::collections::BTreeMap<String, String>,
     service_status: String,
-    consumption_rate: Option<ConsumptionRate>,
+    consumption_rates: std::collections::BTreeMap<String, ConsumptionRate>,
     opencode_go: Subscription<OpenCodeGoQuota>,
     command_code: Subscription<CommandCodeQuota>,
 }
@@ -234,23 +235,35 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
 
     let service_status = platforms::status::fetch(proxy);
 
-    // Only DeepSeek keeps a balance history, and only it has a status page.
-    if let Some(deepseek) = balances.get(storage::KEY_DEEPSEEK) {
-        storage::save_balance_history(deepseek, &service_status)?;
+    // Every provider keeps its own history; only DeepSeek has a status page, so
+    // the others record the health as unknown.
+    for (platform, found) in &balances {
+        let status = if platform == storage::KEY_DEEPSEEK {
+            service_status.as_str()
+        } else {
+            "unknown"
+        };
+        storage::save_balance_history(platform, found, status)?;
     }
     let _ = storage::prune_balance_history(config.retention_days);
     let _ = storage::prune_subscription_history(config.retention_days);
 
-    let consumption_rate =
-        history::consumption_rate_with_fallback(config.retention_days, config.interval_minutes)
-            .ok()
-            .flatten();
+    let mut consumption_rates = std::collections::BTreeMap::new();
+    for platform in balances.keys() {
+        if let Ok(Some(rate)) = history::consumption_rate_with_fallback(
+            platform,
+            config.retention_days,
+            config.interval_minutes,
+        ) {
+            consumption_rates.insert(platform.clone(), rate);
+        }
+    }
 
     Ok(Outcome {
         balances,
         balance_errors,
         service_status,
-        consumption_rate,
+        consumption_rates,
         opencode_go: fetch_opencode_go(proxy),
         command_code: fetch_command_code(proxy),
     })
@@ -309,7 +322,9 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
         balances: [("deepseek".to_owned(), balances)].into_iter().collect(),
         balance_errors: Default::default(),
         service_status: "none".to_owned(),
-        consumption_rate,
+        consumption_rates: consumption_rate
+            .map(|rate| [("deepseek".to_owned(), rate)].into_iter().collect())
+            .unwrap_or_default(),
         opencode_go: fetch_opencode_go(platforms::effective_proxy(config)),
         command_code: fetch_command_code(platforms::effective_proxy(config)),
     })

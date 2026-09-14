@@ -100,13 +100,21 @@ impl App {
         app
     }
 
-    /// Reloads the records for the current filters.
+    /// Reloads the records for the current filters and the balance page on
+    /// screen, since each provider keeps its own history.
     fn reload_history(&mut self) {
+        self.history.platform = match &self.page {
+            Page::Balance(key) => key.clone(),
+            _ => dsmon_core::storage::KEY_DEEPSEEK.to_owned(),
+        };
+
         let days = self.history.days;
-        self.history.currencies = storage::history_currencies(days).unwrap_or_default();
         let currency = self.history.currency.clone();
+        self.history.currencies =
+            storage::history_currencies(&self.history.platform, days).unwrap_or_default();
         self.history.records =
-            storage::history_records(days, currency.as_deref(), 5000).unwrap_or_default();
+            storage::history_records(&self.history.platform, days, currency.as_deref(), 5000)
+                .unwrap_or_default();
     }
 
     /// Stores whatever the key fields hold. Blank fields are left alone.

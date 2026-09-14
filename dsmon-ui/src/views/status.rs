@@ -30,25 +30,20 @@ pub fn show(
     platform: &str,
 ) -> Option<Action> {
     let mut refresh = false;
-
-    // Only DeepSeek has a balance history and a public status page, so the other
-    // providers get a plain balance card rather than cards filled with another
-    // platform's figures.
-    if platform != dsmon_core::storage::KEY_DEEPSEEK {
-        ui.columns(2, |columns| {
-            balance_card(&mut columns[0], view, snapshot, platform, &mut refresh);
-        });
-
-        return refresh.then_some(Action::Refresh);
-    }
-
     let mut history_action = None;
 
-    // Balance, trend summary and service health share the top row.
+    // Balance, trend summary and health share the top row, for every provider.
+    // The third card differs: DeepSeek has a public status page, the others
+    // report whether their last read went through.
     ui.columns(3, |columns| {
         balance_card(&mut columns[0], view, snapshot, platform, &mut refresh);
         history_action = history::show_summary(&mut columns[1], view, history);
-        health_card(&mut columns[2], view, snapshot);
+
+        if platform == dsmon_core::storage::KEY_DEEPSEEK {
+            health_card(&mut columns[2], view, snapshot);
+        } else {
+            connection_card(&mut columns[2], view, snapshot, platform);
+        }
     });
 
     // The filter row and the chart keep the full width below.
@@ -173,6 +168,65 @@ fn balance_card(
     });
 }
 
+/// Whether the provider could be reached on the last poll.
+///
+/// Derived rather than fetched: every platform reports success or failure anyway,
+/// and only DeepSeek publishes a status page of its own.
+fn connection_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, platform: &str) {
+    let palette = view.palette;
+
+    card(ui, palette, |ui| {
+        ui.label(
+            RichText::new(view.text("connection_status"))
+                .size(16.0)
+                .color(palette.text_primary)
+                .strong(),
+        );
+        ui.add_space(8.0);
+
+        let error = snapshot.balance_errors.get(platform);
+
+        ui.horizontal(|ui| {
+            status_dot(
+                ui,
+                if error.is_some() {
+                    palette.destructive
+                } else {
+                    palette.positive
+                },
+            );
+            ui.label(
+                RichText::new(view.text(if error.is_some() {
+                    "connection_failed"
+                } else {
+                    "connection_ok"
+                }))
+                .color(palette.text_primary),
+            );
+        });
+
+        ui.add_space(6.0);
+        match error {
+            Some(error) => {
+                ui.label(RichText::new(error).color(palette.destructive).size(12.0));
+            }
+            None => {
+                if let Some(checked) = snapshot.last_check {
+                    ui.label(
+                        RichText::new(format!(
+                            "{} {}",
+                            view.text("last_check"),
+                            dsmon_core::time::format_local(checked)
+                        ))
+                        .color(palette.text_secondary)
+                        .size(12.0),
+                    );
+                }
+            }
+        }
+    });
+}
+
 fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
     let palette = view.palette;
 
@@ -199,7 +253,10 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
 
         ui.add_space(6.0);
 
-        match &snapshot.consumption_rate {
+        match snapshot
+            .consumption_rates
+            .get(dsmon_core::storage::KEY_DEEPSEEK)
+        {
             Some(rate) => {
                 ui.label(
                     RichText::new(format!(
