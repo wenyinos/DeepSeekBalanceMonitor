@@ -61,8 +61,9 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(view.text("balance_title"))
-                    .color(palette.text_secondary)
-                    .size(12.0),
+                    .size(16.0)
+                    .color(palette.text_primary)
+                    .strong(),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let label = if snapshot.checking {
