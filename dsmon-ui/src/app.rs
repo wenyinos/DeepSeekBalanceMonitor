@@ -61,18 +61,23 @@ struct App {
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         crate::fonts::install(&cc.egui_ctx);
-        theme::install(&cc.egui_ctx);
 
         let config = AppConfig::load();
+        let style = theme::Style::from_config(&config.theme);
+        theme::install(&cc.egui_ctx, style, &config.icon_colors);
         theme::set_mode(&cc.egui_ctx, theme::mode_from_config(&config.ui_theme));
 
         let monitor = Monitor::start(config.clone());
         let settings = views::settings::State::new(config.clone());
 
         let quit_ctx = cc.egui_ctx.clone();
-        let tray = crate::tray::spawn("--", theme::current(&cc.egui_ctx), move || {
-            quit_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        });
+        let tray = crate::tray::spawn(
+            "--",
+            theme::current(&cc.egui_ctx, style, &config.icon_colors),
+            move || {
+                quit_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            },
+        );
 
         let mut app = Self {
             page: Page::Status,
@@ -118,6 +123,8 @@ impl App {
         }
 
         self.config = draft;
+        let style = theme::Style::from_config(&self.config.theme);
+        theme::install(ctx, style, &self.config.icon_colors);
         theme::set_mode(ctx, theme::mode_from_config(&self.config.ui_theme));
         let lang = self.config.ui_language.clone();
         self.settings.reset(self.config.clone());
@@ -140,13 +147,15 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let palette = theme::current(ui.ctx());
+        let style = theme::Style::from_config(&self.config.theme);
+        let palette = theme::current(ui.ctx(), style, &self.config.icon_colors);
         let lang = self.config.ui_language.clone();
         let view = View {
             palette: &palette,
             lang: &lang,
         };
         let snapshot = self.monitor.snapshot();
+        let mut switch = None;
 
         egui::Panel::left("navigation")
             .exact_size(190.0)
@@ -170,7 +179,26 @@ impl eframe::App for App {
                         }
                     }
                 }
+
+                // Scheme switch, pinned to the bottom of the sidebar.
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    ui.add_space(4.0);
+                    let label = if palette.dark {
+                        tr(&lang, "day_mode")
+                    } else {
+                        tr(&lang, "night_mode")
+                    };
+                    if ui.button(label).clicked() {
+                        switch = Some(theme::toggled(ui.ctx().theme()));
+                    }
+                });
             });
+
+        if let Some(mode) = switch {
+            theme::set_mode(ui.ctx(), mode);
+            self.config.ui_theme = theme::mode_to_config(mode).to_owned();
+            let _ = self.config.save();
+        }
 
         egui::CentralPanel::default()
             .frame(

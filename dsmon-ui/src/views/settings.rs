@@ -2,12 +2,12 @@
 
 use dsmon_core::config::{
     AppConfig, ALERT_MODES, LANGUAGES, MAX_INTERVAL_MINUTES, MAX_RETENTION_DAYS,
-    MAX_THRESHOLD_YUAN, MIN_INTERVAL_MINUTES, MIN_RETENTION_DAYS, THEMES, UI_THEMES,
+    MAX_THRESHOLD_YUAN, MIN_INTERVAL_MINUTES, MIN_RETENTION_DAYS, UI_THEMES,
 };
 use egui::RichText;
 
 use super::{card, View};
-use crate::theme::Palette;
+use crate::theme::{Palette, Style};
 
 /// Where the release page lives, opened from the About card.
 pub const RELEASES_URL: &str = "https://github.com/wenyinos/DeepSeekBalanceMonitor/releases";
@@ -95,6 +95,15 @@ fn row(ui: &mut egui::Ui, palette: &Palette, label: &str, control: impl FnOnce(&
         });
     });
     ui.add_space(6.0);
+}
+
+/// Label for one of the [`UI_THEMES`] values.
+fn mode_label(view: &View<'_>, value: &str) -> &'static str {
+    match value {
+        "light" => view.text("day_mode"),
+        "dark" => view.text("night_mode"),
+        _ => view.text("theme_system"),
+    }
 }
 
 fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
@@ -193,21 +202,29 @@ fn general_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
         });
 
         row(ui, palette, view.text("theme_label"), |ui| {
-            egui::ComboBox::from_id_salt("ui-theme")
-                .selected_text(&state.draft.ui_theme)
+            egui::ComboBox::from_id_salt("theme-style")
+                .selected_text(view.text(Style::from_config(&state.draft.theme).label_key()))
                 .show_ui(ui, |ui| {
-                    for theme in UI_THEMES {
-                        ui.selectable_value(&mut state.draft.ui_theme, theme.to_owned(), theme);
+                    for style in Style::ALL {
+                        ui.selectable_value(
+                            &mut state.draft.theme,
+                            style.as_config().to_owned(),
+                            view.text(style.label_key()),
+                        );
                     }
                 });
         });
 
-        row(ui, palette, view.text("theme_label"), |ui| {
-            egui::ComboBox::from_id_salt("icon-theme")
-                .selected_text(&state.draft.theme)
+        row(ui, palette, view.text("appearance_label"), |ui| {
+            egui::ComboBox::from_id_salt("ui-theme")
+                .selected_text(mode_label(view, &state.draft.ui_theme))
                 .show_ui(ui, |ui| {
-                    for theme in THEMES {
-                        ui.selectable_value(&mut state.draft.theme, theme.to_owned(), theme);
+                    for value in UI_THEMES {
+                        ui.selectable_value(
+                            &mut state.draft.ui_theme,
+                            value.to_owned(),
+                            mode_label(view, value),
+                        );
                     }
                 });
         });
