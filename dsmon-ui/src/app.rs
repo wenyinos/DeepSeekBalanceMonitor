@@ -104,14 +104,9 @@ impl App {
             storage::history_records(days, currency.as_deref(), 5000).unwrap_or_default();
     }
 
-    /// Persists the settings draft, including any newly entered keys.
-    fn save_settings(&mut self, ctx: &egui::Context) {
-        let draft = self.settings.draft.clone();
-        if let Err(error) = draft.save() {
-            self.settings.notice = Some(error);
-            return;
-        }
-
+    /// Stores whatever the key fields hold. Blank fields are left alone.
+    /// Returns false when a write fails, with the reason in the notice.
+    fn store_keys(&mut self) -> bool {
         for (key, value) in [
             (storage::KEY_DEEPSEEK, &self.settings.deepseek_key),
             (storage::KEY_OPENCODE_GO, &self.settings.opencode_key),
@@ -122,8 +117,37 @@ impl App {
             }
             if let Err(error) = storage::store_secret(key, value) {
                 self.settings.notice = Some(error);
-                return;
+                return false;
             }
+        }
+        true
+    }
+
+    /// Saves the keys entered in the credentials card, in place.
+    fn save_keys(&mut self) {
+        if !self.store_keys() {
+            return;
+        }
+
+        self.settings.deepseek_key.clear();
+        self.settings.opencode_key.clear();
+        self.settings.command_code_key.clear();
+
+        let lang = self.config.ui_language.clone();
+        self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
+        self.monitor.refresh();
+    }
+
+    /// Persists the settings draft, including any newly entered keys.
+    fn save_settings(&mut self, ctx: &egui::Context) {
+        let draft = self.settings.draft.clone();
+        if let Err(error) = draft.save() {
+            self.settings.notice = Some(error);
+            return;
+        }
+
+        if !self.store_keys() {
+            return;
         }
 
         self.config = draft;
@@ -238,6 +262,7 @@ impl eframe::App for App {
                             {
                                 match action {
                                     views::settings::Action::Save => self.save_settings(ui.ctx()),
+                                    views::settings::Action::SaveKeys => self.save_keys(),
                                     views::settings::Action::Cancel => {
                                         self.settings.reset(self.config.clone())
                                     }

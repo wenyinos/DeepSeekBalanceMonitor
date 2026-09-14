@@ -21,6 +21,8 @@ pub enum Action {
     Cancel,
     /// Open the releases page in the browser.
     OpenReleases,
+    /// Store the keys entered in the credentials card right away.
+    SaveKeys,
     /// Apply the draft's theme without saving, so the change is visible at once.
     Preview,
 }
@@ -34,8 +36,6 @@ pub struct State {
     pub deepseek_key: String,
     pub opencode_key: String,
     pub command_code_key: String,
-    /// Whether the key fields show their content.
-    pub reveal_keys: bool,
     /// Feedback shown under the cards.
     pub notice: Option<String>,
 }
@@ -47,7 +47,6 @@ impl State {
             deepseek_key: String::new(),
             opencode_key: String::new(),
             command_code_key: String::new(),
-            reveal_keys: false,
             notice: None,
         }
     }
@@ -63,7 +62,7 @@ pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Act
     let mut action = None;
     let mut preview = false;
 
-    credentials_card(ui, view, state);
+    credentials_card(ui, view, state, &mut action);
     general_card(ui, view, state, &mut preview);
     alerts_card(ui, view, state);
     data_card(ui, view, state);
@@ -113,7 +112,12 @@ fn mode_label(view: &View<'_>, value: &str) -> &'static str {
     }
 }
 
-fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
+fn credentials_card(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    state: &mut State,
+    action: &mut Option<Action>,
+) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
@@ -124,7 +128,9 @@ fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
                     .strong(),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.checkbox(&mut state.reveal_keys, view.text("show_key"));
+                if ui.button(view.text("save_keys")).clicked() {
+                    *action = Some(Action::SaveKeys);
+                }
             });
         });
         ui.add_space(8.0);
@@ -134,7 +140,6 @@ fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
             palette,
             view.text("api_key_label"),
             &mut state.deepseek_key,
-            state.reveal_keys,
         );
         ui.label(
             RichText::new(view.text("api_key_missing_body"))
@@ -148,7 +153,6 @@ fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
             palette,
             view.text("og_api_key_label"),
             &mut state.opencode_key,
-            state.reveal_keys,
         );
         ui.label(
             RichText::new(view.text("og_hint"))
@@ -162,7 +166,6 @@ fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
             palette,
             view.text("cc_api_key_label"),
             &mut state.command_code_key,
-            state.reveal_keys,
         );
         ui.label(
             RichText::new(view.text("cc_hint"))
@@ -172,11 +175,11 @@ fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
     });
 }
 
-fn key_field(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut String, reveal: bool) {
+fn key_field(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut String) {
     row(ui, palette, label, |ui| {
         ui.add(
             egui::TextEdit::singleline(value)
-                .password(!reveal)
+                .password(true)
                 .hint_text("••••••••")
                 .desired_width(260.0),
         );
