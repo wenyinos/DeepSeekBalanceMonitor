@@ -243,7 +243,11 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
         } else {
             "unknown"
         };
-        storage::save_balance_history(platform, found, status)?;
+        // A failed history write costs us the curve, not the reading: the figure
+        // on screen comes from the snapshot, so it should still be shown.
+        if let Err(error) = storage::save_balance_history(platform, found, status) {
+            let _ = storage::log_line(&format!("history write failed for {platform}: {error}"));
+        }
     }
     let _ = storage::prune_balance_history(config.retention_days);
     let _ = storage::prune_subscription_history(config.retention_days);

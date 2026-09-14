@@ -161,7 +161,17 @@ fn balance_card(
             .size(12.0),
         );
 
-        if let Some(error) = snapshot.balance_errors.get(platform) {
+        // Show why there is no figure: this platform's own failure, or the whole
+        // poll's, which is the case when the key could not even be read.
+        let failure = snapshot
+            .balance_errors
+            .get(platform)
+            .or(if snapshot.balances.is_empty() {
+                snapshot.last_error.as_ref()
+            } else {
+                None
+            });
+        if let Some(error) = failure {
             ui.add_space(2.0);
             ui.label(RichText::new(error).color(palette.destructive).size(12.0));
         }

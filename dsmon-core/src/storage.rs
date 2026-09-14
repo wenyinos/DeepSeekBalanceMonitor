@@ -14,6 +14,19 @@ use crate::model::{Balances, HistoryRecord, SubscriptionPoint};
 use crate::paths;
 use crate::time;
 
+/// The six parameters, in order: platform, currency, cutoff, total, topped,
+/// granted.
+const DEDUP_SQL: &str = "SELECT EXISTS(
+    SELECT 1 FROM balance_history
+    WHERE platform = ?1
+      AND currency = ?2
+      AND timestamp >= ?3
+      AND ABS(total - ?4) < 0.000001
+      AND ABS(topped - ?5) < 0.000001
+      AND ABS(granted - ?6) < 0.000001
+    LIMIT 1
+)";
+
 /// Two readings closer than this count as the same one.
 const DEDUP_SECONDS: i64 = 120;
 
@@ -181,16 +194,7 @@ pub fn save_balance_history(
     for (currency, balance) in balances {
         let duplicate: i64 = tx
             .query_row(
-                "SELECT EXISTS(
-                    SELECT 1 FROM balance_history
-                    WHERE platform = ?1
-                      AND currency = ?2
-                      AND timestamp >= ?3
-                      AND ABS(total - ?3) < 0.000001
-                      AND ABS(topped - ?4) < 0.000001
-                      AND ABS(granted - ?5) < 0.000001
-                    LIMIT 1
-                )",
+                DEDUP_SQL,
                 params![
                     platform,
                     currency.as_str(),
@@ -658,6 +662,52 @@ mod tests {
         assert_eq!(classify_key_input(" 0 "), KeyInput::Clear);
         assert_eq!(classify_key_input("sk-abc"), KeyInput::Set("sk-abc"));
         assert_eq!(classify_key_input(" sk-abc "), KeyInput::Set("sk-abc"));
+    }
+
+    /// Runs the dedup statement against an in-memory table. A placeholder that
+    /// does not match its parameters fails right here, rather than silently
+    /// breaking every history write at runtime.
+    #[test]
+    fn the_dedup_statement_matches_its_parameters() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite opens");
+        conn.execute_batch(
+            "CREATE TABLE balance_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform TEXT NOT NULL DEFAULT 'deepseek',
+                timestamp TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                total REAL NOT NULL,
+                topped REAL NOT NULL,
+                granted REAL NOT NULL,
+                service_status TEXT NOT NULL DEFAULT 'unknown'
+            );",
+        )
+        .expect("schema creates");
+
+        let found: i64 = conn
+            .query_row(
+                DEDUP_SQL,
+                params!["deepseek", "CNY", "2026-01-01 00:00:00", 1.0, 2.0, 3.0],
+                |row| row.get(0),
+            )
+            .expect("statement accepts six parameters");
+        assert_eq!(found, 0, "an empty table holds no duplicate");
+
+        conn.execute(
+            "INSERT INTO balance_history (platform, timestamp, currency, total, topped, granted, service_status)
+             VALUES ('deepseek', '2026-01-01 00:00:00', 'CNY', 1.0, 2.0, 3.0, 'unknown')",
+            [],
+        )
+        .expect("row inserts");
+
+        let found: i64 = conn
+            .query_row(
+                DEDUP_SQL,
+                params!["deepseek", "CNY", "2026-01-01 00:00:00", 1.0, 2.0, 3.0],
+                |row| row.get(0),
+            )
+            .expect("statement still runs");
+        assert_eq!(found, 1, "the row just written counts as a duplicate");
     }
 
     #[test]
