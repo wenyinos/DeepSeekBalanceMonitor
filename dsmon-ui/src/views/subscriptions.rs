@@ -24,6 +24,7 @@ fn opencode_go_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
     card(ui, palette, |ui| {
         ui.label(
             RichText::new(view.text("og_title"))
+                .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
         );
@@ -61,6 +62,7 @@ fn command_code_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
     card(ui, palette, |ui| {
         ui.label(
             RichText::new(view.text("group_cc"))
+                .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
         );

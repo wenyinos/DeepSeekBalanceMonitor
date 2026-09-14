@@ -156,6 +156,7 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
         ui.set_min_height(super::SUMMARY_CARD_HEIGHT);
         ui.label(
             RichText::new(view.text("service_status"))
+                .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
         );

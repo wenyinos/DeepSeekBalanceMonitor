@@ -141,6 +141,7 @@ fn chart_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, available: f32)
     card(ui, palette, |ui| {
         ui.label(
             RichText::new(view.text("history_chart"))
+                .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
         );
@@ -204,6 +205,7 @@ fn summary_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, action: &mut 
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(view.text("history_trend"))
+                    .size(16.0)
                     .color(palette.text_primary)
                     .strong(),
             );

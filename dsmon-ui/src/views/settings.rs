@@ -124,6 +124,7 @@ fn credentials_card(
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(view.text("group_credentials"))
+                    .size(16.0)
                     .color(palette.text_primary)
                     .strong(),
             );
@@ -192,6 +193,7 @@ fn general_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State, preview: 
     card(ui, palette, |ui| {
         ui.label(
             RichText::new(view.text("group_general"))
+                .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
         );
@@ -283,6 +285,7 @@ fn alerts_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
     card(ui, palette, |ui| {
         ui.label(
             RichText::new(view.text("group_query"))
+                .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
         );
@@ -319,6 +322,7 @@ fn data_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
     card(ui, palette, |ui| {
         ui.label(
             RichText::new(view.text("retention_label"))
+                .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
         );
@@ -348,6 +352,7 @@ fn about_card(ui: &mut egui::Ui, view: &View<'_>, action: &mut Option<Action>) {
     card(ui, palette, |ui| {
         ui.label(
             RichText::new(dsmon_core::APP_NAME)
+                .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
         );
