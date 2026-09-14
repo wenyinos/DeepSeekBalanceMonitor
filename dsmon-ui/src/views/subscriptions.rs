@@ -17,6 +17,25 @@ use super::{card, progress_line, usage_color, View};
 const HEADING_ROW_HEIGHT: f32 = 30.0;
 use crate::theme::Palette;
 
+/// The providers the page can show, in display order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Provider {
+    OpenCodeGo,
+    CommandCode,
+}
+
+impl Provider {
+    const ALL: [Provider; 2] = [Provider::OpenCodeGo, Provider::CommandCode];
+
+    /// Whether the provider has a key stored, and so deserves a card.
+    fn is_configured(self, snapshot: &Snapshot) -> bool {
+        match self {
+            Provider::OpenCodeGo => !matches!(snapshot.opencode_go, Subscription::NotConfigured),
+            Provider::CommandCode => !matches!(snapshot.command_code, Subscription::NotConfigured),
+        }
+    }
+}
+
 /// What the page asks the application to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -75,11 +94,42 @@ pub fn show(
     });
     ui.add_space(4.0);
 
+    // Only configured subscriptions take up space. Leaving a placeholder for each
+    // unconfigured provider would turn into clutter once more are added.
+    let configured: Vec<Provider> = Provider::ALL
+        .into_iter()
+        .filter(|provider| provider.is_configured(snapshot))
+        .collect();
+
     let mut billing_day = None;
-    ui.columns(2, |columns| {
-        opencode_go_card(&mut columns[0], view, snapshot, state);
-        command_code_card(&mut columns[1], view, snapshot, state, &mut billing_day);
-    });
+
+    if configured.is_empty() {
+        ui.label(
+            RichText::new(view.text("no_subscriptions"))
+                .color(view.palette.text_secondary)
+                .size(12.0),
+        );
+    } else {
+        // Two per row, so a growing list keeps the same rhythm.
+        for chunk in configured.chunks(2) {
+            ui.columns(2, |columns| {
+                for (slot, provider) in chunk.iter().enumerate() {
+                    match provider {
+                        Provider::OpenCodeGo => {
+                            opencode_go_card(&mut columns[slot], view, snapshot, state)
+                        }
+                        Provider::CommandCode => command_code_card(
+                            &mut columns[slot],
+                            view,
+                            snapshot,
+                            state,
+                            &mut billing_day,
+                        ),
+                    }
+                }
+            });
+        }
+    }
 
     if refresh {
         return Some(Action::Refresh);

@@ -24,6 +24,8 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "group_appearance") => "Icon Appearance",
             ("en", "api_key_label") => "DeepSeek API Key:",
             ("en", "save_keys") => "Save keys",
+            ("en", "no_subscriptions") =>
+                "No subscriptions configured yet. Add an API key on the Settings page.",
             ("en", "keys_hint") =>
                 "Blank keeps the stored key; enter 0 to clear it. Paste with Ctrl+V.",
             ("en", "clear_confirm") => "This clears the keys marked with 0. It cannot be undone.",
@@ -175,6 +177,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "group_appearance") => "图标外观",
             (_, "api_key_label") => "DeepSeek API Key:",
             (_, "save_keys") => "保存密钥",
+            (_, "no_subscriptions") => "尚未配置订阅，请到设置页添加 API Key。",
             (_, "keys_hint") => "留空保持原密钥，输入 0 清除，粘贴请用 Ctrl+V。",
             (_, "clear_confirm") => "将清除标记为 0 的密钥，此操作无法撤销。",
             (_, "confirm") => "确认清除",
