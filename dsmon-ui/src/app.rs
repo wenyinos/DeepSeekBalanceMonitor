@@ -346,14 +346,26 @@ impl App {
     fn import_from_legacy(&mut self) {
         let lang = self.config.ui_language.clone();
         self.settings.notice = Some(match storage::import_from_legacy() {
-            Ok(summary) => format!(
-                "{} {} {} · {} {}",
-                tr(&lang, "import_done"),
-                summary.secrets,
-                tr(&lang, "import_keys"),
-                summary.history_records,
-                tr(&lang, "import_rows"),
-            ),
+            Ok(summary) => {
+                let mut notice = format!(
+                    "{} {} {} · {} {}",
+                    tr(&lang, "import_done"),
+                    summary.secrets,
+                    tr(&lang, "import_keys"),
+                    summary.history_records,
+                    tr(&lang, "import_rows"),
+                );
+                if summary.unreadable_secrets > 0 {
+                    // Said plainly: those keys belong to the earlier Windows
+                    // build, which protected them with DPAPI.
+                    notice.push_str(&format!(
+                        " · {} {}",
+                        summary.unreadable_secrets,
+                        tr(&lang, "import_unreadable"),
+                    ));
+                }
+                notice
+            }
             Err(error) => error,
         });
 

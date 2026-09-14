@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_GUID, NIF_INFO, NIIF_INFO, NIIF_WARNING, NIM_MODIFY, NOTIFYICONDATAW,
+    Shell_NotifyIconW, NIF_GUID, NIF_INFO, NIIF_NONE, NIM_MODIFY, NOTIFYICONDATAW,
 };
 
 use super::Message;
@@ -40,11 +40,10 @@ pub fn send(message: &Message) -> Result<(), String> {
         hWnd: hwnd,
         uFlags: NIF_INFO | NIF_GUID,
         guidItem: GUID::from_u128(ICON_GUID),
-        dwInfoFlags: if message.title.contains('\u{26a0}') {
-            NIIF_WARNING
-        } else {
-            NIIF_INFO
-        },
+        // No icon beside the message: the shell's warning and information
+        // marks are louder than a balance reading, and the mark the previous
+        // build showed was taken from the warning sign in its own title text.
+        dwInfoFlags: NIIF_NONE,
         ..unsafe { std::mem::zeroed() }
     };
 

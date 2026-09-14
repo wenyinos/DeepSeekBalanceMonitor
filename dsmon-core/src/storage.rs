@@ -517,15 +517,19 @@ const LEGACY_SECRET_NAMES: [(&str, &str); 3] = [
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportSummary {
     pub secrets: usize,
+    /// Keys that were left behind because they cannot be read here — the
+    /// earlier Windows build protected its own with DPAPI.
+    pub unreadable_secrets: usize,
     pub history_records: usize,
 }
 
 /// Copies the earlier build's data into this build's database.
 ///
-/// The source is opened read-only, so the CLI and Python builds are untouched
-/// and both versions can run side by side. Safe to run more than once: secrets
-/// already present are left alone, and history rows are matched on their
-/// timestamp and currency so a second run adds nothing.
+/// The earlier database is read through a copy of it, so it is never written
+/// to — the CLI, Python and Windows builds keep working beside this one. Safe
+/// to run more than once: secrets already present are left alone, and history
+/// rows are matched on their timestamp and currency so a second run adds
+/// nothing.
 pub fn import_from_legacy() -> Result<ImportSummary, String> {
     let legacy_path = paths::legacy_db_file();
     if !legacy_path.exists() {
@@ -533,9 +537,14 @@ pub fn import_from_legacy() -> Result<ImportSummary, String> {
     }
 
     let target = open_db()?;
-    let source =
-        Connection::open_with_flags(&legacy_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|error| error.to_string())?;
+
+    // The earlier database runs in WAL mode, and a read-only open of one needs
+    // its log files beside it — which are gone as soon as that version closes,
+    // so reading it read-only fails on Windows with "unable to open database
+    // file". A copy can be opened normally, and the original is left alone
+    // whatever the other version happens to be doing.
+    let copy = LegacyCopy::take(&legacy_path)?;
+    let source = Connection::open(copy.database()).map_err(|error| error.to_string())?;
 
     let mut summary = ImportSummary::default();
 
@@ -556,6 +565,15 @@ pub fn import_from_legacy() -> Result<ImportSummary, String> {
 
         for row in rows {
             let (key, value, updated_at) = row.map_err(|error| error.to_string())?;
+
+            // A key this build cannot read is worse than no key: it would look
+            // configured and fail every poll. Counted instead, so the interface
+            // can say that it has to be entered again.
+            if crate::crypto::decrypt(&value).is_err() {
+                summary.unreadable_secrets += 1;
+                continue;
+            }
+
             let inserted = target
                 .execute(
                     "INSERT OR IGNORE INTO secure_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
@@ -604,6 +622,46 @@ pub fn import_from_legacy() -> Result<ImportSummary, String> {
     }
 
     Ok(summary)
+}
+
+/// A throwaway copy of the earlier database, removed when it goes out of scope.
+struct LegacyCopy {
+    directory: std::path::PathBuf,
+}
+
+impl LegacyCopy {
+    /// Copies the database, and whichever of its log files are beside it.
+    fn take(path: &std::path::Path) -> Result<Self, String> {
+        let directory = std::env::temp_dir().join(format!("dsmon-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+
+        let database = directory.join("legacy.db");
+        std::fs::copy(path, &database).map_err(|error| error.to_string())?;
+
+        for suffix in ["-wal", "-shm"] {
+            let mut side = path.as_os_str().to_owned();
+            side.push(suffix);
+            let side = std::path::PathBuf::from(side);
+            if side.exists() {
+                let mut target = database.clone().into_os_string();
+                target.push(suffix);
+                let _ = std::fs::copy(&side, std::path::PathBuf::from(target));
+            }
+        }
+
+        Ok(Self { directory })
+    }
+
+    fn database(&self) -> std::path::PathBuf {
+        self.directory.join("legacy.db")
+    }
+}
+
+impl Drop for LegacyCopy {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
 }
 
 /// Maps a legacy secret name onto the platform it belongs to.
