@@ -1,20 +1,49 @@
-//! Status page: the DeepSeek balance and the service health, laid out tight.
+//! Status page: balance, service health and the balance trend.
+//!
+//! The two summary cards sit side by side; the chart takes the full width
+//! underneath.
 
 use dsmon_core::model::preferred_balance;
 use dsmon_core::monitor::Snapshot;
 use egui::{FontId, RichText};
 
-use super::{card, status_color, status_dot, View};
+use super::{card, history, status_color, status_dot, View};
 use crate::fonts::DIGITS_FAMILY;
 
-/// Draws the page. Returns true when the user asked for a fresh reading.
-pub fn show(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) -> bool {
+/// What the page asks the application to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    /// Poll the APIs again.
+    Refresh,
+    /// Reload the chart data for the current filters.
+    ReloadHistory,
+    /// Write the visible records to a CSV file.
+    ExportHistory,
+}
+
+/// Draws the page.
+pub fn show(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    snapshot: &Snapshot,
+    history: &mut history::State,
+) -> Option<Action> {
     let mut refresh = false;
 
-    balance_card(ui, view, snapshot, &mut refresh);
-    health_card(ui, view, snapshot);
+    ui.columns(2, |columns| {
+        balance_card(&mut columns[0], view, snapshot, &mut refresh);
+        health_card(&mut columns[1], view, snapshot);
+    });
 
-    refresh
+    let chart_action = history::show(ui, view, history);
+
+    if refresh {
+        return Some(Action::Refresh);
+    }
+    chart_action.map(|action| match action {
+        history::Action::Reload => Action::ReloadHistory,
+        history::Action::Export => Action::ExportHistory,
+    })
 }
 
 fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh: &mut bool) {
@@ -43,7 +72,6 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
 
         match preferred_balance(&snapshot.balances) {
             Some((currency, balance)) => {
-                // Figure, currency and the top-up split share one line.
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(dsmon_core::history::format_amount(balance.total_balance))
@@ -55,20 +83,19 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
                     );
                     ui.add_space(6.0);
                     ui.label(RichText::new(currency).color(palette.text_secondary));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(format!(
-                                "{} {}   {} {}",
-                                view.text("topped_up"),
-                                dsmon_core::history::format_amount(balance.topped_up_balance),
-                                view.text("granted"),
-                                dsmon_core::history::format_amount(balance.granted_balance),
-                            ))
-                            .color(palette.text_secondary)
-                            .small(),
-                        );
-                    });
                 });
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new(format!(
+                        "{} {} · {} {}",
+                        view.text("topped_up"),
+                        dsmon_core::history::format_amount(balance.topped_up_balance),
+                        view.text("granted"),
+                        dsmon_core::history::format_amount(balance.granted_balance),
+                    ))
+                    .color(palette.text_secondary)
+                    .small(),
+                );
             }
             None => {
                 ui.horizontal(|ui| {
@@ -90,26 +117,24 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
             }
         }
 
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(match &snapshot.last_check {
-                    Some(checked) => format!(
-                        "{} {}",
-                        view.text("last_check"),
-                        dsmon_core::time::format_local(*checked)
-                    ),
-                    None => view.text("not_checked").to_owned(),
-                })
-                .color(palette.text_secondary)
-                .small(),
-            );
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(match &snapshot.last_check {
+                Some(checked) => format!(
+                    "{} {}",
+                    view.text("last_check"),
+                    dsmon_core::time::format_local(*checked)
+                ),
+                None => view.text("not_checked").to_owned(),
+            })
+            .color(palette.text_secondary)
+            .small(),
+        );
 
-            if let Some(error) = &snapshot.last_error {
-                ui.add_space(12.0);
-                ui.label(RichText::new(error).color(palette.destructive).small());
-            }
-        });
+        if let Some(error) = &snapshot.last_error {
+            ui.add_space(4.0);
+            ui.label(RichText::new(error).color(palette.destructive).small());
+        }
     });
 }
 
@@ -130,43 +155,43 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
             snapshot.service_status.as_str()
         };
 
-        // Health, burn rate and runway share one line.
         ui.horizontal(|ui| {
             status_dot(ui, status_color(palette, status));
             ui.label(RichText::new(status_text(view, status)).color(palette.text_primary));
-
-            ui.add_space(16.0);
-            match &snapshot.consumption_rate {
-                Some(rate) => {
-                    ui.label(
-                        RichText::new(format!(
-                            "{} {}/h",
-                            view.text("daily_rate"),
-                            dsmon_core::history::format_amount(rate.hourly_rate)
-                        ))
-                        .color(palette.text_secondary)
-                        .small(),
-                    );
-                    ui.add_space(12.0);
-                    ui.label(
-                        RichText::new(format!(
-                            "{} {}",
-                            view.text("estimated_remaining"),
-                            format_busy_hours(rate.busy_hours_left)
-                        ))
-                        .color(palette.text_secondary)
-                        .small(),
-                    );
-                }
-                None => {
-                    ui.label(
-                        RichText::new(view.text("not_enough_data"))
-                            .color(palette.text_secondary)
-                            .small(),
-                    );
-                }
-            }
         });
+
+        ui.add_space(6.0);
+
+        match &snapshot.consumption_rate {
+            Some(rate) => {
+                ui.label(
+                    RichText::new(format!(
+                        "{} {}/h",
+                        view.text("daily_rate"),
+                        dsmon_core::history::format_amount(rate.hourly_rate)
+                    ))
+                    .color(palette.text_secondary)
+                    .small(),
+                );
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new(format!(
+                        "{} {}",
+                        view.text("estimated_remaining"),
+                        format_busy_hours(rate.busy_hours_left)
+                    ))
+                    .color(palette.text_secondary)
+                    .small(),
+                );
+            }
+            None => {
+                ui.label(
+                    RichText::new(view.text("not_enough_data"))
+                        .color(palette.text_secondary)
+                        .small(),
+                );
+            }
+        }
     });
 }
 

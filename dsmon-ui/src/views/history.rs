@@ -1,4 +1,6 @@
-//! History page: range and currency filters, the trend chart and the export.
+//! Balance trend: range and currency filters, the chart and the CSV export.
+//!
+//! Drawn at the bottom of the status page.
 
 use dsmon_core::history::{history_csv, summarize_history};
 use dsmon_core::model::HistoryRecord;
