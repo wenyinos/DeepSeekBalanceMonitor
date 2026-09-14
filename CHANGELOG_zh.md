@@ -2,6 +2,44 @@
 
 所有值得记录的变更均记录于此。
 
+## Rust v2.0.0 (2026-09-14)
+
+Python、macOS、Rainmeter、Plasma 小组件与命令行实现全部移除。2.0 是一个纯 Rust 应用、一份
+界面代码，Windows 与 Linux 共用。
+
+### 新增
+
+- 桌面应用：常驻托盘 + 主窗口，侧边栏导航，COSMIC 风格视觉体系——6 套图标配色，各带明暗
+  两套方案，切换按钮在侧边栏左下角
+- 8 个平台家族、14 个条目，分两类：有余额的账户（DeepSeek、Kimi、StepFun、OpenRouter）
+  与有额度窗口的套餐（OpenCode Go、Command Code、MiniMax Token、MiniMax Coding、GLM
+  Coding）。MiniMax 与 GLM Coding 为本次新增
+- 托盘图标绘制余额与状态色，读数变化即重绘；单击弹出汇总（余额、忙时消耗速率、服务状态、
+  上次查询距今多久），菜单可打开窗口、立即查询、打开设置、退出
+- 关闭窗口即收进托盘；只有托盘的「退出」才结束进程
+- 四类系统通知：余额不足（按提醒模式）、服务状态变化、首次运行未配置、数据库被重建
+- 开机自启作为用户设置：Windows 写注册表 `Run`，Linux 写 `~/.config/autostart`，不涉及
+  任何服务管理器
+- 单实例：重复启动会唤出已在运行的窗口
+- 每个平台各自的历史记录、数据库大小显示，以及会压缩文件的手动清理
+- 从 1.x 数据库导入密钥与历史；旧库只读，两个版本可同时使用
+
+### 变更
+
+- 密钥由应用自身以 AES-256-GCM 加密，不依赖 DPAPI / libsecret / Keychain，两平台密文格式一致
+- Rust 工具链改为 stable；平台基线为 Windows 10 build 19041 与 kernel 6.1 档发行版
+  （Debian 12 / Ubuntu 24.04 / Fedora 38 起）
+- Wayland 会话下窗口经 XWayland 打开：Wayland 不允许应用隐藏窗口或唤回窗口，而这两件事正是
+  「关闭进托盘」所需的
+- Linux 交付 `.deb` 与 `.rpm`；Windows 交付 MSI 安装包
+
+### 移除
+
+- Python 实现、macOS 构建与其 WebView 设置、Rainmeter 集成、Plasma 小组件、Linux 命令行
+  及其 systemd 单元
+- Rust 1.77.2 的版本固定，以及为此保留的 Windows 7 支持
+- 多账户模型：现在一个平台一个密钥，在设置页填写
+
 ## Rust v1.4.3 (2026-09-12)
 
 ### 修复

@@ -2,6 +2,50 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.0.0 (2026-09-14)
+
+The Python, macOS, Rainmeter, Plasma widget and CLI implementations are gone. 2.0 is one
+Rust application with one user interface, shared by Windows and Linux.
+
+### Added
+
+- Desktop application: tray-resident, with a main window, sidebar navigation and a
+  COSMIC-style visual system — six icon colour styles, each with a light and a dark scheme,
+  switched from the button at the bottom of the sidebar
+- Fourteen provider entries across eight families, in two kinds: accounts with a balance
+  (DeepSeek, Kimi, StepFun, OpenRouter) and plans with quota windows (OpenCode Go, Command
+  Code, MiniMax Token, MiniMax Coding, GLM Coding). MiniMax and GLM Coding are new
+- Tray icon drawn with the balance and the state colour, republished as the reading changes;
+  a click raises a summary of the balance, burn rate, service state and how stale the reading
+  is, and the menu opens the window, polls now, opens settings or quits
+- Closing the window puts it in the tray; the tray's quit entry is what ends the process
+- Notifications for a low balance (per the alert mode), a service status that moved, a first
+  run with nothing configured, and a database that had to be rebuilt
+- Starting with the session, as a user setting: the `Run` key on Windows, `~/.config/autostart`
+  on Linux — no service manager involved
+- One instance at a time: a second launch raises the window of the copy already running
+- Balance history per provider, a database size readout, and a cleanup that compacts the file
+  rather than only deleting rows
+- Import of keys and history from the 1.x database, which is read and never written, so both
+  versions keep working side by side
+
+### Changed
+
+- Keys are encrypted with AES-256-GCM in the application itself; no DPAPI, libsecret or
+  Keychain, and the same ciphertext format on both platforms
+- Rust toolchain is stable, and the platform baseline is Windows 10 build 19041 and Linux
+  kernel 6.1 distributions (Debian 12, Ubuntu 24.04, Fedora 38 and later)
+- On a Wayland session the window opens through XWayland: Wayland lets an application neither
+  hide its window nor bring it back, which is what closing to the tray needs
+- Linux is delivered as `.deb` and `.rpm`; Windows as an MSI installer
+
+### Removed
+
+- The Python implementation, the macOS build and its WebView settings, the Rainmeter
+  integration, the Plasma widget, the Linux CLI and its systemd unit
+- The Rust 1.77.2 pin and the Windows 7 baseline that required it
+- The multi-account model: one key per platform, entered on the settings page
+
 ## Rust v1.4.3 (2026-09-12)
 
 ### Fixed
