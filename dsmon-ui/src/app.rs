@@ -169,6 +169,27 @@ impl App {
         self.monitor.refresh();
     }
 
+    /// Copies the earlier build's data in, without touching its database.
+    fn import_from_legacy(&mut self) {
+        let lang = self.config.ui_language.clone();
+        self.settings.notice = Some(match storage::import_from_legacy() {
+            Ok(summary) => format!(
+                "{} {} {} · {} {}",
+                tr(&lang, "import_done"),
+                summary.secrets,
+                tr(&lang, "import_keys"),
+                summary.history_records,
+                tr(&lang, "import_rows"),
+            ),
+            Err(error) => error,
+        });
+
+        // Show what arrived straight away.
+        self.reload_history();
+        self.subscriptions.reload();
+        self.monitor.refresh();
+    }
+
     /// Writes the visible records to a CSV file.
     fn export_history(&mut self) {
         let path = export_target(&self.config);
@@ -299,6 +320,9 @@ impl eframe::App for App {
                                         } else {
                                             self.save_keys();
                                         }
+                                    }
+                                    views::settings::Action::ImportLegacy => {
+                                        self.import_from_legacy()
                                     }
                                     views::settings::Action::ConfirmClear => {
                                         self.settings.pending_clear = false;

@@ -78,6 +78,14 @@ pub fn history_db_file() -> PathBuf {
     state_dir().join("dsmon.db")
 }
 
+/// The database the CLI and Python builds share.
+///
+/// Opened read-only, and only by an explicit import: this build never writes
+/// there, so the other versions keep working alongside it.
+pub fn legacy_db_file() -> PathBuf {
+    state_dir().join("balance_history.db")
+}
+
 pub fn history_db_marker_file() -> PathBuf {
     state_dir().join(".dsmon.db.initialized")
 }

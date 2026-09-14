@@ -25,6 +25,8 @@ pub enum Action {
     SaveKeys,
     /// The user confirmed clearing the keys marked with `0`.
     ConfirmClear,
+    /// Copy the earlier build's data into this one.
+    ImportLegacy,
     /// Apply the draft's theme without saving, so the change is visible at once.
     Preview,
 }
@@ -66,7 +68,7 @@ pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Act
     credentials_card(ui, view, state, &mut action);
     general_card(ui, view, state, &mut preview);
     alerts_card(ui, view, state);
-    data_card(ui, view, state);
+    data_card(ui, view, state, &mut action);
     about_card(ui, view, &mut action);
 
     ui.add_space(4.0);
@@ -333,7 +335,7 @@ fn alerts_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
     });
 }
 
-fn data_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
+fn data_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State, action: &mut Option<Action>) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
@@ -360,6 +362,17 @@ fn data_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
                     .desired_width(260.0),
             );
         });
+
+        ui.add_space(10.0);
+        ui.label(
+            RichText::new(view.text("import_hint"))
+                .color(palette.text_secondary)
+                .size(12.0),
+        );
+        ui.add_space(4.0);
+        if ui.button(view.text("import_legacy")).clicked() {
+            *action = Some(Action::ImportLegacy);
+        }
     });
 }
 

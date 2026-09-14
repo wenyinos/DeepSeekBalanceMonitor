@@ -391,6 +391,115 @@ pub fn prune_subscription_history(retention_days: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// Secret names used by the earlier builds, mapped to the platform they belong to.
+const LEGACY_SECRET_NAMES: [(&str, &str); 3] = [
+    ("api_key", KEY_DEEPSEEK),
+    ("opencode_go_api_key", KEY_OPENCODE_GO),
+    ("command_code_api_key", KEY_COMMAND_CODE),
+];
+
+/// What an import from the earlier build's database brought across.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ImportSummary {
+    pub secrets: usize,
+    pub history_records: usize,
+}
+
+/// Copies the earlier build's data into this build's database.
+///
+/// The source is opened read-only, so the CLI and Python builds are untouched
+/// and both versions can run side by side. Safe to run more than once: secrets
+/// already present are left alone, and history rows are matched on their
+/// timestamp and currency so a second run adds nothing.
+pub fn import_from_legacy() -> Result<ImportSummary, String> {
+    let legacy_path = paths::legacy_db_file();
+    if !legacy_path.exists() {
+        return Err("the earlier database was not found".to_owned());
+    }
+
+    let target = open_db()?;
+    let source =
+        Connection::open_with_flags(&legacy_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| error.to_string())?;
+
+    let mut summary = ImportSummary::default();
+
+    // Secrets first: they are what the user would have to re-enter by hand.
+    {
+        let mut stmt = source
+            .prepare("SELECT key, value, updated_at FROM secure_settings")
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+
+        for row in rows {
+            let (key, value, updated_at) = row.map_err(|error| error.to_string())?;
+            let inserted = target
+                .execute(
+                    "INSERT OR IGNORE INTO secure_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                    params![platform_name(&key), value, updated_at],
+                )
+                .map_err(|error| error.to_string())?;
+            summary.secrets += inserted;
+        }
+    }
+
+    // Then the balance history.
+    {
+        let mut stmt = source
+            .prepare(
+                "SELECT timestamp, currency, total, topped, granted, service_status FROM balance_history",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, f64>(2)?,
+                    row.get::<_, f64>(3)?,
+                    row.get::<_, f64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+
+        for row in rows {
+            let (timestamp, currency, total, topped, granted, status) =
+                row.map_err(|error| error.to_string())?;
+            let inserted = target
+                .execute(
+                    "INSERT INTO balance_history (timestamp, currency, total, topped, granted, service_status)
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6
+                     WHERE NOT EXISTS (
+                         SELECT 1 FROM balance_history WHERE timestamp = ?1 AND currency = ?2
+                     )",
+                    params![timestamp, currency, total, topped, granted, status],
+                )
+                .map_err(|error| error.to_string())?;
+            summary.history_records += inserted;
+        }
+    }
+
+    Ok(summary)
+}
+
+/// Maps a legacy secret name onto the platform it belongs to.
+fn platform_name(key: &str) -> &str {
+    LEGACY_SECRET_NAMES
+        .iter()
+        .find(|(old, _)| *old == key)
+        .map(|(_, new)| *new)
+        .unwrap_or(key)
+}
+
 /// Reads and decrypts a stored secret. Empty values read as absent.
 pub fn read_secret(key: &str) -> Result<Option<String>, String> {
     let conn = open_db()?;
