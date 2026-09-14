@@ -112,7 +112,7 @@ CJK 字体缺失风险由 rpm/deb 依赖声明消除（`fonts-noto-cjk` / `googl
 
 - 两套 `egui::Visuals` 由 3.1 语义色生成，所有视图只引用语义名，不写死颜色
 - 三档模式 `system` / `light` / `dark`，存配置字段 `ui_theme`（默认 `system`）
-- 跟随系统：Windows 读注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme`；Linux 走 D-Bus `org.freedesktop.portal.Settings` 的 `color-scheme`（1=dark、2=light），复用 ksni 已引入的 zbus
+- **跟随系统由框架原生提供**：egui 0.36 有 `ThemePreference::{System,Light,Dark}` 与 `Context::set_theme`，eframe 底层用 winit 读取桌面偏好，因此无需自行实现注册表或 D-Bus 探测
 - 切换入口：设置页三选一 + 托盘菜单快捷切换，即时生效
 - **图标配色独立于界面主题**：保留现有 6 套预设（default/contrast/bright/dark_mode/mono/custom）与四色自定义
 
@@ -253,4 +253,4 @@ DeepSeekBalanceMonitor/
 
 ## 15. 已按推荐设定的默认细节
 
-主窗口默认 420×560、尺寸位置记忆；快捷键 Ctrl+S 保存、Esc 关闭设置、Ctrl+Q 退出；设置页保存密钥提供"测试连接"按钮但不强制验证；日志 `app.log` 与按天裁剪沿用；小工具显示 DeepSeek 主币种余额。
+主窗口默认 960×620（横向，对齐 COSMIC 参考图比例）、尺寸位置记忆；快捷键 Ctrl+S 保存、Esc 关闭设置、Ctrl+Q 退出；设置页保存密钥提供"测试连接"按钮但不强制验证；日志 `app.log` 与按天裁剪沿用；小工具显示 DeepSeek 主币种余额。
