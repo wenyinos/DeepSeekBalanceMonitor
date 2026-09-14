@@ -3,6 +3,7 @@
 pub mod history;
 pub mod settings;
 pub mod status;
+pub mod subscriptions;
 
 use egui::{Color32, CornerRadius, Sense};
 

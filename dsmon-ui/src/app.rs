@@ -15,16 +15,23 @@ use crate::views::{self, View};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Page {
     Status,
+    Subscriptions,
     History,
     Settings,
 }
 
 impl Page {
-    const ALL: [Page; 3] = [Page::Status, Page::History, Page::Settings];
+    const ALL: [Page; 4] = [
+        Page::Status,
+        Page::Subscriptions,
+        Page::History,
+        Page::Settings,
+    ];
 
     fn label(self, lang: &str) -> &'static str {
         match self {
             Page::Status => tr(lang, "balance_title"),
+            Page::Subscriptions => tr(lang, "subscription_tab"),
             Page::History => tr(lang, "history_tab"),
             Page::Settings => tr(lang, "settings_tab"),
         }
@@ -214,6 +221,7 @@ impl eframe::App for App {
             )
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| match self.page {
+                    Page::Subscriptions => views::subscriptions::show(ui, &view, &snapshot),
                     Page::Status => {
                         if views::status::show(ui, &view, &snapshot) {
                             self.monitor.refresh();
