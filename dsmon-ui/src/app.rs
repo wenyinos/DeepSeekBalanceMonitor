@@ -68,10 +68,6 @@ impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         crate::fonts::install(&cc.egui_ctx);
 
-        // Secrets used to live under fixed names; move them to their platform
-        // identifiers before anything reads them.
-        storage::migrate_secret_names();
-
         let config = AppConfig::load();
         apply_theme(&cc.egui_ctx, &config);
 

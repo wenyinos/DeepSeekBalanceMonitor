@@ -70,12 +70,16 @@ pub fn log_file() -> PathBuf {
     state_dir().join("app.log")
 }
 
+/// The database this build owns.
+///
+/// Deliberately separate from the one the CLI and Python builds use: this
+/// version must never write into their data.
 pub fn history_db_file() -> PathBuf {
-    state_dir().join("balance_history.db")
+    state_dir().join("dsmon.db")
 }
 
 pub fn history_db_marker_file() -> PathBuf {
-    state_dir().join(".balance_history.db.initialized")
+    state_dir().join(".dsmon.db.initialized")
 }
 
 pub fn secret_key_file() -> PathBuf {
@@ -99,8 +103,19 @@ mod tests {
     #[test]
     fn state_files_sit_in_the_state_directory() {
         assert_eq!(log_file(), state_dir().join("app.log"));
-        assert_eq!(history_db_file(), state_dir().join("balance_history.db"));
         assert_eq!(secret_key_file(), state_dir().join(".secure_settings.key"));
+    }
+
+    #[test]
+    fn this_build_keeps_its_own_database() {
+        // The CLI and Python builds share `balance_history.db`; this build must
+        // not write there.
+        assert_eq!(history_db_file(), state_dir().join("dsmon.db"));
+        assert_ne!(
+            history_db_file(),
+            state_dir().join("balance_history.db"),
+            "the earlier builds' database is off limits"
+        );
     }
 
     #[cfg(windows)]

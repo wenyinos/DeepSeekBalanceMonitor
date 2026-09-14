@@ -31,13 +31,6 @@ pub const KEY_DEEPSEEK: &str = "deepseek";
 pub const KEY_OPENCODE_GO: &str = "opencode_go";
 pub const KEY_COMMAND_CODE: &str = "command_code";
 
-/// Names the same secrets used before the configuration learned about platforms.
-const LEGACY_SECRET_NAMES: [(&str, &str); 3] = [
-    ("api_key", KEY_DEEPSEEK),
-    ("opencode_go_api_key", KEY_OPENCODE_GO),
-    ("command_code_api_key", KEY_COMMAND_CODE),
-];
-
 static DATABASE_RECREATED: AtomicBool = AtomicBool::new(false);
 
 /// Opens the history database, creating and migrating it as needed.
@@ -396,24 +389,6 @@ pub fn prune_subscription_history(retention_days: u64) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
     Ok(())
-}
-
-/// Moves secrets stored under the old fixed names to their platform identifiers.
-///
-/// Runs at start-up. Renaming a key should not cost the user their credentials,
-/// so each one is copied before the old entry is dropped; an entry that already
-/// exists under the new name is left alone.
-pub fn migrate_secret_names() {
-    for (old, new) in LEGACY_SECRET_NAMES {
-        if matches!(read_secret(new), Ok(Some(_))) {
-            continue;
-        }
-        if let Ok(Some(value)) = read_secret(old) {
-            if store_secret(new, &value).is_ok() {
-                let _ = delete_secret(old);
-            }
-        }
-    }
 }
 
 /// Reads and decrypts a stored secret. Empty values read as absent.
