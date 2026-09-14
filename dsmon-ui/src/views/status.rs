@@ -30,6 +30,18 @@ pub fn show(
     platform: &str,
 ) -> Option<Action> {
     let mut refresh = false;
+
+    // Only DeepSeek has a balance history and a public status page, so the other
+    // providers get a plain balance card rather than cards filled with another
+    // platform's figures.
+    if platform != dsmon_core::storage::KEY_DEEPSEEK {
+        ui.columns(2, |columns| {
+            balance_card(&mut columns[0], view, snapshot, platform, &mut refresh);
+        });
+
+        return refresh.then_some(Action::Refresh);
+    }
+
     let mut history_action = None;
 
     // Balance, trend summary and service health share the top row.
@@ -39,12 +51,9 @@ pub fn show(
         health_card(&mut columns[2], view, snapshot);
     });
 
-    // The filter row and the chart keep the full width below. Only DeepSeek
-    // keeps a balance history, so the other providers show no chart.
-    if platform == dsmon_core::storage::KEY_DEEPSEEK {
-        if let Some(action) = history::show_chart(ui, view, history) {
-            history_action = Some(action);
-        }
+    // The filter row and the chart keep the full width below.
+    if let Some(action) = history::show_chart(ui, view, history) {
+        history_action = Some(action);
     }
 
     if refresh {
@@ -69,8 +78,11 @@ fn balance_card(
         ui.set_min_height(super::SUMMARY_CARD_HEIGHT);
 
         ui.horizontal(|ui| {
+            let title = dsmon_core::catalog::find(platform)
+                .map(|meta| format!("{} {}", meta.display_name, view.text("balance_word")))
+                .unwrap_or_default();
             ui.label(
-                RichText::new(view.text("balance_title"))
+                RichText::new(title)
                     .size(16.0)
                     .color(palette.text_primary)
                     .strong(),

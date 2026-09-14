@@ -234,12 +234,22 @@ impl eframe::App for App {
                 );
                 ui.add_space(14.0);
 
-                // One entry per balance platform, taken from the catalog: each
-                // reuses the same page shape, so adding a provider means writing
-                // its client, not another screen.
+                // One entry per *configured* balance platform: a page for a
+                // provider the user never set up would be empty noise. A platform
+                // that failed still appears, so its error is reachable.
+                let known: std::collections::BTreeSet<&str> = snapshot
+                    .balances
+                    .keys()
+                    .chain(snapshot.balance_errors.keys())
+                    .map(String::as_str)
+                    .collect();
+
                 for meta in dsmon_core::catalog::implemented()
                     .filter(|meta| meta.mode == dsmon_core::catalog::Mode::Payg)
                 {
+                    if !known.contains(meta.key) {
+                        continue;
+                    }
                     let selected = matches!(&self.page, Page::Balance(key) if key == meta.key);
                     let label = format!("{} {}", meta.display_name, tr(&lang, "balance_word"));
                     if nav_item(ui, &palette, &label, selected).clicked() && !selected {
