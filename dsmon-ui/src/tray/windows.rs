@@ -71,6 +71,18 @@ impl TrayHandle {
 
         let tooltip = format!("{}\n{}", dsmon_core::APP_NAME, status.tooltip);
         let _ = self.icon.set_tooltip(Some(tooltip));
+
+        // Once per run, in the log: the shell answers with a rectangle only for
+        // an icon it really holds, so this is what tells "the icon is missing"
+        // apart from "the panel keeps it out of sight".
+        static REPORTED: std::sync::Once = std::sync::Once::new();
+        REPORTED.call_once(|| {
+            let where_it_is = match self.icon.rect() {
+                Some(rect) => format!("{rect:?}"),
+                None => "unknown to the shell".to_owned(),
+            };
+            let _ = dsmon_core::storage::log_line(&format!("the tray icon is at {where_it_is}"));
+        });
     }
 
     pub fn set_language(&self, lang: &str) {
@@ -123,9 +135,6 @@ pub fn spawn(
         .with_icon(image)
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
-        // A balloon has to name the icon it belongs to, and this is the name
-        // the notification module knows it by.
-        .with_guid(crate::notify::windows::ICON_GUID)
         .build()
         .expect("tray icon registers with the shell");
 

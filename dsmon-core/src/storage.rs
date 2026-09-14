@@ -531,9 +531,12 @@ pub struct ImportSummary {
 /// rows are matched on their timestamp and currency so a second run adds
 /// nothing.
 pub fn import_from_legacy() -> Result<ImportSummary, String> {
+    // Only the earlier Rust build is imported from, and it kept its database
+    // where this one keeps its state. The path is named in the error so that a
+    // failure says where it looked.
     let legacy_path = paths::legacy_db_file();
     if !legacy_path.exists() {
-        return Err("the earlier database was not found".to_owned());
+        return Err(format!("no earlier database at {}", legacy_path.display()));
     }
 
     let target = open_db()?;
@@ -548,8 +551,20 @@ pub fn import_from_legacy() -> Result<ImportSummary, String> {
 
     let mut summary = ImportSummary::default();
 
+    // A database that was never given a key has no secure_settings table — the
+    // earlier build created it when the first key was stored — so each table is
+    // read when it is there rather than being required.
+    let secrets_present = table_exists(&source, "secure_settings")?;
+    let history_present = table_exists(&source, "balance_history")?;
+    if !secrets_present && !history_present {
+        return Err(format!(
+            "{} is not an earlier database: it holds neither table",
+            legacy_path.display()
+        ));
+    }
+
     // Secrets first: they are what the user would have to re-enter by hand.
-    {
+    if secrets_present {
         let mut stmt = source
             .prepare("SELECT key, value, updated_at FROM secure_settings")
             .map_err(|error| error.to_string())?;
@@ -585,7 +600,7 @@ pub fn import_from_legacy() -> Result<ImportSummary, String> {
     }
 
     // Then the balance history.
-    {
+    if history_present {
         let mut stmt = source
             .prepare(
                 "SELECT timestamp, currency, total, topped, granted, service_status FROM balance_history",
@@ -621,7 +636,26 @@ pub fn import_from_legacy() -> Result<ImportSummary, String> {
         }
     }
 
+    let _ = log_line(&format!(
+        "imported from {}: {} keys, {} unreadable, {} history rows",
+        legacy_path.display(),
+        summary.secrets,
+        summary.unreadable_secrets,
+        summary.history_records
+    ));
+
     Ok(summary)
+}
+
+/// Whether the database holds a table of that name.
+fn table_exists(conn: &Connection, name: &str) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        params![name],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|found| found == 1)
+    .map_err(|error| error.to_string())
 }
 
 /// A throwaway copy of the earlier database, removed when it goes out of scope.

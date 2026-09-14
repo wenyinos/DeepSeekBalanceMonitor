@@ -86,7 +86,7 @@ cargo build --release -p dsmon-ui --bin dsmon2 --target aarch64-pc-windows-msvc
 工具链为 stable。Linux 包在 Debian 12 容器里构建，以保持 glibc 2.36 基线：
 
 ```bash
-packaging/build-packages.sh 2.0.1 arm64 target/release/dsmon2 dist
+packaging/build-packages.sh 2.0.2 arm64 target/release/dsmon2 dist
 ```
 
 本版本的变化见 [CHANGELOG_zh.md](CHANGELOG_zh.md)。

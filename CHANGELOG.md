@@ -2,6 +2,17 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.0.2 (2026-09-14)
+
+### Fixed
+
+- The Windows tray icon is registered the ordinary way again. It had been given
+  a fixed GUID so that a balloon could name it; that registration survives a
+  killed process and the shell can then refuse to show the icon on the next run
+- Importing the earlier database says where it looked when it finds nothing, and
+  reads whichever of its tables are present: a database that was never given a
+  key has no key table at all
+
 ## Rust v2.0.1 (2026-09-14)
 
 ### Fixed

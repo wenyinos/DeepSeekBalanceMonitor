@@ -1,23 +1,22 @@
 //! Notifications as a tray balloon, the way the previous build raised them.
 //! Windows turns those into toasts of its own on Windows 10 and later.
 //!
-//! The balloon has to name the tray icon it belongs to. `tray-icon` keeps its
-//! own identity private, so the icon is registered under a fixed GUID — the one
-//! below — and the same GUID is used here to address it.
+//! The balloon has to name the tray icon it belongs to. `tray-icon` numbers its
+//! icons from one and this application creates exactly one of them, so the
+//! number below is the icon's identity.
 
 use std::sync::atomic::{AtomicPtr, Ordering};
 
-use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_GUID, NIF_INFO, NIIF_NONE, NIM_MODIFY, NOTIFYICONDATAW,
+    Shell_NotifyIconW, NIF_INFO, NIIF_NONE, NIM_MODIFY, NOTIFYICONDATAW,
 };
 
 use super::Message;
 
-/// The identity the tray icon is registered under. Constant so that the balloon
-/// and the icon agree across runs.
-pub const ICON_GUID: u128 = 0x8f0c_1a5e_4b6d_49a3_9c21_7e5d_3f80_1b64;
+/// The tray icon's identity: the first icon `tray-icon` makes in a process is
+/// number one, and this application makes one.
+const ICON_ID: u32 = 1;
 
 /// The hidden window `tray-icon` created for our icon, remembered when the tray
 /// is set up.
@@ -38,8 +37,8 @@ pub fn send(message: &Message) -> Result<(), String> {
     let mut info = NOTIFYICONDATAW {
         cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
-        uFlags: NIF_INFO | NIF_GUID,
-        guidItem: GUID::from_u128(ICON_GUID),
+        uFlags: NIF_INFO,
+        uID: ICON_ID,
         // No mark beside the message: the desktop shows none for its own
         // notifications either, and the shell's warning and information marks
         // are louder than a balance reading.

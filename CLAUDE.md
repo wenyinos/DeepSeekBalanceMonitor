@@ -7,7 +7,7 @@
 ## 项目概述
 
 跨平台桌面应用（Windows + Linux，**同一份界面代码**）：常驻托盘，定时查询 DeepSeek 及其他
-平台的余额与套餐额度，写入本地历史，余额低或服务异常时发系统通知。版本 2.0.1，纯 Rust，
+平台的余额与套餐额度，写入本地历史，余额低或服务异常时发系统通知。版本 2.0.2，纯 Rust，
 无 WebView、无 Python。
 
 ## 常用命令
@@ -20,7 +20,7 @@ cargo build --release -p dsmon-ui --bin dsmon2  # Linux 可执行文件：target
 cargo run -p dsmon-ui --example preview # 开发时直接启动界面（不走平台入口）
 
 # 打包（需要 dpkg-deb / rpmbuild / ImageMagick，CI 在容器里跑）
-packaging/build-packages.sh 2.0.1 amd64 target/release/dsmon2 dist
+packaging/build-packages.sh 2.0.2 amd64 target/release/dsmon2 dist
 ```
 
 Rust 工具链为 **stable**（根 `rust-toolchain.toml`）。1.x 的 1.77.2 固定版本随 Windows 7
