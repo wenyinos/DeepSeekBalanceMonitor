@@ -32,7 +32,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "import_done") => "Imported",
             ("en", "import_keys") => "keys",
             ("en", "import_rows") => "history rows",
-            ("en", "pending_platforms") => "Platforms not supported yet",
+            ("en", "unset_keys") => "Keys not set",
             ("en", "no_subscriptions") =>
                 "No subscriptions configured yet. Add an API key on the Settings page.",
             ("en", "keys_hint") =>
@@ -194,7 +194,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "import_done") => "已导入",
             (_, "import_keys") => "个密钥",
             (_, "import_rows") => "条历史记录",
-            (_, "pending_platforms") => "暂未支持的平台",
+            (_, "unset_keys") => "未配置密钥",
             (_, "no_subscriptions") => "尚未配置订阅，请到设置页添加 API Key。",
             (_, "keys_hint") => "留空保持原密钥，输入 0 清除，粘贴请用 Ctrl+V。",
             (_, "clear_confirm") => "将清除标记为 0 的密钥，此操作无法撤销。",

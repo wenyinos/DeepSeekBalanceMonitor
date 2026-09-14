@@ -2,8 +2,11 @@
 
 pub mod command_code;
 pub mod deepseek;
+pub mod kimi;
 pub mod opencode_go;
+pub mod openrouter;
 pub mod status;
+pub mod stepfun;
 
 use std::time::Duration;
 

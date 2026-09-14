@@ -100,7 +100,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Payg,
         windows: &[],
         console_url: "https://platform.moonshot.cn",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "kimi_token_global",
@@ -108,7 +108,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Payg,
         windows: &[],
         console_url: "https://platform.moonshot.ai",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "minimax_token_cn",
@@ -148,7 +148,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Payg,
         windows: &[],
         console_url: "https://platform.stepfun.com",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "stepfun_token_global",
@@ -156,7 +156,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Payg,
         windows: &[],
         console_url: "https://platform.stepfun.ai",
-        implemented: false,
+        implemented: true,
     },
     PlatformMeta {
         key: "openrouter",
@@ -164,7 +164,7 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Payg,
         windows: &[],
         console_url: "https://openrouter.ai/settings/keys",
-        implemented: false,
+        implemented: true,
     },
 ];
 
@@ -246,8 +246,20 @@ mod tests {
     #[test]
     fn the_three_shipped_clients_are_listed_as_implemented() {
         let implemented: Vec<&str> = implemented().map(|meta| meta.key).collect();
-        assert_eq!(implemented, ["deepseek", "opencode_go", "command_code"]);
-        assert!(pending().count() >= 5, "the rest are placeholders");
+        assert_eq!(
+            implemented,
+            [
+                "deepseek",
+                "opencode_go",
+                "command_code",
+                "kimi_token_cn",
+                "kimi_token_global",
+                "stepfun_token_cn",
+                "stepfun_token_global",
+                "openrouter",
+            ]
+        );
+        assert!(pending().count() >= 6, "the rest are placeholders");
     }
 
     #[test]

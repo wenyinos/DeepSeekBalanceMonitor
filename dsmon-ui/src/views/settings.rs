@@ -43,21 +43,26 @@ pub struct State {
     pub notice: Option<String>,
     /// Set while an erase is waiting for a second click.
     pub pending_clear: bool,
+    /// Platforms that already have a key stored.
+    pub configured: std::collections::BTreeSet<String>,
 }
 
 impl State {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(config: AppConfig, configured: std::collections::BTreeSet<String>) -> Self {
         Self {
             draft: config,
             keys: std::collections::BTreeMap::new(),
             notice: None,
             pending_clear: false,
+            configured,
         }
     }
 
-    /// Replaces the draft, for example after a cancel.
+    /// Replaces the draft, for example after a cancel. The set of configured
+    /// platforms stays as it is.
     pub fn reset(&mut self, config: AppConfig) {
-        *self = Self::new(config);
+        let configured = std::mem::take(&mut self.configured);
+        *self = Self::new(config, configured);
     }
 }
 
@@ -180,6 +185,10 @@ fn credentials_card(
 
         // Balance providers first, then subscriptions: the two report different
         // things and are read in different places.
+        //
+        // Within a group only the platforms that already hold a key are listed.
+        // The rest — whether their client exists yet or not — sit behind one
+        // collapsing header, so the page stays short.
         for (heading, mode) in [
             ("payg_accounts", Mode::Payg),
             ("package_accounts", Mode::Package),
@@ -191,22 +200,39 @@ fn credentials_card(
             );
             ui.add_space(6.0);
 
-            for meta in dsmon_core::catalog::implemented().filter(|meta| meta.mode == mode) {
+            let configured = |meta: &&'static dsmon_core::catalog::PlatformMeta| {
+                meta.mode == mode && state.configured.contains(meta.key)
+            };
+            let unconfigured = |meta: &&'static dsmon_core::catalog::PlatformMeta| {
+                meta.mode == mode && !state.configured.contains(meta.key)
+            };
+
+            for meta in dsmon_core::catalog::PLATFORMS.iter().filter(configured) {
                 let value = state.keys.entry(meta.key.to_owned()).or_default();
                 key_field(ui, palette, meta.display_name, value);
             }
 
-            // The two groups share a heading, and egui derives a widget's id
-            // from its label — without a salt the second one would collide.
-            egui::CollapsingHeader::new(view.text("pending_platforms"))
+            let rest: Vec<_> = dsmon_core::catalog::PLATFORMS
+                .iter()
+                .filter(unconfigured)
+                .collect();
+            if !rest.is_empty() {
+                // The two groups share a heading, and egui derives a widget's id
+                // from its label — without a salt the second one would collide.
+                egui::CollapsingHeader::new(format!(
+                    "{} ({})",
+                    view.text("unset_keys"),
+                    rest.len()
+                ))
                 .id_salt(heading)
                 .show(ui, |ui| {
                     ui.add_space(4.0);
-                    for meta in dsmon_core::catalog::pending().filter(|meta| meta.mode == mode) {
+                    for meta in rest {
                         let value = state.keys.entry(meta.key.to_owned()).or_default();
                         key_field(ui, palette, meta.display_name, value);
                     }
                 });
+            }
 
             ui.add_space(10.0);
         }

@@ -70,7 +70,7 @@ impl App {
         apply_theme(&cc.egui_ctx, &config);
 
         let monitor = Monitor::start(config.clone());
-        let settings = views::settings::State::new(config.clone());
+        let settings = views::settings::State::new(config.clone(), configured_platforms());
 
         let quit_ctx = cc.egui_ctx.clone();
         let tray = crate::tray::spawn(
@@ -141,6 +141,7 @@ impl App {
             value.clear();
         }
         self.settings.pending_clear = false;
+        self.settings.configured = configured_platforms();
 
         let lang = self.config.ui_language.clone();
         self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
@@ -387,6 +388,15 @@ fn nav_item(ui: &mut egui::Ui, palette: &Palette, label: &str, selected: bool) -
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     response
+}
+
+/// Platforms that already hold a key, for the settings page to group by.
+fn configured_platforms() -> std::collections::BTreeSet<String> {
+    dsmon_core::catalog::PLATFORMS
+        .iter()
+        .filter(|meta| matches!(storage::read_secret(meta.key), Ok(Some(_))))
+        .map(|meta| meta.key.to_owned())
+        .collect()
 }
 
 /// The window icon, scaled down from the bundled artwork.
