@@ -48,7 +48,7 @@ fn opencode_go_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
                 ui.label(
                     RichText::new(view.text("og_not_configured"))
                         .color(palette.text_secondary)
-                        .small(),
+                        .size(12.0),
                 );
             }
         }
@@ -80,7 +80,7 @@ fn command_code_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
                 ui.label(
                     RichText::new(view.text("cc_not_configured"))
                         .color(palette.text_secondary)
-                        .small(),
+                        .size(12.0),
                 );
             }
         }
@@ -99,7 +99,11 @@ fn window_from_cc(window: &dsmon_core::model::CommandCodeWindow) -> (f64, i64) {
 /// One quota window: label and figures on a line, the bar right beneath.
 fn window_row(ui: &mut egui::Ui, palette: &Palette, label: &str, window: Option<(f64, i64)>) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(palette.text_secondary).small());
+        ui.label(
+            RichText::new(label)
+                .color(palette.text_secondary)
+                .size(12.0),
+        );
         ui.with_layout(
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| match window {
@@ -108,17 +112,17 @@ fn window_row(ui: &mut egui::Ui, palette: &Palette, label: &str, window: Option<
                         ui.label(
                             RichText::new(format_reset_seconds(reset_in_sec))
                                 .color(palette.text_secondary)
-                                .small(),
+                                .size(12.0),
                         );
                     }
                     ui.label(
                         RichText::new(format!("{percent:.0}%"))
                             .color(palette.text_primary)
-                            .small(),
+                            .size(12.0),
                     );
                 }
                 None => {
-                    ui.label(RichText::new("--").color(palette.text_secondary).small());
+                    ui.label(RichText::new("--").color(palette.text_secondary).size(12.0));
                 }
             },
         );

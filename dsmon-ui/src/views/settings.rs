@@ -81,7 +81,7 @@ pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Act
             ui.label(
                 RichText::new(notice)
                     .color(view.palette.text_secondary)
-                    .small(),
+                    .size(12.0),
             );
         }
     });
@@ -139,7 +139,7 @@ fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
         ui.label(
             RichText::new(view.text("api_key_missing_body"))
                 .color(palette.text_secondary)
-                .small(),
+                .size(12.0),
         );
         ui.add_space(10.0);
 
@@ -153,7 +153,7 @@ fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
         ui.label(
             RichText::new(view.text("og_hint"))
                 .color(palette.text_secondary)
-                .small(),
+                .size(12.0),
         );
         ui.add_space(10.0);
 
@@ -167,7 +167,7 @@ fn credentials_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
         ui.label(
             RichText::new(view.text("cc_hint"))
                 .color(palette.text_secondary)
-                .small(),
+                .size(12.0),
         );
     });
 }
@@ -353,7 +353,7 @@ fn about_card(ui: &mut egui::Ui, view: &View<'_>, action: &mut Option<Action>) {
             ui.label(
                 RichText::new(format!("v{}", dsmon_core::VERSION))
                     .color(palette.text_secondary)
-                    .small(),
+                    .size(12.0),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(RELEASES_URL).clicked() {

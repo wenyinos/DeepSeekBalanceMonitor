@@ -71,14 +71,10 @@ fn filters_card(
     card(ui, palette, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            ui.label(
-                RichText::new(view.text("history_days"))
-                    .color(palette.text_secondary)
-                    .small(),
-            );
+            ui.label(RichText::new(view.text("history_days")).color(palette.text_secondary));
 
             ui.scope(|ui| {
-                ui.spacing_mut().button_padding = egui::vec2(8.0, 3.0);
+                ui.spacing_mut().button_padding = egui::vec2(10.0, 3.0);
                 for days in RANGES {
                     let selected = state.days == days;
                     if ui.selectable_label(selected, format!("{days}d")).clicked() && !selected {
@@ -88,36 +84,38 @@ fn filters_card(
                 }
             });
 
-            ui.add_space(14.0);
-            ui.label(
-                RichText::new(view.text("history_currency_filter"))
-                    .color(palette.text_secondary)
-                    .small(),
-            );
-
-            let current = state
-                .currency
-                .clone()
-                .unwrap_or_else(|| view.text("history_all").to_owned());
-            egui::ComboBox::from_id_salt("history-currency")
-                .selected_text(current)
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_label(state.currency.is_none(), view.text("history_all"))
-                        .clicked()
-                        && state.currency.is_some()
-                    {
-                        state.currency = None;
-                        *action = Some(Action::Reload);
-                    }
-                    for currency in state.currencies.clone() {
-                        let selected = state.currency.as_deref() == Some(currency.as_str());
-                        if ui.selectable_label(selected, &currency).clicked() && !selected {
-                            state.currency = Some(currency);
+            // The currency picker is pinned to the right edge of the card, so
+            // both halves of the row line up with the card's own margins.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let current = state
+                    .currency
+                    .clone()
+                    .unwrap_or_else(|| view.text("history_all").to_owned());
+                egui::ComboBox::from_id_salt("history-currency")
+                    .selected_text(current)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(state.currency.is_none(), view.text("history_all"))
+                            .clicked()
+                            && state.currency.is_some()
+                        {
+                            state.currency = None;
                             *action = Some(Action::Reload);
                         }
-                    }
-                });
+                        for currency in state.currencies.clone() {
+                            let selected = state.currency.as_deref() == Some(currency.as_str());
+                            if ui.selectable_label(selected, &currency).clicked() && !selected {
+                                state.currency = Some(currency);
+                                *action = Some(Action::Reload);
+                            }
+                        }
+                    });
+
+                ui.label(
+                    RichText::new(view.text("history_currency_filter"))
+                        .color(palette.text_secondary),
+                );
+            });
         });
     });
 }
@@ -137,7 +135,7 @@ fn chart_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, available: f32)
             ui.label(
                 RichText::new(view.text("history_empty"))
                     .color(palette.text_secondary)
-                    .small(),
+                    .size(12.0),
             );
             return;
         }
@@ -212,7 +210,7 @@ fn summary_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, action: &mut 
                         format_range(&summary.min_total, &summary.max_total)
                     ))
                     .color(palette.text_secondary)
-                    .small(),
+                    .size(12.0),
                 );
                 ui.add_space(2.0);
                 ui.label(
@@ -225,21 +223,25 @@ fn summary_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, action: &mut 
                         trend_label(view, summary.change_total),
                     ))
                     .color(trend_color(palette, summary.change_total))
-                    .small(),
+                    .size(12.0),
                 );
             }
             None => {
                 ui.label(
                     RichText::new(view.text("history_empty"))
                         .color(palette.text_secondary)
-                        .small(),
+                        .size(12.0),
                 );
             }
         }
 
         if let Some(notice) = &state.notice {
             ui.add_space(4.0);
-            ui.label(RichText::new(notice).color(palette.text_secondary).small());
+            ui.label(
+                RichText::new(notice)
+                    .color(palette.text_secondary)
+                    .size(12.0),
+            );
         }
     });
 }

@@ -25,7 +25,7 @@ impl View<'_> {
 
 /// Height shared by the status page's top-row cards, so the three columns line
 /// up with each other regardless of how much each one has to say.
-pub const SUMMARY_CARD_HEIGHT: f32 = 108.0;
+pub const SUMMARY_CARD_HEIGHT: f32 = 122.0;
 
 /// Panel with the standard card styling.
 pub fn card(ui: &mut egui::Ui, palette: &Palette, contents: impl FnOnce(&mut egui::Ui)) {

@@ -57,11 +57,12 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
 
     card(ui, palette, |ui| {
         ui.set_min_height(super::SUMMARY_CARD_HEIGHT);
+
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(view.text("balance_title"))
                     .color(palette.text_secondary)
-                    .small(),
+                    .size(12.0),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let label = if snapshot.checking {
@@ -75,56 +76,59 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
             });
         });
 
-        ui.add_space(4.0);
+        ui.add_space(2.0);
 
-        match preferred_balance(&snapshot.balances) {
-            Some((currency, balance)) => {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(dsmon_core::history::format_amount(balance.total_balance))
-                            .font(FontId::new(
-                                32.0,
-                                egui::FontFamily::Name(DIGITS_FAMILY.into()),
-                            ))
-                            .color(palette.text_primary),
-                    );
-                    ui.add_space(6.0);
-                    ui.label(RichText::new(currency).color(palette.text_secondary));
-                });
-                ui.add_space(2.0);
-                ui.label(
-                    RichText::new(format!(
-                        "{} {} · {} {}",
-                        view.text("topped_up"),
-                        dsmon_core::history::format_amount(balance.topped_up_balance),
-                        view.text("granted"),
-                        dsmon_core::history::format_amount(balance.granted_balance),
+        // Every line is drawn whether or not a reading has arrived yet, with
+        // placeholders standing in for the figures. The card therefore keeps the
+        // same height and nothing shifts when data lands.
+        let preferred = preferred_balance(&snapshot.balances);
+        let amount = preferred
+            .map(|(_, balance)| dsmon_core::history::format_amount(balance.total_balance))
+            .unwrap_or_else(|| "--.--".to_owned());
+        let currency = preferred
+            .map(|(currency, _)| currency.clone())
+            .unwrap_or_else(|| "---".to_owned());
+
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(amount)
+                    .font(FontId::new(
+                        24.0,
+                        egui::FontFamily::Name(DIGITS_FAMILY.into()),
                     ))
-                    .color(palette.text_secondary)
-                    .small(),
-                );
-            }
-            None => {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("--.--")
-                            .font(FontId::new(
-                                32.0,
-                                egui::FontFamily::Name(DIGITS_FAMILY.into()),
-                            ))
-                            .color(palette.text_secondary),
-                    );
-                    ui.add_space(6.0);
-                    ui.label(
-                        RichText::new(view.text("no_data"))
-                            .color(palette.text_secondary)
-                            .small(),
-                    );
-                });
-            }
-        }
+                    .color(if preferred.is_some() {
+                        palette.text_primary
+                    } else {
+                        palette.text_secondary
+                    }),
+            );
+            ui.add_space(6.0);
+            ui.label(RichText::new(currency).color(palette.text_secondary));
+        });
 
-        ui.add_space(4.0);
+        ui.add_space(2.0);
+
+        let (topped, granted) = preferred
+            .map(|(_, balance)| {
+                (
+                    dsmon_core::history::format_amount(balance.topped_up_balance),
+                    dsmon_core::history::format_amount(balance.granted_balance),
+                )
+            })
+            .unwrap_or_else(|| ("--".to_owned(), "--".to_owned()));
+        ui.label(
+            RichText::new(format!(
+                "{} {} · {} {}",
+                view.text("topped_up"),
+                topped,
+                view.text("granted"),
+                granted,
+            ))
+            .color(palette.text_secondary)
+            .size(12.0),
+        );
+
+        ui.add_space(2.0);
         ui.label(
             RichText::new(match &snapshot.last_check {
                 Some(checked) => format!(
@@ -135,12 +139,12 @@ fn balance_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, refresh
                 None => view.text("not_checked").to_owned(),
             })
             .color(palette.text_secondary)
-            .small(),
+            .size(12.0),
         );
 
         if let Some(error) = &snapshot.last_error {
             ui.add_space(2.0);
-            ui.label(RichText::new(error).color(palette.destructive).small());
+            ui.label(RichText::new(error).color(palette.destructive).size(12.0));
         }
     });
 }
@@ -179,7 +183,7 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
                         dsmon_core::history::format_amount(rate.hourly_rate)
                     ))
                     .color(palette.text_secondary)
-                    .small(),
+                    .size(12.0),
                 );
                 ui.add_space(2.0);
                 ui.label(
@@ -189,14 +193,14 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
                         format_busy_hours(rate.busy_hours_left)
                     ))
                     .color(palette.text_secondary)
-                    .small(),
+                    .size(12.0),
                 );
             }
             None => {
                 ui.label(
                     RichText::new(view.text("not_enough_data"))
                         .color(palette.text_secondary)
-                        .small(),
+                        .size(12.0),
                 );
             }
         }
