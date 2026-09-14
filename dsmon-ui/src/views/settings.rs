@@ -23,6 +23,8 @@ pub enum Action {
     OpenReleases,
     /// Store the keys entered in the credentials card right away.
     SaveKeys,
+    /// The user confirmed clearing the keys marked with `0`.
+    ConfirmClear,
     /// Apply the draft's theme without saving, so the change is visible at once.
     Preview,
 }
@@ -38,6 +40,8 @@ pub struct State {
     pub command_code_key: String,
     /// Feedback shown under the cards.
     pub notice: Option<String>,
+    /// Set while an erase is waiting for a second click.
+    pub pending_clear: bool,
 }
 
 impl State {
@@ -48,6 +52,7 @@ impl State {
             opencode_key: String::new(),
             command_code_key: String::new(),
             notice: None,
+            pending_clear: false,
         }
     }
 
@@ -90,6 +95,24 @@ pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Act
         action = Some(Action::Preview);
     }
     action
+}
+
+impl State {
+    /// Whether any field asks for its stored key to be erased.
+    pub fn has_clear_request(&self) -> bool {
+        [
+            &self.deepseek_key,
+            &self.opencode_key,
+            &self.command_code_key,
+        ]
+        .iter()
+        .any(|value| {
+            matches!(
+                dsmon_core::storage::classify_key_input(value),
+                dsmon_core::storage::KeyInput::Clear
+            )
+        })
+    }
 }
 
 /// A settings row: label on the left, control on the right.
@@ -141,6 +164,24 @@ fn credentials_card(
                 .color(palette.text_secondary)
                 .size(12.0),
         );
+
+        // Erasing a key is not reversible, so it waits for a second click.
+        if state.pending_clear {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(view.text("clear_confirm"))
+                        .color(palette.destructive)
+                        .size(12.0),
+                );
+                if ui.button(view.text("confirm")).clicked() {
+                    *action = Some(Action::ConfirmClear);
+                }
+                if ui.button(view.text("cancel")).clicked() {
+                    state.pending_clear = false;
+                }
+            });
+        }
         ui.add_space(8.0);
 
         key_field(

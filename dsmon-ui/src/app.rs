@@ -138,6 +138,7 @@ impl App {
         self.settings.deepseek_key.clear();
         self.settings.opencode_key.clear();
         self.settings.command_code_key.clear();
+        self.settings.pending_clear = false;
 
         let lang = self.config.ui_language.clone();
         self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
@@ -287,7 +288,18 @@ impl eframe::App for App {
                             {
                                 match action {
                                     views::settings::Action::Save => self.save_settings(ui.ctx()),
-                                    views::settings::Action::SaveKeys => self.save_keys(),
+                                    views::settings::Action::SaveKeys => {
+                                        // Clearing a key waits for a second click.
+                                        if self.settings.has_clear_request() {
+                                            self.settings.pending_clear = true;
+                                        } else {
+                                            self.save_keys();
+                                        }
+                                    }
+                                    views::settings::Action::ConfirmClear => {
+                                        self.settings.pending_clear = false;
+                                        self.save_keys();
+                                    }
                                     views::settings::Action::Cancel => {
                                         self.settings.reset(self.config.clone())
                                     }
