@@ -3,7 +3,8 @@
   The MSI installer, built by .github/workflows/windows.yml:
 
     wix build packaging/windows/product.wxs -arch x64 \
-      -d Version=2.0.0 -d ExePath=target/.../dsmon2.exe \
+      -d Version=2.0.0 -d ExePath=<absolute path to dsmon2.exe> \
+      -d IconPath=<absolute path to assets/app.ico> \
       -o deepseek-balance-monitor-2.0.0-windows-x64.msi
 
   `-arch` takes x86, x64 or arm64; the per-machine scope and Program Files
@@ -21,8 +22,8 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <!-- The icon lives inside the executable; Add/Remove Programs takes it from there. -->
-    <Icon Id="ApplicationIcon" SourceFile="$(var.ExePath)" />
+    <!-- The application icon, for Add/Remove Programs. -->
+    <Icon Id="ApplicationIcon" SourceFile="$(var.IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="ApplicationIcon" />
     <Property Id="ARPHELPLINK" Value="https://github.com/wenyinos/DeepSeekBalanceMonitor" />
     <Property Id="ARPNOREPAIR" Value="1" />

@@ -11,7 +11,6 @@ on:
     paths:
       - "dsmon-core/**"
       - "dsmon-ui/**"
-      - "rust-linux/**"
       - "assets/**"
       - "packaging/**"
       - "Cargo.toml"
@@ -21,7 +20,6 @@ on:
     paths:
       - "dsmon-core/**"
       - "dsmon-ui/**"
-      - "rust-linux/**"
       - "assets/**"
       - "packaging/**"
       - "Cargo.toml"
@@ -82,14 +80,18 @@ jobs:
           echo -n "highest glibc symbol: "
           objdump -T target/release/dsmon2 | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1
 
+      # The container runs `sh`, and the version is a line of the workspace
+      # manifest either way, so neither bash nor an interpreter is needed.
       - name: Resolve the version
         id: version
         run: |
-          if [[ "${GITHUB_REF_NAME}" == v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(cargo metadata --no-deps --format-version 1 \
-              | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          case "${GITHUB_REF_NAME}" in
+            v*) version="${GITHUB_REF_NAME#v}" ;;
+            *) version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" ;;
+          esac
+          if [ -z "$version" ]; then
+            echo "the version could not be read" >&2
+            exit 1
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
           echo "version: $version"
@@ -98,7 +100,9 @@ jobs:
         run: |
           packaging/build-packages.sh "${{ steps.version.outputs.value }}" \
             "${{ matrix.arch }}" target/release/dsmon2 dist
-          cd dist && sha256sum *.deb *.rpm > checksums.txt && cat checksums.txt
+          cd dist
+          sha256sum ./*.deb ./*.rpm > "checksums-${{ matrix.arch }}.txt"
+          cat "checksums-${{ matrix.arch }}.txt"
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
@@ -107,15 +111,40 @@ jobs:
           path: |
             dist/*.deb
             dist/*.rpm
-            dist/checksums.txt
+            dist/checksums-*.txt
+
+  # One release, not one per build: the jobs wait for every architecture, and
+  # the group keeps the two workflows from creating the same release at once.
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect the packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: deepseek-balance-monitor-linux-*
+          merge-multiple: true
+          path: packages
+
+      - name: List them
+        run: ls -l packages
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.deb
-            dist/*.rpm
-            dist/checksums.txt
+            packages/*.deb
+            packages/*.rpm
+            packages/checksums-*.txt
           generate_release_notes: true
           overwrite_files: true

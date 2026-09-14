@@ -11,7 +11,6 @@ on:
     paths:
       - "dsmon-core/**"
       - "dsmon-ui/**"
-      - "rust-windows/**"
       - "assets/**"
       - "packaging/**"
       - "Cargo.toml"
@@ -21,7 +20,6 @@ on:
     paths:
       - "dsmon-core/**"
       - "dsmon-ui/**"
-      - "rust-windows/**"
       - "assets/**"
       - "packaging/**"
       - "Cargo.toml"
@@ -69,7 +67,7 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Build release executable
-        run: cargo build --release --locked --target ${{ matrix.target }} -p dsmon-ui --bin deepseek-balance-monitor
+        run: cargo build --release --locked --target ${{ matrix.target }} -p dsmon-ui --bin dsmon2
 
       - name: Resolve the version
         id: version
@@ -78,9 +76,10 @@ jobs:
           if ("${env:GITHUB_REF_NAME}" -like "v*") {
             $version = "${env:GITHUB_REF_NAME}".Substring(1)
           } else {
-            $version = (cargo metadata --no-deps --format-version 1 |
-              ConvertFrom-Json).packages[0].version
+            $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' |
+              Select-Object -First 1).Matches.Groups[1].Value
           }
+          if (-not $version) { throw "the version could not be read" }
           "asset=deepseek-balance-monitor-$version-windows-${{ matrix.arch }}" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "version: $version"
@@ -137,7 +136,8 @@ jobs:
           wix build packaging/windows/product.wxs `
             -arch ${{ matrix.arch }} `
             -d Version=${{ steps.version.outputs.value }} `
-            -d ExePath=$exe `
+            -d ExePath=$((Resolve-Path $exe).Path) `
+            -d IconPath=$((Resolve-Path assets/app.ico).Path) `
             -o "build/${{ steps.version.outputs.asset }}.msi"
 
       - name: Upload the installer for signing
@@ -190,12 +190,37 @@ jobs:
             build/*.msi
             build/checksums-${{ matrix.arch }}.txt
 
+  # The installer is published once, after both architectures are built, and
+  # the group keeps this workflow and the Linux one off the same release.
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect the installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: deepseek-balance-monitor-windows-*
+          merge-multiple: true
+          path: packages
+
+      - name: List them
+        run: ls -l packages
+
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build/*.msi
-            build/checksums-${{ matrix.arch }}.txt
+            packages/*.msi
+            packages/checksums-*.txt
           generate_release_notes: true
           overwrite_files: true

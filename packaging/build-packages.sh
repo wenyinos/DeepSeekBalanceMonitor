@@ -8,7 +8,9 @@
 # RPM). The binary has to have been built for that architecture.
 #
 # Needs `dpkg-deb` for the Debian package, `rpmbuild` for the RPM, and
-# ImageMagick to turn the application icon into the PNG sizes a desktop wants.
+# ImageMagick to turn the application icon into the PNG sizes a desktop wants;
+# Debian's ImageMagick 6 calls the tool `convert`, ImageMagick 7 calls it
+# `magick`, and either is used below.
 # CI runs this inside a container, where all three are installed.
 
 set -eu
@@ -41,9 +43,15 @@ install -Dm644 "$repository/packaging/$name.desktop" \
 
 # The application ships one icon, a Windows .ico holding every size. A desktop
 # looks for the sizes it needs as PNGs, so they are cut out of it here.
+if command -v magick >/dev/null 2>&1; then
+    icon_tool=magick
+else
+    icon_tool=convert
+fi
+
 for size in 256 128 64 48; do
     install -d "$root/usr/share/icons/hicolor/${size}x${size}/apps"
-    magick "$repository/assets/app.ico[0]" -resize "${size}x${size}" \
+    "$icon_tool" "$repository/assets/app.ico[0]" -resize "${size}x${size}" \
         "$root/usr/share/icons/hicolor/${size}x${size}/apps/$name.png"
 done
 
@@ -77,7 +85,11 @@ dpkg-deb --root-owner-group --build "$root" "$output/${name}_${version}_${arch}.
 # The same payload, with the names Fedora and its relatives use.
 rpm_top="$work/rpm"
 mkdir -p "$rpm_top"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-tar -czf "$rpm_top/SOURCES/$name-$version.tar.gz" -C "$work" "$name-$version"
+
+# rpmbuild empties its build directory before a build, so the payload travels
+# as an archive of its own: the tree that the Debian package was made from,
+# packed as it stands.
+tar -czf "$rpm_top/SOURCES/payload.tar.gz" -C "$root" usr
 
 cat > "$rpm_top/SPECS/$name.spec" <<EOF
 Name:           $name
@@ -87,7 +99,6 @@ BuildArch:      $rpm_arch
 Summary:        DeepSeek account balance in the tray
 License:        MIT
 URL:            https://github.com/wenyinos/DeepSeekBalanceMonitor
-Source0:        %{name}-%{version}.tar.gz
 Requires:       glibc >= 2.36, libX11, libxkbcommon, libwayland-client, vulkan-loader, xorg-x11-server-Xwayland, google-noto-sans-cjk-fonts
 Recommends:     mesa-vulkan-drivers
 
@@ -101,7 +112,7 @@ knows, and shows the reading in the system tray.
 
 %install
 mkdir -p %{buildroot}
-cp -a %{_sourcedir}/../BUILD/*/usr %{buildroot}/
+tar -xf %{_sourcedir}/payload.tar.gz -C %{buildroot}
 
 %files
 /usr/bin/dsmon2
@@ -111,9 +122,6 @@ cp -a %{_sourcedir}/../BUILD/*/usr %{buildroot}/
 %changelog
 EOF
 
-# The spec installs from the unpacked tree, so put it where it looks.
-mkdir -p "$rpm_top/BUILD/$name-$version"
-cp -a "$root/usr" "$rpm_top/BUILD/$name-$version/"
 rpmbuild -bb --define "_topdir $rpm_top" --define "_binary_payload w2.xzdio" \
     "$rpm_top/SPECS/$name.spec"
 find "$rpm_top/RPMS" -name '*.rpm' -exec cp {} "$output/" \;
