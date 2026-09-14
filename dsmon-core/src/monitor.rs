@@ -52,7 +52,10 @@ pub struct Snapshot {
 /// Commands the interface sends to the polling thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
+    /// Poll the balance, the service health and the subscriptions.
     Refresh,
+    /// Poll only the subscription quotas.
+    RefreshSubscriptions,
     Stop,
 }
 
@@ -90,9 +93,14 @@ impl Monitor {
             .unwrap_or_default()
     }
 
-    /// Asks the thread to poll immediately.
+    /// Asks the thread to poll everything immediately.
     pub fn refresh(&self) {
         let _ = self.commands.send(Command::Refresh);
+    }
+
+    /// Asks the thread to refresh only the subscription quotas.
+    pub fn refresh_subscriptions(&self) {
+        let _ = self.commands.send(Command::RefreshSubscriptions);
     }
 }
 
@@ -105,29 +113,47 @@ impl Drop for Monitor {
     }
 }
 
-/// The polling loop: sleeps until the next interval, or until told to refresh.
+/// Which part of the snapshot a pass refreshes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Everything,
+    Subscriptions,
+}
+
+/// The polling loop: one pass at start-up, then a pass per interval or command.
 fn run(config: AppConfig, receiver: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>) {
     let mut config = config;
-    loop {
-        poll_once(&config, &snapshot);
 
+    poll_once(&config, &snapshot, Scope::Everything);
+
+    loop {
         let interval = Duration::from_secs(config.interval_minutes.max(1) * 60);
-        match receiver.recv_timeout(interval) {
-            Ok(Command::Refresh) => {
-                // Pick up configuration changes made in the settings page.
-                config = AppConfig::load();
-            }
+        let scope = match receiver.recv_timeout(interval) {
+            Ok(Command::Refresh) => Scope::Everything,
+            Ok(Command::RefreshSubscriptions) => Scope::Subscriptions,
             Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-            Err(RecvTimeoutError::Timeout) => {
-                config = AppConfig::load();
-            }
+            Err(RecvTimeoutError::Timeout) => Scope::Everything,
+        };
+
+        // Pick up configuration changes made in the settings page.
+        config = AppConfig::load();
+
+        match scope {
+            Scope::Everything => poll_once(&config, &snapshot, Scope::Everything),
+            Scope::Subscriptions => poll_once(&config, &snapshot, Scope::Subscriptions),
         }
     }
 }
 
 /// Performs one poll and publishes the result.
-fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>) {
+fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) {
     set_checking(snapshot, true);
+
+    // A subscription pass leaves the balance and the service health as they are.
+    if scope == Scope::Subscriptions {
+        poll_subscriptions(config, snapshot);
+        return;
+    }
 
     let result = gather(config);
     let mut guard = match snapshot.lock() {
@@ -138,7 +164,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>) {
 
     match result {
         Ok(outcome) => {
-            record_subscription_usage(&outcome);
+            record_subscription_usage(&outcome.opencode_go, &outcome.command_code);
             guard.balances = outcome.balances;
             guard.service_status = outcome.service_status;
             guard.consumption_rate = outcome.consumption_rate;
@@ -151,6 +177,21 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>) {
             guard.last_error = Some(error);
             guard.last_check = Some(Local::now());
         }
+    }
+}
+
+/// Refreshes the subscription quotas alone.
+fn poll_subscriptions(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>) {
+    let proxy = platforms::effective_proxy(config);
+    let opencode_go = fetch_opencode_go(proxy);
+    let command_code = fetch_command_code(proxy);
+    record_subscription_usage(&opencode_go, &command_code);
+
+    if let Ok(mut guard) = snapshot.lock() {
+        guard.checking = false;
+        guard.opencode_go = opencode_go;
+        guard.command_code = command_code;
+        guard.last_check = Some(Local::now());
     }
 }
 
@@ -222,8 +263,11 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
 ///
 /// OpenCode Go reports a percentage, so its pool is recorded as a 0-100 scale;
 /// Command Code reports dollars against the plan's pool.
-fn record_subscription_usage(outcome: &Outcome) {
-    if let Subscription::Loaded(quota) = &outcome.opencode_go {
+fn record_subscription_usage(
+    opencode_go: &Subscription<OpenCodeGoQuota>,
+    command_code: &Subscription<CommandCodeQuota>,
+) {
+    if let Subscription::Loaded(quota) = opencode_go {
         if let Some(monthly) = &quota.monthly {
             let _ = storage::save_subscription_usage(
                 storage::PROVIDER_OPENCODE_GO,
@@ -233,7 +277,7 @@ fn record_subscription_usage(outcome: &Outcome) {
         }
     }
 
-    if let Subscription::Loaded(quota) = &outcome.command_code {
+    if let Subscription::Loaded(quota) = command_code {
         if let Some(monthly) = &quota.monthly {
             let _ = storage::save_subscription_usage(
                 storage::PROVIDER_COMMAND_CODE,

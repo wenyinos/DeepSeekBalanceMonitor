@@ -300,11 +300,24 @@ fn collect(
     Ok(records)
 }
 
-/// Appends a monthly-allowance reading, skipping ones identical to a recent
-/// entry so an idle allowance does not fill the table.
+/// Appends a monthly-allowance reading taken now.
 pub fn save_subscription_usage(provider: &str, used: f64, cap: f64) -> Result<(), String> {
-    let conn = open_db()?;
     let timestamp = time::now();
+    save_subscription_usage_at(provider, used, cap, &timestamp)
+}
+
+/// Appends a reading with an explicit timestamp.
+///
+/// Separate from [`save_subscription_usage`] so imports and demo data can fill in
+/// the past. Identical readings inside the dedup window are still skipped, so an
+/// idle allowance does not fill the table.
+pub fn save_subscription_usage_at(
+    provider: &str,
+    used: f64,
+    cap: f64,
+    timestamp: &str,
+) -> Result<(), String> {
+    let conn = open_db()?;
     let cutoff =
         time::format_local(Local::now() - ChronoDuration::seconds(SUBSCRIPTION_DEDUP_SECONDS));
 

@@ -253,9 +253,7 @@ impl AppConfig {
         if !WIDGET_SIZES.contains(&self.widget_size.as_str()) {
             self.widget_size = default_widget_size();
         }
-        self.billing_day_command_code = self
-            .billing_day_command_code
-            .clamp(1, MAX_BILLING_DAY);
+        self.billing_day_command_code = self.billing_day_command_code.clamp(1, MAX_BILLING_DAY);
     }
 }
 

@@ -273,6 +273,9 @@ impl eframe::App for App {
                                         self.config.billing_day_command_code = day;
                                         let _ = self.config.save();
                                     }
+                                    views::subscriptions::Action::Refresh => {
+                                        self.monitor.refresh_subscriptions()
+                                    }
                                 }
                             }
                         });

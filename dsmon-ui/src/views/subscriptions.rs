@@ -19,6 +19,8 @@ use crate::theme::Palette;
 pub enum Action {
     /// The Command Code billing day was edited; persist it.
     BillingDay(u8),
+    /// Re-read the subscription quotas, leaving the balance alone.
+    Refresh,
 }
 
 /// Page state, owned by the application.
@@ -54,14 +56,32 @@ pub fn show(
     snapshot: &Snapshot,
     state: &mut State,
 ) -> Option<Action> {
-    let mut action = None;
+    let mut refresh = false;
 
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let label = if snapshot.checking {
+                view.text("checking")
+            } else {
+                view.text("refresh")
+            };
+            if ui.button(label).clicked() {
+                refresh = true;
+            }
+        });
+    });
+    ui.add_space(4.0);
+
+    let mut billing_day = None;
     ui.columns(2, |columns| {
         opencode_go_card(&mut columns[0], view, snapshot, state);
-        command_code_card(&mut columns[1], view, snapshot, state, &mut action);
+        command_code_card(&mut columns[1], view, snapshot, state, &mut billing_day);
     });
 
-    action
+    if refresh {
+        return Some(Action::Refresh);
+    }
+    billing_day.map(Action::BillingDay)
 }
 
 fn opencode_go_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, state: &State) {
@@ -119,7 +139,7 @@ fn command_code_card(
     view: &View<'_>,
     snapshot: &Snapshot,
     state: &State,
-    action: &mut Option<Action>,
+    billing_day: &mut Option<u8>,
 ) {
     let palette = view.palette;
 
@@ -168,7 +188,7 @@ fn command_code_card(
             &state.command_code,
             Some(state.billing_day),
         ) {
-            *action = Some(edited);
+            *billing_day = Some(edited);
         }
     }
 }
@@ -226,14 +246,14 @@ fn window_row(ui: &mut egui::Ui, palette: &Palette, label: &str, window: Option<
 
 /// Per-day consumption for one provider, with an optional billing-day field.
 ///
-/// Returns an action when the field is edited.
+/// Returns the edited day when the field changes.
 fn usage_chart(
     ui: &mut egui::Ui,
     view: &View<'_>,
     title: &str,
     points: &[SubscriptionPoint],
     billing_day: Option<u8>,
-) -> Option<Action> {
+) -> Option<u8> {
     let palette = view.palette;
     let mut action = None;
 
@@ -265,7 +285,7 @@ fn usage_chart(
                             )
                             .changed()
                         {
-                            action = Some(Action::BillingDay(edited));
+                            action = Some(edited);
                         }
                     });
 
