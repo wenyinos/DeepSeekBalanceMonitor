@@ -2,6 +2,29 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.0.1 (2026-09-14)
+
+### Fixed
+
+- Starting with the session now happens: the entry the desktop reads was only
+  written when the setting changed, so a configuration that already said yes had
+  a ticked box and nothing behind it. It is reconciled on every start, which also
+  repairs an entry left by another build or one whose executable has moved
+- Importing the earlier database works on Windows: it is read through a copy,
+  since a read-only open of a WAL database needs the log files that the other
+  version deletes when it closes. Keys the earlier Windows build protected with
+  DPAPI are counted and reported instead of being carried over unreadable
+
+### Changed
+
+- The tray figure keeps a decimal below ten — 1.55 reads as 1.5 — and shows the
+  whole part above it. Truncated rather than rounded either way, so the icon can
+  never claim a larger balance than the account holds
+- Windows notifications carry no mark: the shell's warning and information
+  glyphs are louder than a balance reading
+- The executables are `dsmon2` and `dsmon2.exe`, so they no longer share names
+  with the 1.x build that installs beside them
+
 ## Rust v2.0.0 (2026-09-14)
 
 The Python, macOS, Rainmeter, Plasma widget and CLI implementations are gone. 2.0 is one
