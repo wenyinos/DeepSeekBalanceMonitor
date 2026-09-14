@@ -79,15 +79,14 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
 
 ```bash
 cargo test --workspace --locked
-cargo build --release -p dsmon-ui --bin dsmon           # Linux：target/release/dsmon
-cargo build --release -p dsmon-ui --bin deepseek-balance-monitor \
-  --target aarch64-pc-windows-msvc
+cargo build --release -p dsmon-ui --bin dsmon2          # Linux：target/release/dsmon2
+cargo build --release -p dsmon-ui --bin dsmon2 --target aarch64-pc-windows-msvc
 ```
 
 工具链为 stable。Linux 包在 Debian 12 容器里构建，以保持 glibc 2.36 基线：
 
 ```bash
-packaging/build-packages.sh 2.0.0 arm64 target/release/dsmon dist
+packaging/build-packages.sh 2.0.0 arm64 target/release/dsmon2 dist
 ```
 
 本版本的变化见 [CHANGELOG_zh.md](CHANGELOG_zh.md)。

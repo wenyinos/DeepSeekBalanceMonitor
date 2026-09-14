@@ -16,11 +16,11 @@
 cargo test --workspace --locked         # 全部测试（与 CI 一致）
 cargo test -p dsmon-core                # 只跑后端
 cargo fmt --all --check                 # CI 校验格式
-cargo build --release -p dsmon-ui --bin dsmon   # Linux 可执行文件：target/release/dsmon
+cargo build --release -p dsmon-ui --bin dsmon2  # Linux 可执行文件：target/release/dsmon2
 cargo run -p dsmon-ui --example preview # 开发时直接启动界面（不走平台入口）
 
 # 打包（需要 dpkg-deb / rpmbuild / ImageMagick，CI 在容器里跑）
-packaging/build-packages.sh 2.0.0 target/release/dsmon dist
+packaging/build-packages.sh 2.0.0 amd64 target/release/dsmon2 dist
 ```
 
 Rust 工具链为 **stable**（根 `rust-toolchain.toml`）。1.x 的 1.77.2 固定版本随 Windows 7

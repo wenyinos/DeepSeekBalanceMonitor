@@ -89,7 +89,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/deepseek-balance-monitor.exe" `
+          Copy-Item "target/${{ matrix.target }}/release/dsmon2.exe" `
             "build/${{ steps.version.outputs.asset }}.exe"
 
       # The executable is signed before it goes into the installer, so the copy

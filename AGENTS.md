@@ -9,8 +9,9 @@
 
 - 工具链为 **stable**（根 `rust-toolchain.toml`）；1.x 的 `cargo +1.77.2` 已作废，勿再用。
 - 测试：`cargo test --workspace --locked`；格式：`cargo fmt --all --check`。
-- 两个平台的入口都在 `dsmon-ui/src/bin/`：`dsmon`（Linux）与 `deepseek-balance-monitor`（Windows）；
-  构建用 `cargo build --release -p dsmon-ui --bin <名字>`。
+- 可执行文件叫 `dsmon2`（Windows 上是 `dsmon2.exe`），入口在 `dsmon-ui/src/bin/dsmon2.rs`；
+  构建用 `cargo build --release -p dsmon-ui --bin dsmon2`。**刻意不与 1.x 的 `dsmon` /
+  `deepseek-balance-monitor.exe` 重名**，两个版本要能并存。
 - 开发时启动界面：`cargo run -p dsmon-ui --example preview`（不走平台入口）。
 - 两个入口都是十几行，只调用 `dsmon_ui::run()`；界面代码在仓库里只有一份。
 
@@ -34,8 +35,9 @@
 - **数据库删除不等于缩小文件**：只有 `wal_checkpoint + VACUUM`（设置页的手动清理）才回收空间。
 - **文案**：全部在 `dsmon-ui/src/i18n.rs`，中英都要加；`every_key_the_interface_uses_is_answered`
   测试会检查界面用到的每个键。
-- 清理测试实例时不要用 `pkill -x dsmon`：本机可能装着 1.x 的 `/usr/local/bin/dsmon`
-  （systemd 用户服务），同名会被一起杀掉。按路径锚定匹配（`pkill -f '^\./target/debug/dsmon'`）。
+- 清理测试实例时按路径锚定匹配（`pkill -f '^\./target/debug/dsmon2'`），不要用 `pkill -x`：
+  本机可能装着 1.x 的 `/usr/local/bin/dsmon`（systemd 用户服务），按名字匹配会误杀。2.0 的可执行
+  文件已改名为 `dsmon2` 以避免同名，但 `-x` 按名字匹配的风险依然存在。
 
 ## 发布触发
 

@@ -92,16 +92,15 @@ falls back to it on its own.
 
 ```bash
 cargo test --workspace --locked
-cargo build --release -p dsmon-ui --bin dsmon           # Linux: target/release/dsmon
-cargo build --release -p dsmon-ui --bin deepseek-balance-monitor \
-  --target aarch64-pc-windows-msvc
+cargo build --release -p dsmon-ui --bin dsmon2          # Linux: target/release/dsmon2
+cargo build --release -p dsmon-ui --bin dsmon2 --target aarch64-pc-windows-msvc
 ```
 
 Toolchain: stable. The Linux packages are built in a Debian 12 container so the binary keeps a
 glibc 2.36 floor:
 
 ```bash
-packaging/build-packages.sh 2.0.0 arm64 target/release/dsmon dist
+packaging/build-packages.sh 2.0.0 arm64 target/release/dsmon2 dist
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed in this version.

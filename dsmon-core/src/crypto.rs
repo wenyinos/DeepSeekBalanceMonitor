@@ -84,12 +84,45 @@ fn load_or_create_key() -> Result<[u8; KEY_LEN], String> {
             SystemRandom::new()
                 .fill(&mut key)
                 .map_err(|_| "failed to generate a secure key".to_string())?;
-            let mut file = create_private_file(&path).map_err(|error| error.to_string())?;
-            file.write_all(&key).map_err(|error| error.to_string())?;
-            Ok(key)
+            match create_private_file(&path) {
+                Ok(mut file) => {
+                    file.write_all(&key).map_err(|error| error.to_string())?;
+                    Ok(key)
+                }
+                // Several callers can arrive together — the tests do, and so can
+                // two copies of the application — and the file exists before its
+                // contents do. Whoever loses the race uses the winner's key
+                // rather than making a second one.
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    read_key_when_written(&path)
+                }
+                Err(error) => Err(error.to_string()),
+            }
         }
         Err(error) => Err(error.to_string()),
     }
+}
+
+/// Reads the key file, waiting briefly for whoever is writing it.
+///
+/// The file appears before its contents do, so a caller that lost the race can
+/// arrive while it is still empty; the key is small and the write is quick, so
+/// a short wait is enough.
+fn read_key_when_written(path: &Path) -> Result<[u8; KEY_LEN], String> {
+    let mut last = String::new();
+    for _ in 0..50 {
+        match std::fs::read(path) {
+            Ok(bytes) if bytes.len() == KEY_LEN => {
+                let mut key = [0u8; KEY_LEN];
+                key.copy_from_slice(&bytes);
+                return Ok(key);
+            }
+            Ok(_) => last = format!("invalid secure key file: {}", path.display()),
+            Err(error) => last = error.to_string(),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    Err(last)
 }
 
 /// Creates the key file readable only by its owner.
@@ -118,6 +151,21 @@ mod tests {
         let blob = encrypt("sk-test-key").expect("encrypts");
         assert!(blob.starts_with(PREFIX));
         assert_eq!(decrypt(&blob).expect("decrypts"), "sk-test-key");
+    }
+
+    /// However many callers arrive at once, the key file is made once and they
+    /// all end up with the same key. This is what failed on CI, where several
+    /// tests encrypt for the first time in parallel.
+    #[test]
+    fn several_callers_share_one_key() {
+        let callers: Vec<_> = (0..8)
+            .map(|_| std::thread::spawn(|| encrypt("sk-test-key")))
+            .collect();
+
+        for caller in callers {
+            let blob = caller.join().expect("no caller panics").expect("encrypts");
+            assert_eq!(decrypt(&blob).expect("decrypts"), "sk-test-key");
+        }
     }
 
     #[test]

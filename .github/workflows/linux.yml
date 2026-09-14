@@ -74,13 +74,13 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Build release binary
-        run: cargo build --release --locked -p dsmon-ui --bin dsmon
+        run: cargo build --release --locked -p dsmon-ui --bin dsmon2
 
       - name: Report the glibc floor
         run: |
-          file target/release/dsmon
+          file target/release/dsmon2
           echo -n "highest glibc symbol: "
-          objdump -T target/release/dsmon | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1
+          objdump -T target/release/dsmon2 | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1
 
       - name: Resolve the version
         id: version
@@ -97,7 +97,7 @@ jobs:
       - name: Build packages
         run: |
           packaging/build-packages.sh "${{ steps.version.outputs.value }}" \
-            "${{ matrix.arch }}" target/release/dsmon dist
+            "${{ matrix.arch }}" target/release/dsmon2 dist
           cd dist && sha256sum *.deb *.rpm > checksums.txt && cat checksums.txt
 
       - name: Upload packages

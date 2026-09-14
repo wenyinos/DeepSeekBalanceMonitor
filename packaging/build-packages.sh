@@ -35,7 +35,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 root="$work/$name-$version"
-install -Dm755 "$binary" "$root/usr/bin/dsmon"
+install -Dm755 "$binary" "$root/usr/bin/dsmon2"
 install -Dm644 "$repository/packaging/$name.desktop" \
     "$root/usr/share/applications/$name.desktop"
 
@@ -104,7 +104,7 @@ mkdir -p %{buildroot}
 cp -a %{_sourcedir}/../BUILD/*/usr %{buildroot}/
 
 %files
-/usr/bin/dsmon
+/usr/bin/dsmon2
 /usr/share/applications/$name.desktop
 /usr/share/icons/hicolor/*/apps/$name.png
 

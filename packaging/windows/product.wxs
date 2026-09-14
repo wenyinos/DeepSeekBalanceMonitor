@@ -3,7 +3,7 @@
   The MSI installer, built by .github/workflows/windows.yml:
 
     wix build packaging/windows/product.wxs -arch x64 \
-      -d Version=2.0.0 -d ExePath=target/.../deepseek-balance-monitor.exe \
+      -d Version=2.0.0 -d ExePath=target/.../dsmon2.exe \
       -o deepseek-balance-monitor-2.0.0-windows-x64.msi
 
   `-arch` takes x86, x64 or arm64; the per-machine scope and Program Files
