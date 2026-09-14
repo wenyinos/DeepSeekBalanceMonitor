@@ -71,13 +71,21 @@ fn filters_card(
     card(ui, palette, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            ui.label(RichText::new(view.text("history_days")).color(palette.text_secondary));
+            ui.label(
+                RichText::new(view.text("history_days"))
+                    .size(14.0)
+                    .color(palette.text_secondary),
+            );
 
             ui.scope(|ui| {
                 ui.spacing_mut().button_padding = egui::vec2(10.0, 3.0);
                 for days in RANGES {
                     let selected = state.days == days;
-                    if ui.selectable_label(selected, format!("{days}d")).clicked() && !selected {
+                    if ui
+                        .selectable_label(selected, RichText::new(format!("{days}d")).size(14.0))
+                        .clicked()
+                        && !selected
+                    {
                         state.days = days;
                         *action = Some(Action::Reload);
                     }
@@ -92,7 +100,7 @@ fn filters_card(
                     .clone()
                     .unwrap_or_else(|| view.text("history_all").to_owned());
                 egui::ComboBox::from_id_salt("history-currency")
-                    .selected_text(current)
+                    .selected_text(RichText::new(current).size(14.0))
                     .show_ui(ui, |ui| {
                         if ui
                             .selectable_label(state.currency.is_none(), view.text("history_all"))
@@ -113,6 +121,7 @@ fn filters_card(
 
                 ui.label(
                     RichText::new(view.text("history_currency_filter"))
+                        .size(14.0)
                         .color(palette.text_secondary),
                 );
             });
