@@ -114,6 +114,15 @@ impl App {
         let config = AppConfig::load();
         apply_theme(&cc.egui_ctx, &config);
 
+        // Starting with the session is a setting the system is told about, and
+        // that telling lives outside this application's own storage: it is
+        // reconciled on every run, so a setting carried over from another build
+        // — or an executable that has moved since — still works. Failures are
+        // logged rather than shown: nothing is waiting on this.
+        if let Err(error) = dsmon_core::autostart::set_enabled(config.auto_start) {
+            let _ = storage::log_line(&format!("The start-up entry could not be written: {error}"));
+        }
+
         let monitor = Monitor::start(config.clone());
         let configured = configured_platforms();
         let settings = views::settings::State::new(config.clone(), configured.clone());

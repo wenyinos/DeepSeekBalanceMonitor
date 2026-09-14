@@ -10,14 +10,38 @@ use crate::paths;
 /// out of the way.
 const ARGUMENT: &str = "--minimized";
 
-/// Turns starting with the session on or off for the running executable.
+/// Makes the system's start-up entry agree with `enabled`.
+///
+/// This is a *state*, not an event: the setting lives in the configuration, and
+/// the entry the session reads lives outside it, so the two are reconciled
+/// whenever the application starts as well as when the setting changes. A
+/// setting carried over from another build, or an executable that has moved,
+/// therefore still starts with the session. Writing only happens when the entry
+/// is missing or says something else.
 pub fn set_enabled(enabled: bool) -> Result<(), String> {
     let path = paths::autostart_file();
     if enabled {
-        install(&path, &command_line()?)
+        let command = command_line()?;
+        if entry_is_current(&path, &command) {
+            return Ok(());
+        }
+        install(&path, &command)
     } else {
         remove(&path)
     }
+}
+
+/// Whether the entry is already the one this build would write.
+#[cfg(not(windows))]
+fn entry_is_current(path: &std::path::Path, command: &str) -> bool {
+    std::fs::read_to_string(path)
+        .map(|written| written == entry_text(command))
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn entry_is_current(_path: &std::path::Path, command: &str) -> bool {
+    entry().as_deref() == Some(command)
 }
 
 /// Whether the entry this build would write is in place.
@@ -39,23 +63,36 @@ fn command_line() -> Result<String, String> {
     Ok(format!("\"{}\" {ARGUMENT}", exe.display()))
 }
 
+/// The text of the desktop entry, which is also what tells whether the file on
+/// disk is still the right one.
 #[cfg(not(windows))]
-fn install(path: &std::path::Path, command: &str) -> Result<(), String> {
-    if let Some(directory) = path.parent() {
-        paths::ensure_dir(directory).map_err(|error| error.to_string())?;
-    }
-
-    let entry = format!(
+fn entry_text(command: &str) -> String {
+    format!(
         "[Desktop Entry]\n\
          Type=Application\n\
          Name={}\n\
          Comment=Shows the account balance in the tray\n\
          Exec={command}\n\
          Terminal=false\n\
+         Hidden=false\n\
          X-GNOME-Autostart-enabled=true\n",
         crate::APP_NAME
-    );
-    std::fs::write(path, entry).map_err(|error| error.to_string())
+    )
+}
+
+#[cfg(not(windows))]
+fn install(path: &std::path::Path, command: &str) -> Result<(), String> {
+    if let Some(directory) = path.parent() {
+        paths::ensure_dir(directory).map_err(|error| error.to_string())?;
+    }
+
+    std::fs::write(path, entry_text(command)).map_err(|error| error.to_string())?;
+
+    // Some sessions only launch an autostart entry that is marked executable,
+    // and the check costs nothing.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(not(windows))]
@@ -241,6 +278,39 @@ mod tests {
         remove(&path).expect("the entry is removed");
         assert!(!path.exists());
         remove(&path).expect("removing it twice is not an error");
+    }
+
+    /// Reconciling means the file is only rewritten when it says something
+    /// else, so an executable that has moved is noticed and a correct entry is
+    /// left alone.
+    #[cfg(not(windows))]
+    #[test]
+    fn an_entry_that_is_already_right_is_left_alone() {
+        let path = std::env::temp_dir().join("dsmon-autostart-current.desktop");
+        let _ = std::fs::remove_file(&path);
+
+        let command = "\"/opt/dsmon2\" --minimized";
+        assert!(!entry_is_current(&path, command), "nothing is there yet");
+
+        install(&path, command).expect("the entry is written");
+        assert!(entry_is_current(&path, command), "the entry is current");
+        assert!(
+            !entry_is_current(&path, "\"/elsewhere/dsmon2\" --minimized"),
+            "an executable that has moved is not current"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path)
+                .expect("the entry exists")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o755, "an autostart entry is executable");
+        }
+
+        remove(&path).expect("the entry is removed");
+        assert!(!entry_is_current(&path, command), "and then it is gone");
     }
 
     #[test]
