@@ -28,6 +28,9 @@ pub enum Action {
     ConfirmClear,
     /// Copy the earlier build's data into this one.
     ImportLegacy,
+    /// Drop the records that sit outside the retention window and compact the
+    /// database, so its size comes back down.
+    ClearOldData,
     /// Apply the draft's theme without saving, so the change is visible at once.
     Preview,
 }
@@ -375,6 +378,28 @@ fn data_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State, action: &mut
                     .hint_text("~")
                     .desired_width(260.0),
             );
+        });
+
+        // Read afresh every frame: it is a couple of stat calls, and it means
+        // the figure is right after a poll, a cleanup or a long run.
+        row(ui, palette, view.text("db_size_label"), |ui| {
+            ui.label(
+                RichText::new(dsmon_core::storage::format_size(
+                    dsmon_core::storage::database_size(),
+                ))
+                .color(palette.text_primary),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .button(crate::i18n::clear_button(
+                        view.lang,
+                        state.draft.retention_days,
+                    ))
+                    .clicked()
+                {
+                    *action = Some(Action::ClearOldData);
+                }
+            });
         });
 
         ui.add_space(10.0);

@@ -305,6 +305,81 @@ pub fn history_currencies(platform: &str, days: u64) -> Result<Vec<String>, Stri
     Ok(currencies)
 }
 
+/// What a manual cleanup removed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Cleared {
+    pub balance_rows: usize,
+    pub subscription_rows: usize,
+    /// Bytes the file gave back, which is what a delete on its own would not.
+    pub reclaimed: u64,
+}
+
+/// Bytes the database occupies, the write-ahead log included.
+///
+/// The log is part of what sits on disk, so reporting the main file alone
+/// would understate what a growing history costs.
+pub fn database_size() -> u64 {
+    let base = paths::history_db_file();
+    ["", "-wal"]
+        .iter()
+        .filter_map(|suffix| {
+            let mut path = base.clone().into_os_string();
+            path.push(suffix);
+            std::fs::metadata(path).ok().map(|meta| meta.len())
+        })
+        .sum()
+}
+
+/// Renders a byte count the way a settings page wants to read it.
+pub fn format_size(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+
+    let bytes = bytes as f64;
+    if bytes >= MIB {
+        format!("{:.1} MB", bytes / MIB)
+    } else if bytes >= KIB {
+        format!("{:.0} KB", bytes / KIB)
+    } else {
+        format!("{bytes:.0} B")
+    }
+}
+
+/// The two statements a cleanup runs. Constants so a test can run them against
+/// a throwaway database instead of the one in use.
+const CLEAR_BALANCE_SQL: &str = "DELETE FROM balance_history WHERE timestamp < ?1";
+const CLEAR_SUBSCRIPTION_SQL: &str = "DELETE FROM subscription_history WHERE timestamp < ?1";
+
+/// Drops every record older than `days` and compacts the file.
+///
+/// Each poll already prunes at the retention setting, but a `DELETE` only frees
+/// pages *inside* the file, so its size on disk stays. This is the pass that
+/// hands the space back.
+pub fn clear_older_than(days: u64) -> Result<Cleared, String> {
+    let before = database_size();
+    let conn = open_db()?;
+    let cutoff = time::format_local(Local::now() - ChronoDuration::days(days as i64));
+
+    let balance_rows = conn
+        .execute(CLEAR_BALANCE_SQL, params![cutoff])
+        .map_err(|error| error.to_string())?;
+    let subscription_rows = conn
+        .execute(CLEAR_SUBSCRIPTION_SQL, params![cutoff])
+        .map_err(|error| error.to_string())?;
+
+    // Compaction cannot run inside a transaction, and the log has to be folded
+    // back into the file first for its pages to be reclaimed too.
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")
+        .map_err(|error| error.to_string())?;
+    drop(conn);
+
+    Ok(Cleared {
+        balance_rows,
+        subscription_rows,
+        reclaimed: before.saturating_sub(database_size()),
+    })
+}
+
 /// Drops records older than the retention window.
 pub fn prune_balance_history(retention_days: u64) -> Result<(), String> {
     let conn = open_db()?;
@@ -708,6 +783,67 @@ mod tests {
             )
             .expect("statement still runs");
         assert_eq!(found, 1, "the row just written counts as a duplicate");
+    }
+
+    /// Both cleanup statements, run against a throwaway database: the cutoff
+    /// keeps what is inside the window and drops what is outside it.
+    #[test]
+    fn a_cleanup_keeps_the_window_and_drops_the_rest() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite opens");
+        conn.execute_batch(
+            "CREATE TABLE balance_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform TEXT NOT NULL DEFAULT 'deepseek',
+                timestamp TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                total REAL NOT NULL,
+                topped REAL NOT NULL,
+                granted REAL NOT NULL,
+                service_status TEXT NOT NULL DEFAULT 'unknown'
+            );
+            CREATE TABLE subscription_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                used REAL NOT NULL,
+                cap REAL NOT NULL
+            );
+            INSERT INTO balance_history (timestamp, currency, total, topped, granted)
+                VALUES ('2026-01-01 00:00:00', 'CNY', 1.0, 1.0, 0.0),
+                       ('2026-09-14 00:00:00', 'CNY', 2.0, 2.0, 0.0);
+            INSERT INTO subscription_history (provider, timestamp, used, cap)
+                VALUES ('opencode_go', '2026-01-01 00:00:00', 1.0, 100.0),
+                       ('opencode_go', '2026-09-14 00:00:00', 2.0, 100.0);",
+        )
+        .expect("schema and rows are created");
+
+        let cutoff = "2026-08-15 00:00:00";
+        assert_eq!(
+            conn.execute(CLEAR_BALANCE_SQL, params![cutoff]).unwrap(),
+            1,
+            "one balance row falls outside the window"
+        );
+        assert_eq!(
+            conn.execute(CLEAR_SUBSCRIPTION_SQL, params![cutoff])
+                .unwrap(),
+            1,
+            "one subscription row falls outside the window"
+        );
+
+        let kept: String = conn
+            .query_row("SELECT MIN(timestamp) FROM balance_history", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept, "2026-09-14 00:00:00");
+    }
+
+    #[test]
+    fn sizes_read_the_way_a_settings_page_wants() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(2048), "2 KB");
+        assert_eq!(format_size(5 * 1024 * 1024), "5.0 MB");
     }
 
     #[test]

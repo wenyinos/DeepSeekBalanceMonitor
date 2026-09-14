@@ -223,6 +223,25 @@ impl App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
     }
 
+    /// Drops the records outside the retention window and compacts the file,
+    /// which is what actually brings its size down.
+    fn clear_old_data(&mut self) {
+        let lang = self.config.ui_language.clone();
+        self.settings.notice = Some(
+            match storage::clear_older_than(self.config.retention_days) {
+                Ok(cleared) => crate::i18n::cleared_notice(
+                    &lang,
+                    cleared.balance_rows + cleared.subscription_rows,
+                    &storage::format_size(cleared.reclaimed),
+                ),
+                Err(error) => error,
+            },
+        );
+
+        self.reload_history();
+        self.subscriptions.reload();
+    }
+
     /// Copies the earlier build's data in, without touching its database.
     fn import_from_legacy(&mut self) {
         let lang = self.config.ui_language.clone();
@@ -413,6 +432,7 @@ impl eframe::App for App {
                                     views::settings::Action::ImportLegacy => {
                                         self.import_from_legacy()
                                     }
+                                    views::settings::Action::ClearOldData => self.clear_old_data(),
                                     views::settings::Action::ConfirmClear => {
                                         self.settings.pending_clear = false;
                                         self.save_keys();

@@ -11,6 +11,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "view_balance") => "View Balance",
             ("en", "check_now") => "Check Now",
             ("en", "top_up") => "Top Up",
+            ("en", "settings_title") => "⚙️ Settings",
             ("en", "settings") => "Settings...",
             ("en", "quit") => "Quit",
             ("en", "open_window") => "Open Main Window",
@@ -27,6 +28,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "payg_accounts") => "Balance accounts",
             ("en", "package_accounts") => "Subscription accounts",
             ("en", "balance_word") => "balance",
+            ("en", "db_size_label") => "Database size:",
             ("en", "import_legacy") => "Import from the 1.x database",
             ("en", "import_hint") => "Copies keys and history into this version. The 1.x database is only read, so both can keep running.",
             ("en", "import_done") => "Imported",
@@ -59,11 +61,13 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "proxy_enable") => "Enable HTTP/HTTPS proxy",
             ("en", "proxy_placeholder") => "Proxy address",
             ("en", "theme_label") => "Theme:",
+            ("en", "theme_default") => "Default",
             ("en", "theme_contrast") => "High Contrast",
             ("en", "theme_bright") => "Bright",
             ("en", "theme_dark_mode") => "Dark Mode",
             ("en", "theme_mono") => "Monochrome",
             ("en", "theme_custom") => "Custom",
+            ("en", "day_mode") => "☀ Day",
             ("en", "night_mode") => "🌙 Night",
             ("en", "icon_stroke_label") => "Icon stroke",
             ("en", "custom_colors_label") => "Custom colors: OK / Low / Degraded / No data",
@@ -172,6 +176,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "view_balance") => "查看余额",
             (_, "check_now") => "立即查询",
             (_, "top_up") => "充值",
+            (_, "settings_title") => "⚙️ 设置",
             (_, "settings") => "设置...",
             (_, "quit") => "退出",
             (_, "open_window") => "打开主窗口",
@@ -188,6 +193,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "payg_accounts") => "余额账户",
             (_, "package_accounts") => "订阅账户",
             (_, "balance_word") => "余额",
+            (_, "db_size_label") => "数据库大小：",
             (_, "import_legacy") => "从 1.x 数据库导入",
             (_, "import_hint") => "把密钥与历史复制到本版本；1.x 的库只读取不改动，两个版本可以同时使用。",
             (_, "import_done") => "已导入",
@@ -218,6 +224,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "proxy_enable") => "启用 HTTP/HTTPS 代理",
             (_, "proxy_placeholder") => "代理地址",
             (_, "theme_label") => "主题风格：",
+            (_, "theme_default") => "默认",
             (_, "theme_contrast") => "高对比",
             (_, "theme_bright") => "明亮",
             (_, "theme_dark_mode") => "暗色模式",
@@ -323,9 +330,29 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "cc_loaded") => "已加载。",
             (_, "cc_api_key_hint") => "留空则保留现有 API Key。",
             (_, "warn_title") => "警告",
+            (_, "day_mode") => "☀ 日间",
             (_, "night_mode") => "🌙 夜间",
             _ => "",
         }
+}
+
+/// Label for the cleanup button. It names the window it clears, which is the
+/// retention setting the polling loop already prunes at.
+pub fn clear_button(lang: &str, days: u64) -> String {
+    if lang == "en" {
+        format!("Delete data older than {days} days")
+    } else {
+        format!("清除 {days} 天前的数据")
+    }
+}
+
+/// What a cleanup did, for the notice under the button.
+pub fn cleared_notice(lang: &str, rows: usize, freed: &str) -> String {
+    if lang == "en" {
+        format!("Removed {rows} records, reclaimed {freed}")
+    } else {
+        format!("已清除 {rows} 条记录，回收 {freed}")
+    }
 }
 
 #[cfg(test)]
@@ -337,6 +364,116 @@ mod tests {
         for key in ["settings", "save", "cancel", "history_empty", "check_now"] {
             assert!(!tr("en", key).is_empty(), "missing English text for {key}");
             assert!(!tr("zh", key).is_empty(), "missing Chinese text for {key}");
+        }
+    }
+
+    #[test]
+    fn the_cleanup_wording_names_its_window() {
+        assert_eq!(clear_button("zh", 30), "清除 30 天前的数据");
+        assert_eq!(clear_button("en", 30), "Delete data older than 30 days");
+        assert!(cleared_notice("zh", 12, "1.0 MB").contains("12"));
+        assert!(cleared_notice("en", 12, "1.0 MB").contains("1.0 MB"));
+    }
+
+    /// Every key the interface asks for, written out because the table is a
+    /// match statement and cannot be listed from the code. A missing row fails
+    /// here rather than showing up as a blank button.
+    const USED_KEYS: [&str; 87] = [
+        "alert_mode_label",
+        "api_alert_label",
+        "auto_start",
+        "balance_word",
+        "cancel",
+        "cc_not_configured",
+        "cc_refresh_failed",
+        "cc_window_5h",
+        "cc_window_monthly",
+        "cc_window_weekly",
+        "check_now",
+        "checking",
+        "clear_confirm",
+        "confirm",
+        "connection_status",
+        "daily_rate",
+        "daily_usage",
+        "day_mode",
+        "db_size_label",
+        "error",
+        "estimated_remaining",
+        "export",
+        "export_failed",
+        "export_path_label",
+        "export_success",
+        "granted",
+        "group_cc",
+        "group_credentials",
+        "group_general",
+        "group_query",
+        "history_all",
+        "history_avg",
+        "history_change",
+        "history_chart",
+        "history_empty",
+        "history_falling",
+        "history_flat",
+        "history_range",
+        "history_rising",
+        "history_total",
+        "history_trend",
+        "import_done",
+        "import_hint",
+        "import_keys",
+        "import_legacy",
+        "import_rows",
+        "interval_label",
+        "keys_hint",
+        "language_label",
+        "last_check",
+        "night_mode",
+        "no_subscriptions",
+        "not_checked",
+        "not_enough_data",
+        "og_credentials_saved",
+        "og_not_configured",
+        "og_refresh_failed",
+        "og_title",
+        "og_window_5h",
+        "og_window_monthly",
+        "og_window_weekly",
+        "proxy_enable",
+        "proxy_placeholder",
+        "refresh",
+        "retention_label",
+        "save",
+        "save_keys",
+        "service_status",
+        "settings_tab",
+        "status_critical",
+        "status_maintenance",
+        "status_major",
+        "status_minor",
+        "status_none",
+        "status_unknown",
+        "subscription_tab",
+        "theme_bright",
+        "theme_contrast",
+        "theme_custom",
+        "theme_dark_mode",
+        "theme_default",
+        "theme_label",
+        "theme_mono",
+        "threshold_label",
+        "topped_up",
+        "trend_needs_data",
+        "unset_keys",
+    ];
+
+    #[test]
+    fn every_key_the_interface_uses_is_answered() {
+        for key in USED_KEYS {
+            for lang in ["zh", "en"] {
+                assert!(!tr(lang, key).is_empty(), "missing {lang} text for {key}");
+            }
         }
     }
 
