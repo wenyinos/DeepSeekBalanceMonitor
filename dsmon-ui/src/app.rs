@@ -61,6 +61,8 @@ struct App {
     history: views::history::State,
     subscriptions: views::subscriptions::State,
     settings: views::settings::State,
+    /// Platforms that hold a key, independent of what the last poll returned.
+    configured: std::collections::BTreeSet<String>,
     /// Kept alive so the tray icon stays registered for the whole session.
     _tray: crate::tray::TrayHandle,
 }
@@ -73,7 +75,8 @@ impl App {
         apply_theme(&cc.egui_ctx, &config);
 
         let monitor = Monitor::start(config.clone());
-        let settings = views::settings::State::new(config.clone(), configured_platforms());
+        let configured = configured_platforms();
+        let settings = views::settings::State::new(config.clone(), configured.clone());
 
         let quit_ctx = cc.egui_ctx.clone();
         let tray = crate::tray::spawn(
@@ -93,6 +96,7 @@ impl App {
             history: views::history::State::default(),
             subscriptions: views::subscriptions::State::new(billing_day),
             settings,
+            configured,
             _tray: tray,
         };
         app.reload_history();
@@ -153,6 +157,7 @@ impl App {
         }
         self.settings.pending_clear = false;
         self.settings.configured = configured_platforms();
+        self.configured = self.settings.configured.clone();
 
         let lang = self.config.ui_language.clone();
         self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
@@ -242,20 +247,13 @@ impl eframe::App for App {
                 );
                 ui.add_space(14.0);
 
-                // One entry per *configured* balance platform: a page for a
-                // provider the user never set up would be empty noise. A platform
-                // that failed still appears, so its error is reachable.
-                let known: std::collections::BTreeSet<&str> = snapshot
-                    .balances
-                    .keys()
-                    .chain(snapshot.balance_errors.keys())
-                    .map(String::as_str)
-                    .collect();
-
+                // One entry per *configured* balance platform — decided by the
+                // stored keys, not by the last poll, so the pages are there from
+                // the first frame.
                 for meta in dsmon_core::catalog::implemented()
                     .filter(|meta| meta.mode == dsmon_core::catalog::Mode::Payg)
                 {
-                    if !known.contains(meta.key) {
+                    if !self.configured.contains(meta.key) {
                         continue;
                     }
                     let selected = matches!(&self.page, Page::Balance(key) if key == meta.key);
@@ -326,6 +324,7 @@ impl eframe::App for App {
                                 &view,
                                 &snapshot,
                                 &mut self.subscriptions,
+                                &self.configured,
                             ) {
                                 match action {
                                     views::subscriptions::Action::BillingDay(day) => {

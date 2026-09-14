@@ -27,12 +27,18 @@ enum Provider {
 impl Provider {
     const ALL: [Provider; 2] = [Provider::OpenCodeGo, Provider::CommandCode];
 
-    /// Whether the provider has a key stored, and so deserves a card.
-    fn is_configured(self, snapshot: &Snapshot) -> bool {
+    /// The key this provider's secret is stored under.
+    fn key(self) -> &'static str {
         match self {
-            Provider::OpenCodeGo => !matches!(snapshot.opencode_go, Subscription::NotConfigured),
-            Provider::CommandCode => !matches!(snapshot.command_code, Subscription::NotConfigured),
+            Provider::OpenCodeGo => dsmon_core::storage::KEY_OPENCODE_GO,
+            Provider::CommandCode => dsmon_core::storage::KEY_COMMAND_CODE,
         }
+    }
+
+    /// Whether the provider has a key stored, and so deserves a card. Decided by
+    /// the stored key rather than the last poll, so the cards appear at once.
+    fn is_configured(self, configured: &std::collections::BTreeSet<String>) -> bool {
+        configured.contains(self.key())
     }
 }
 
@@ -77,6 +83,7 @@ pub fn show(
     view: &View<'_>,
     snapshot: &Snapshot,
     state: &mut State,
+    configured: &std::collections::BTreeSet<String>,
 ) -> Option<Action> {
     let mut refresh = false;
 
@@ -98,7 +105,7 @@ pub fn show(
     // unconfigured provider would turn into clutter once more are added.
     let configured: Vec<Provider> = Provider::ALL
         .into_iter()
-        .filter(|provider| provider.is_configured(snapshot))
+        .filter(|provider| provider.is_configured(configured))
         .collect();
 
     let mut billing_day = None;
