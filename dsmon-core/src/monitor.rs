@@ -16,14 +16,30 @@ use crate::config::AppConfig;
 use crate::model::{Balances, CommandCodeQuota, ConsumptionRate, OpenCodeGoQuota};
 use crate::{demo, history, platforms, storage};
 
+/// Outcome of a subscription lookup.
+///
+/// The three cases are kept apart so the interface can say "not configured"
+/// when there is no key and show the actual reason when a configured key
+/// fails, instead of blaming the setup for a network or credential problem.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Subscription<T> {
+    /// No API key is stored for this provider.
+    #[default]
+    NotConfigured,
+    /// The quota was read successfully.
+    Loaded(T),
+    /// The lookup failed; carries the reason reported by the client.
+    Failed(String),
+}
+
 /// Everything the interface needs to draw one frame.
 #[derive(Debug, Clone, Default)]
 pub struct Snapshot {
     pub balances: Balances,
     pub service_status: String,
     pub consumption_rate: Option<ConsumptionRate>,
-    pub opencode_go: Option<OpenCodeGoQuota>,
-    pub command_code: Option<CommandCodeQuota>,
+    pub opencode_go: Subscription<OpenCodeGoQuota>,
+    pub command_code: Subscription<CommandCodeQuota>,
     pub last_check: Option<DateTime<Local>>,
     /// Set when the last poll failed; cleared by the next success.
     pub last_error: Option<String>,
@@ -148,8 +164,8 @@ struct Outcome {
     balances: Balances,
     service_status: String,
     consumption_rate: Option<ConsumptionRate>,
-    opencode_go: Option<OpenCodeGoQuota>,
-    command_code: Option<CommandCodeQuota>,
+    opencode_go: Subscription<OpenCodeGoQuota>,
+    command_code: Subscription<CommandCodeQuota>,
 }
 
 fn gather(config: &AppConfig) -> Result<Outcome, String> {
@@ -200,29 +216,44 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
     })
 }
 
-fn fetch_opencode_go(proxy: &str) -> Option<OpenCodeGoQuota> {
-    let key = storage::read_secret(storage::KEY_OPENCODE_GO)
-        .ok()
-        .flatten()?;
-    if key.is_empty() {
-        return None;
+fn fetch_opencode_go(proxy: &str) -> Subscription<OpenCodeGoQuota> {
+    let key = match storage::read_secret(storage::KEY_OPENCODE_GO) {
+        Ok(Some(key)) => key,
+        Ok(None) => return Subscription::NotConfigured,
+        Err(error) => return Subscription::Failed(error),
+    };
+
+    match platforms::opencode_go::fetch_quota(&key, proxy) {
+        Ok(quota) => Subscription::Loaded(quota),
+        Err(error) => Subscription::Failed(error),
     }
-    platforms::opencode_go::fetch_quota(&key, proxy).ok()
 }
 
-fn fetch_command_code(proxy: &str) -> Option<CommandCodeQuota> {
-    let key = storage::read_secret(storage::KEY_COMMAND_CODE)
-        .ok()
-        .flatten()?;
-    if key.is_empty() {
-        return None;
+fn fetch_command_code(proxy: &str) -> Subscription<CommandCodeQuota> {
+    let key = match storage::read_secret(storage::KEY_COMMAND_CODE) {
+        Ok(Some(key)) => key,
+        Ok(None) => return Subscription::NotConfigured,
+        Err(error) => return Subscription::Failed(error),
+    };
+
+    match platforms::command_code::fetch_quota(&key, proxy) {
+        Ok(quota) => Subscription::Loaded(quota),
+        Err(error) => Subscription::Failed(error),
     }
-    platforms::command_code::fetch_quota(&key, proxy).ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_subscription_starts_unconfigured() {
+        assert_eq!(Subscription::<u8>::default(), Subscription::NotConfigured);
+        assert_ne!(
+            Subscription::Loaded(1u8),
+            Subscription::Failed("boom".to_owned())
+        );
+    }
 
     #[test]
     fn snapshot_starts_empty() {

@@ -3,7 +3,7 @@
 //! Cards are laid out in pairs so another provider only has to add an entry
 //! here; the grid takes care of the rest.
 
-use dsmon_core::monitor::Snapshot;
+use dsmon_core::monitor::{Snapshot, Subscription};
 use dsmon_core::platforms::format_reset_seconds;
 use egui::RichText;
 
@@ -31,7 +31,7 @@ fn opencode_go_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
         ui.add_space(10.0);
 
         match &snapshot.opencode_go {
-            Some(quota) => {
+            Subscription::Loaded(quota) => {
                 for (label, window) in [
                     (view.text("og_window_5h"), quota.rolling.as_ref()),
                     (view.text("og_window_weekly"), quota.weekly.as_ref()),
@@ -45,10 +45,17 @@ fn opencode_go_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
                     );
                 }
             }
-            None => {
+            Subscription::NotConfigured => {
                 ui.label(
                     RichText::new(view.text("og_not_configured"))
                         .color(palette.text_secondary)
+                        .size(12.0),
+                );
+            }
+            Subscription::Failed(error) => {
+                ui.label(
+                    RichText::new(format!("{} {error}", view.text("og_refresh_failed")))
+                        .color(palette.destructive)
                         .size(12.0),
                 );
             }
@@ -69,7 +76,7 @@ fn command_code_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
         ui.add_space(10.0);
 
         match &snapshot.command_code {
-            Some(quota) => {
+            Subscription::Loaded(quota) => {
                 for (label, window) in [
                     (view.text("cc_window_5h"), quota.five_hour.as_ref()),
                     (view.text("cc_window_weekly"), quota.weekly.as_ref()),
@@ -78,10 +85,17 @@ fn command_code_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
                     window_row(ui, palette, label, window.map(window_from_cc));
                 }
             }
-            None => {
+            Subscription::NotConfigured => {
                 ui.label(
                     RichText::new(view.text("cc_not_configured"))
                         .color(palette.text_secondary)
+                        .size(12.0),
+                );
+            }
+            Subscription::Failed(error) => {
+                ui.label(
+                    RichText::new(format!("{} {error}", view.text("cc_refresh_failed")))
+                        .color(palette.destructive)
                         .size(12.0),
                 );
             }
