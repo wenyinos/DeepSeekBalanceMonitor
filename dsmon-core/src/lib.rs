@@ -21,6 +21,9 @@ pub mod platforms;
 pub mod storage;
 pub mod time;
 
+#[cfg(test)]
+mod test_support;
+
 /// Application version, taken from the workspace package metadata.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

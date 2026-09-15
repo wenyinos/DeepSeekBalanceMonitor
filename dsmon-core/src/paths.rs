@@ -142,21 +142,33 @@ pub fn ensure_dir(path: &std::path::Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    // The directories are read out of the environment on every call, and the
+    // crypto tests move them to a scratch directory. Asking for that
+    // redirection first is what keeps it from landing between the two sides of
+    // a comparison below.
+    use crate::test_support::state_in_a_scratch_directory;
+
     #[test]
     fn config_file_sits_in_the_config_directory() {
+        state_in_a_scratch_directory();
+
         assert_eq!(config_file(), config_dir().join("config.json"));
     }
 
     #[test]
     fn state_files_sit_in_the_state_directory() {
+        state_in_a_scratch_directory();
+
         assert_eq!(log_file(), state_dir().join("app.log"));
         assert_eq!(secret_key_file(), state_dir().join(".secure_settings.key"));
     }
 
     #[test]
     fn this_build_keeps_its_own_database() {
-        // The CLI and Python builds share `balance_history.db`; this build must
-        // not write there.
+        state_in_a_scratch_directory();
+
+        // The earlier builds keep `balance_history.db`; this build must not
+        // write there.
         assert_eq!(history_db_file(), state_dir().join("dsmon.db"));
         assert_ne!(
             history_db_file(),
@@ -168,6 +180,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_keeps_state_next_to_config() {
+        state_in_a_scratch_directory();
+
         assert_eq!(state_dir(), config_dir());
     }
 
@@ -176,6 +190,8 @@ mod tests {
     /// earlier build reads them from.
     #[test]
     fn this_build_keeps_out_of_the_earlier_builds_directory() {
+        state_in_a_scratch_directory();
+
         assert_ne!(config_dir(), earlier_config_dir());
         assert_ne!(state_dir(), earlier_state_dir());
         assert_eq!(

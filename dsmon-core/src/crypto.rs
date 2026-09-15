@@ -149,8 +149,16 @@ fn create_private_file(path: &Path) -> std::io::Result<std::fs::File> {
 mod tests {
     use super::*;
 
+    // These tests encrypt, and that reaches the real key file — creating it,
+    // and the directory holding it, when it is not there. The state directory
+    // is pointed at a scratch one first, so a run of the suite cannot write
+    // into the directories of the machine it is run on.
+    use crate::test_support::state_in_a_scratch_directory;
+
     #[test]
     fn round_trips_a_secret() {
+        state_in_a_scratch_directory();
+
         let blob = encrypt("sk-test-key").expect("encrypts");
         assert!(blob.starts_with(PREFIX));
         assert_eq!(decrypt(&blob).expect("decrypts"), "sk-test-key");
@@ -161,6 +169,8 @@ mod tests {
     /// tests encrypt for the first time in parallel.
     #[test]
     fn several_callers_share_one_key() {
+        state_in_a_scratch_directory();
+
         let callers: Vec<_> = (0..8)
             .map(|_| std::thread::spawn(|| encrypt("sk-test-key")))
             .collect();
@@ -173,6 +183,8 @@ mod tests {
 
     #[test]
     fn rejects_tampered_payloads() {
+        state_in_a_scratch_directory();
+
         let mut blob = encrypt("sk-test-key").expect("encrypts");
         let last = blob.len() - 1;
         blob[last] ^= 0xff;
@@ -181,6 +193,8 @@ mod tests {
 
     #[test]
     fn rejects_foreign_blobs() {
+        state_in_a_scratch_directory();
+
         assert!(decrypt(b"not-ours").is_err());
         assert!(decrypt(b"DSBM1").is_err());
     }
