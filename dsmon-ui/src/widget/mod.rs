@@ -45,6 +45,21 @@ pub fn run() -> eframe::Result<()> {
     crate::app::prefer_x11();
 
     let config = AppConfig::load();
+
+    // The widget's own start-up entry, separate from the application's: it can
+    // come up at login on its own — saying so when the application is not
+    // running — or wait to be started by the application. Reconciled on every
+    // run, so a moved executable or a setting carried over from another build
+    // still starts; a refusal is logged and the widget runs anyway.
+    if let Err(error) = dsmon_core::autostart::set_enabled(
+        dsmon_core::autostart::Program::Widget,
+        config.widget_auto_start,
+    ) {
+        let _ = dsmon_core::storage::log_line(&format!(
+            "The widget's start-up entry could not be written: {error}"
+        ));
+    }
+
     let mut viewport = viewport(&config);
     if let Some(icon) = window_icon() {
         viewport = viewport.with_icon(icon);
@@ -439,6 +454,17 @@ impl Widget {
         let mut config = AppConfig::load();
         config.widget_enabled = false;
         let _ = config.save();
+
+        // And the session is told not to start it either: closing this is
+        // "not wanted", and an entry left behind would bring it back at the
+        // next login.
+        if let Err(error) =
+            dsmon_core::autostart::set_enabled(dsmon_core::autostart::Program::Widget, false)
+        {
+            let _ = dsmon_core::storage::log_line(&format!(
+                "The widget's start-up entry could not be removed: {error}"
+            ));
+        }
         // Kept in step with the file: a position written before the window
         // really goes would otherwise carry the old setting back into it.
         self.config = config;

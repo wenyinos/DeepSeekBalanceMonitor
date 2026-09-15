@@ -107,6 +107,12 @@ pub struct AppConfig {
     pub widget_always_on_top: bool,
     #[serde(default = "default_true")]
     pub widget_show_trend: bool,
+    /// Whether the desktop widget asks the session to start it, the way
+    /// `auto_start` does for the application. The two entries are separate: the
+    /// widget can come up at login on its own — saying so when the application
+    /// is not running — or wait to be started by the application.
+    #[serde(default = "default_true")]
+    pub widget_auto_start: bool,
     #[serde(default)]
     pub widget_pos: Option<[f32; 2]>,
 
@@ -154,6 +160,7 @@ impl Default for AppConfig {
             widget_opacity: default_widget_opacity(),
             widget_always_on_top: true,
             widget_show_trend: true,
+            widget_auto_start: true,
             widget_pos: None,
             billing_day_command_code: default_billing_day(),
             window_size: None,

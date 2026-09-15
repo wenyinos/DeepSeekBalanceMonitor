@@ -140,13 +140,16 @@ impl App {
         // system holds the entry afterwards is logged, since that is the one
         // question a log can answer about starting with the session; a refusal
         // is also shown on the settings page, where the setting lives.
-        let start_up = dsmon_core::autostart::set_enabled(config.auto_start);
+        let start_up = dsmon_core::autostart::set_enabled(
+            dsmon_core::autostart::Program::Application,
+            config.auto_start,
+        );
         match &start_up {
             Ok(()) => {
                 let _ = storage::log_line(&format!(
                     "Start-up entry: asked for {}, the system holds {}.",
                     config.auto_start,
-                    dsmon_core::autostart::is_enabled()
+                    dsmon_core::autostart::is_enabled(dsmon_core::autostart::Program::Application)
                 ));
             }
             Err(error) => {
@@ -438,7 +441,10 @@ impl App {
     /// Writes or removes the entry that starts this build with the session.
     fn apply_auto_start(&mut self) {
         let lang = self.config.ui_language.clone();
-        if let Err(error) = dsmon_core::autostart::set_enabled(self.config.auto_start) {
+        if let Err(error) = dsmon_core::autostart::set_enabled(
+            dsmon_core::autostart::Program::Application,
+            self.config.auto_start,
+        ) {
             self.settings.notice = Some(format!("{} {error}", tr(&lang, "auto_start_failed")));
         }
     }

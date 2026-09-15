@@ -6,9 +6,69 @@
 
 use crate::paths;
 
-/// What the entry runs: the application itself, asking for a start that stays
-/// out of the way.
-const ARGUMENT: &str = "--minimized";
+/// Which program an entry starts.
+///
+/// Two programs, two entries. Each reconciles only its own, so a session can
+/// start the widget without the application (the widget says so when the
+/// application is not there) and the application without the widget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Program {
+    /// The application: window, tray and poller.
+    Application,
+    /// The desktop widget, which reads what it draws from the application.
+    Widget,
+}
+
+impl Program {
+    /// The file's stem under the autostart directory (Linux).
+    fn stem(self) -> &'static str {
+        match self {
+            Program::Application => "deepseek-balance-monitor",
+            Program::Widget => "deepseek-balance-monitor-widget",
+        }
+    }
+
+    /// The value name in the per-user `Run` key (Windows).
+    #[cfg(windows)]
+    fn value_name(self) -> &'static str {
+        match self {
+            Program::Application => "DeepSeek Balance Monitor",
+            Program::Widget => "DeepSeek Balance Monitor Widget",
+        }
+    }
+
+    /// The extra argument the session passes, if any.
+    fn argument(self) -> &'static str {
+        match self {
+            // A start asked for by the session stays out of the way.
+            Program::Application => "--minimized",
+            // The widget has no window to stay out of the way with: it comes up
+            // wherever it was left.
+            Program::Widget => "",
+        }
+    }
+
+    /// The name the entry shows.
+    fn display_name(self) -> &'static str {
+        match self {
+            Program::Application => crate::APP_NAME,
+            Program::Widget => "Token Monitor",
+        }
+    }
+
+    /// What the entry says it does.
+    fn comment(self) -> &'static str {
+        match self {
+            Program::Application => "Shows the account balance in the tray",
+            Program::Widget => "Shows the balance and the quota readings on the desktop",
+        }
+    }
+
+    /// The entry's path on Linux, and a name nothing reads on Windows.
+    fn file(self) -> std::path::PathBuf {
+        paths::autostart_file(self.stem())
+    }
+}
 
 /// Makes the system's start-up entry agree with `enabled`.
 ///
@@ -18,75 +78,81 @@ const ARGUMENT: &str = "--minimized";
 /// setting carried over from another build, or an executable that has moved,
 /// therefore still starts with the session. Writing only happens when the entry
 /// is missing or says something else.
-pub fn set_enabled(enabled: bool) -> Result<(), String> {
-    let path = paths::autostart_file();
+pub fn set_enabled(program: Program, enabled: bool) -> Result<(), String> {
+    let path = program.file();
     if enabled {
-        let command = command_line()?;
-        if entry_is_current(&path, &command) {
+        let command = command_line(program)?;
+        if entry_is_current(program, &path, &command) {
             return Ok(());
         }
-        install(&path, &command)
+        install(program, &path, &command)
     } else {
-        remove(&path)
+        remove(program, &path)
     }
 }
 
 /// Whether the entry is already the one this build would write.
 #[cfg(not(windows))]
-fn entry_is_current(path: &std::path::Path, command: &str) -> bool {
+fn entry_is_current(program: Program, path: &std::path::Path, command: &str) -> bool {
     std::fs::read_to_string(path)
-        .map(|written| written == entry_text(command))
+        .map(|written| written == entry_text(program, command))
         .unwrap_or(false)
 }
 
 #[cfg(windows)]
-fn entry_is_current(_path: &std::path::Path, command: &str) -> bool {
-    entry().as_deref() == Some(command)
+fn entry_is_current(program: Program, _path: &std::path::Path, command: &str) -> bool {
+    entry(program).as_deref() == Some(command)
 }
 
 /// Whether the entry this build would write is in place.
-pub fn is_enabled() -> bool {
+pub fn is_enabled(program: Program) -> bool {
     #[cfg(windows)]
     {
-        entry().is_some()
+        entry(program).is_some()
     }
 
     #[cfg(not(windows))]
     {
-        paths::autostart_file().is_file()
+        program.file().is_file()
     }
 }
 
 /// The executable and its argument, quoted for a command line.
-fn command_line() -> Result<String, String> {
+fn command_line(program: Program) -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    Ok(format!("\"{}\" {ARGUMENT}", exe.display()))
+    let argument = program.argument();
+    Ok(if argument.is_empty() {
+        format!("\"{}\"", exe.display())
+    } else {
+        format!("\"{}\" {argument}", exe.display())
+    })
 }
 
 /// The text of the desktop entry, which is also what tells whether the file on
 /// disk is still the right one.
 #[cfg(not(windows))]
-fn entry_text(command: &str) -> String {
+fn entry_text(program: Program, command: &str) -> String {
     format!(
         "[Desktop Entry]\n\
          Type=Application\n\
          Name={}\n\
-         Comment=Shows the account balance in the tray\n\
+         Comment={}\n\
          Exec={command}\n\
          Terminal=false\n\
          Hidden=false\n\
          X-GNOME-Autostart-enabled=true\n",
-        crate::APP_NAME
+        program.display_name(),
+        program.comment()
     )
 }
 
 #[cfg(not(windows))]
-fn install(path: &std::path::Path, command: &str) -> Result<(), String> {
+fn install(program: Program, path: &std::path::Path, command: &str) -> Result<(), String> {
     if let Some(directory) = path.parent() {
         paths::ensure_dir(directory).map_err(|error| error.to_string())?;
     }
 
-    std::fs::write(path, entry_text(command)).map_err(|error| error.to_string())?;
+    std::fs::write(path, entry_text(program, command)).map_err(|error| error.to_string())?;
 
     // Some sessions only launch an autostart entry that is marked executable,
     // and the check costs nothing.
@@ -96,7 +162,7 @@ fn install(path: &std::path::Path, command: &str) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn remove(path: &std::path::Path) -> Result<(), String> {
+fn remove(_program: Program, path: &std::path::Path) -> Result<(), String> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -113,11 +179,12 @@ mod windows_impl {
         REG_SZ,
     };
 
+    use super::Program;
+
     /// Where the per-user start-up entries live.
     const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-    const VALUE_NAME: &str = "DeepSeek Balance Monitor";
 
-    pub fn install(_path: &std::path::Path, command: &str) -> Result<(), String> {
+    pub fn install(program: Program, _path: &std::path::Path, command: &str) -> Result<(), String> {
         let mut key: HKEY = std::ptr::null_mut();
         let status = unsafe {
             RegCreateKeyExW(
@@ -141,7 +208,7 @@ mod windows_impl {
         let status = unsafe {
             RegSetValueExW(
                 key,
-                wide(VALUE_NAME).as_ptr(),
+                wide(program.value_name()).as_ptr(),
                 0,
                 REG_SZ,
                 bytes.as_ptr(),
@@ -156,7 +223,7 @@ mod windows_impl {
         Ok(())
     }
 
-    pub fn remove(_path: &std::path::Path) -> Result<(), String> {
+    pub fn remove(program: Program, _path: &std::path::Path) -> Result<(), String> {
         let mut key: HKEY = std::ptr::null_mut();
         let status = unsafe {
             RegOpenKeyExW(
@@ -172,13 +239,13 @@ mod windows_impl {
             return Ok(());
         }
 
-        unsafe { RegDeleteValueW(key, wide(VALUE_NAME).as_ptr()) };
+        unsafe { RegDeleteValueW(key, wide(program.value_name()).as_ptr()) };
         unsafe { RegCloseKey(key) };
         Ok(())
     }
 
-    /// The command line stored for this application, if there is one.
-    pub fn entry() -> Option<String> {
+    /// The command line stored for this program, if there is one.
+    pub fn entry(program: Program) -> Option<String> {
         let mut key: HKEY = std::ptr::null_mut();
         let status = unsafe {
             RegOpenKeyExW(
@@ -194,7 +261,7 @@ mod windows_impl {
         }
 
         let mut size = 0u32;
-        let name = wide(VALUE_NAME);
+        let name = wide(program.value_name());
         let status = unsafe {
             RegQueryValueExW(
                 key,
@@ -248,12 +315,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_command_asks_for_a_quiet_start() {
-        let command = command_line().expect("the running executable has a path");
-        assert!(command.ends_with(ARGUMENT), "{command}");
+    fn the_application_is_asked_for_a_quiet_start() {
+        let command =
+            command_line(Program::Application).expect("the running executable has a path");
+        assert!(command.ends_with("--minimized"), "{command}");
         assert!(
             command.starts_with('"'),
             "a path may hold spaces: {command}"
+        );
+    }
+
+    #[test]
+    fn the_widget_is_started_with_no_arguments() {
+        let command = command_line(Program::Widget).expect("the running executable has a path");
+        assert!(
+            command.ends_with('"'),
+            "nothing follows the path: {command}"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_two_programs_get_an_entry_each() {
+        let application = Program::Application.file();
+        let widget = Program::Widget.file();
+        assert_ne!(application, widget);
+        assert_eq!(
+            application.file_name().unwrap(),
+            "deepseek-balance-monitor.desktop"
+        );
+        assert_eq!(
+            widget.file_name().unwrap(),
+            "deepseek-balance-monitor-widget.desktop"
         );
     }
 
@@ -263,7 +356,8 @@ mod tests {
         let path = std::env::temp_dir().join("dsmon-autostart-test.desktop");
         let _ = std::fs::remove_file(&path);
 
-        install(&path, "\"/opt/dsmon\" --minimized").expect("the entry is written");
+        install(Program::Application, &path, "\"/opt/dsmon\" --minimized")
+            .expect("the entry is written");
         let written = std::fs::read_to_string(&path).expect("the entry is readable");
 
         assert!(written.starts_with("[Desktop Entry]"), "{written}");
@@ -275,9 +369,9 @@ mod tests {
         );
         assert!(written.contains("Terminal=false"));
 
-        remove(&path).expect("the entry is removed");
+        remove(Program::Application, &path).expect("the entry is removed");
         assert!(!path.exists());
-        remove(&path).expect("removing it twice is not an error");
+        remove(Program::Application, &path).expect("removing it twice is not an error");
     }
 
     /// Reconciling means the file is only rewritten when it says something
@@ -290,12 +384,22 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         let command = "\"/opt/dsmon2\" --minimized";
-        assert!(!entry_is_current(&path, command), "nothing is there yet");
-
-        install(&path, command).expect("the entry is written");
-        assert!(entry_is_current(&path, command), "the entry is current");
         assert!(
-            !entry_is_current(&path, "\"/elsewhere/dsmon2\" --minimized"),
+            !entry_is_current(Program::Application, &path, command),
+            "nothing is there yet"
+        );
+
+        install(Program::Application, &path, command).expect("the entry is written");
+        assert!(
+            entry_is_current(Program::Application, &path, command),
+            "the entry is current"
+        );
+        assert!(
+            !entry_is_current(
+                Program::Application,
+                &path,
+                "\"/elsewhere/dsmon2\" --minimized"
+            ),
             "an executable that has moved is not current"
         );
 
@@ -309,13 +413,16 @@ mod tests {
             assert_eq!(mode & 0o777, 0o755, "an autostart entry is executable");
         }
 
-        remove(&path).expect("the entry is removed");
-        assert!(!entry_is_current(&path, command), "and then it is gone");
+        remove(Program::Application, &path).expect("the entry is removed");
+        assert!(
+            !entry_is_current(Program::Application, &path, command),
+            "and then it is gone"
+        );
     }
 
     #[test]
     fn the_desktop_entry_lives_under_the_autostart_directory() {
-        let path = paths::autostart_file();
+        let path = paths::autostart_file("deepseek-balance-monitor");
         assert_eq!(
             path.file_name().unwrap(),
             "deepseek-balance-monitor.desktop"
