@@ -37,7 +37,24 @@ pub enum Command {
     Refresh,
     /// Bring up the main window on the settings page.
     OpenSettings,
+    /// Bring the desktop widget up, or take it down again.
+    ToggleWidget,
     Quit,
+}
+
+/// The wording of the widget entry.
+///
+/// It names the action rather than the state, because the Linux menu has no
+/// tick to show a state with — and this way one wording serves both platforms.
+pub fn widget_label(lang: &str, shown: bool) -> &'static str {
+    tr(
+        lang,
+        if shown {
+            "widget_menu_hide"
+        } else {
+            "widget_menu_show"
+        },
+    )
 }
 
 /// The figure, the colour and the hover text the icon carries.
@@ -142,9 +159,10 @@ impl Tray {
         ctx: &egui::Context,
         lang: &str,
         theme: &IconTheme,
+        widget: bool,
         commands: Arc<Mutex<Vec<Command>>>,
     ) -> Self {
-        let handle = match platform::spawn(lang, theme, commands, ctx.clone()) {
+        let handle = match platform::spawn(lang, theme, widget, commands, ctx.clone()) {
             Ok(handle) => Some(handle),
             Err(error) => {
                 let _ = dsmon_core::storage::log_line(&format!(
@@ -192,6 +210,13 @@ impl Tray {
     pub fn set_language(&self, lang: &str) {
         if let Some(handle) = &self.handle {
             handle.set_language(lang);
+        }
+    }
+
+    /// Points the widget entry at the other action, after the setting moved.
+    pub fn set_widget(&self, shown: bool) {
+        if let Some(handle) = &self.handle {
+            handle.set_widget(shown);
         }
     }
 }

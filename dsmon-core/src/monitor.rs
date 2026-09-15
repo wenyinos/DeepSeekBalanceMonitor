@@ -108,6 +108,42 @@ impl Monitor {
     }
 }
 
+/// A second handle on the same poller, for whoever serves the local interface.
+///
+/// It reads the latest reading and may ask for another poll, but it does not
+/// own the thread: dropping it leaves the poller running, which is what the
+/// interface needs when it winds down on its own.
+#[derive(Clone)]
+pub struct MonitorHandle {
+    snapshot: Arc<Mutex<Snapshot>>,
+    commands: Sender<Command>,
+}
+
+impl MonitorHandle {
+    /// The latest snapshot, as [`Monitor::snapshot`] returns it.
+    pub fn snapshot(&self) -> Snapshot {
+        self.snapshot
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+
+    /// Asks for a poll now, as [`Monitor::refresh`] does.
+    pub fn refresh(&self) {
+        let _ = self.commands.send(Command::Refresh);
+    }
+}
+
+impl Monitor {
+    /// A handle for another thread, paired with the one this type owns.
+    pub fn handle(&self) -> MonitorHandle {
+        MonitorHandle {
+            snapshot: Arc::clone(&self.snapshot),
+            commands: self.commands.clone(),
+        }
+    }
+}
+
 impl Drop for Monitor {
     fn drop(&mut self) {
         let _ = self.commands.send(Command::Stop);

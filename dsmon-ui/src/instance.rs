@@ -1,17 +1,58 @@
 //! One instance at a time.
 //!
-//! Starting the application again is not starting a second one: the copy that
-//! is already running raises its window and the new process leaves, which keeps
-//! a second tray icon and a second poller out of the picture.
+//! Starting a program again is not starting a second one: the copy that is
+//! already running raises its window and the new process leaves, which keeps a
+//! second tray icon, a second poller and a second widget out of the picture.
 //!
 //! Linux claims a name on the session bus, which a second process can also talk
 //! to. Windows claims a named mutex, and a named event carries the request
-//! across. Where neither is available the application simply runs: being unable
-//! to check is not a reason to refuse to start.
+//! across. Where neither is available the program simply runs: being unable to
+//! check is not a reason to refuse to start.
 
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::tray::Command;
+/// The names a program claims, one set each for the application and the widget.
+///
+/// They have to be apart: sharing them would make a widget started while only
+/// the application runs hand its request to the application and leave, and the
+/// only thing on screen would be the window that was already there.
+#[derive(Debug, Clone, Copy)]
+pub struct Names {
+    /// The name a copy claims on the session bus, which is how Linux does it.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub service: &'static str,
+    /// Windows holds a mutex, and a second launch sets an event.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub mutex: &'static str,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub event: &'static str,
+}
+
+impl Names {
+    /// The application: the window, the tray and the poller.
+    pub const APPLICATION: Self = Self {
+        service: "com.github.wenyinos.deepseek-balance-monitor",
+        mutex: "Local\\DeepSeekBalanceMonitor",
+        event: "Local\\DeepSeekBalanceMonitorShow",
+    };
+
+    /// The desktop widget, which has a window of its own to raise.
+    pub const WIDGET: Self = Self {
+        service: "com.github.wenyinos.deepseek-balance-monitor-widget",
+        mutex: "Local\\DeepSeekBalanceMonitorWidget",
+        event: "Local\\DeepSeekBalanceMonitorWidgetShow",
+    };
+}
+
+/// What a second launch asks of the copy that is already running.
+///
+/// The only thing a second launch can want is the window it did not get, so
+/// there is one request and the program decides what raising it means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Request {
+    /// Bring the window to the front.
+    Show,
+}
 
 #[cfg(target_os = "linux")]
 mod platform {
@@ -20,12 +61,11 @@ mod platform {
 
     use zbus::fdo::{RequestNameFlags, RequestNameReply};
 
-    use crate::tray::Command;
+    use super::{Guard, Names, Request};
 
-    use super::Guard;
-
-    /// The name the running copy answers to, and where it answers.
-    const SERVICE: &str = "com.github.wenyinos.deepseek-balance-monitor";
+    /// Where the request is answered. The name is only unique within one
+    /// process — a caller names the service it talks to — so the application
+    /// and the widget share this one, and their two names keep them apart.
     const PATH: &str = "/app";
     const INTERFACE: &str = "com.github.wenyinos.DeepseekBalanceMonitor";
 
@@ -36,7 +76,7 @@ mod platform {
 
     /// The one request another launch can make.
     pub struct ShowRequest {
-        commands: Arc<Mutex<Vec<Command>>>,
+        requests: Arc<Mutex<Vec<Request>>>,
         ctx: Arc<OnceLock<egui::Context>>,
     }
 
@@ -44,8 +84,8 @@ mod platform {
     impl ShowRequest {
         /// Raise the window of the copy that is already running.
         fn show(&self) {
-            if let Ok(mut queue) = self.commands.lock() {
-                queue.push(Command::OpenWindow);
+            if let Ok(mut queue) = self.requests.lock() {
+                queue.push(Request::Show);
             }
             // Waking the interface is only possible once it exists; before that
             // the command waits in the queue for its first frame.
@@ -57,7 +97,8 @@ mod platform {
 
     /// Takes the name, or reports that someone else holds it.
     pub fn claim(
-        commands: Arc<Mutex<Vec<Command>>>,
+        names: Names,
+        requests: Arc<Mutex<Vec<Request>>>,
         ctx: Arc<OnceLock<egui::Context>>,
     ) -> Result<Option<Guard>, ()> {
         let connection = match zbus::blocking::Connection::session() {
@@ -73,7 +114,7 @@ mod platform {
         // request arriving in between would have nothing to reach.
         if let Err(error) = connection
             .object_server()
-            .at(PATH, ShowRequest { commands, ctx })
+            .at(PATH, ShowRequest { requests, ctx })
         {
             note(&format!("the request handler could not be served: {error}"));
             return Ok(None);
@@ -82,7 +123,7 @@ mod platform {
         // Asking for the name is the whole check: the answer says whether
         // anyone else is the application already.
         let flags = RequestNameFlags::DoNotQueue.into();
-        match connection.request_name_with_flags(SERVICE, flags) {
+        match connection.request_name_with_flags(names.service, flags) {
             Ok(RequestNameReply::PrimaryOwner) | Ok(RequestNameReply::AlreadyOwner) => {
                 Ok(Some(Guard::from(Claim {
                     _connection: connection,
@@ -98,7 +139,7 @@ mod platform {
     }
 
     /// Asks the copy that holds the name to raise its window.
-    pub fn ask_to_show() -> Result<(), String> {
+    pub fn ask_to_show(names: Names) -> Result<(), String> {
         let connection =
             zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
 
@@ -106,7 +147,7 @@ mod platform {
         // which is a matter of a few milliseconds.
         let mut last = String::new();
         for attempt in 0..5 {
-            match connection.call_method(Some(SERVICE), PATH, Some(INTERFACE), "Show", &()) {
+            match connection.call_method(Some(names.service), PATH, Some(INTERFACE), "Show", &()) {
                 Ok(_) => return Ok(()),
                 Err(error) => {
                     last = error.to_string();
@@ -135,13 +176,7 @@ mod platform {
         CreateEventW, CreateMutexW, SetEvent, WaitForSingleObject, INFINITE,
     };
 
-    use crate::tray::Command;
-
-    use super::Guard;
-
-    /// Per session, which for a tray application is the same as per user.
-    const MUTEX_NAME: &str = "Local\\DeepSeekBalanceMonitor";
-    const EVENT_NAME: &str = "Local\\DeepSeekBalanceMonitorShow";
+    use super::{Guard, Names, Request};
 
     /// The claim: the mutex that says who was first, and the event the copy
     /// that was not first sets.
@@ -155,16 +190,17 @@ mod platform {
 
     /// Takes the mutex, or reports that someone else holds it.
     pub fn claim(
-        commands: Arc<Mutex<Vec<Command>>>,
+        names: Names,
+        requests: Arc<Mutex<Vec<Request>>>,
         ctx: Arc<OnceLock<egui::Context>>,
     ) -> Result<Option<Guard>, ()> {
-        let event = unsafe { CreateEventW(std::ptr::null(), 0, 0, wide(EVENT_NAME).as_ptr()) };
+        let event = unsafe { CreateEventW(std::ptr::null(), 0, 0, wide(names.event).as_ptr()) };
         if event.is_null() {
             // Cannot tell who is first, so run.
             return Ok(None);
         }
 
-        let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, wide(MUTEX_NAME).as_ptr()) };
+        let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, wide(names.mutex).as_ptr()) };
         let already_running = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
         if mutex.is_null() {
             return Ok(None);
@@ -185,8 +221,8 @@ mod platform {
         std::thread::spawn(move || {
             let event = waited_on as HANDLE;
             while unsafe { WaitForSingleObject(event, INFINITE) } == 0 {
-                if let Ok(mut queue) = commands.lock() {
-                    queue.push(Command::OpenWindow);
+                if let Ok(mut queue) = requests.lock() {
+                    queue.push(Request::Show);
                 }
                 if let Some(ctx) = ctx.get() {
                     ctx.request_repaint();
@@ -201,7 +237,7 @@ mod platform {
     }
 
     /// Nothing to ask for: the event was set while claiming.
-    pub fn ask_to_show() -> Result<(), String> {
+    pub fn ask_to_show(_names: Names) -> Result<(), String> {
         Ok(())
     }
 
@@ -236,15 +272,16 @@ pub enum Role {
 /// `quiet` marks a start that only wanted the tray — one asked for by the
 /// session at login — which has nothing to raise and nothing to say.
 pub fn claim(
+    names: Names,
     quiet: bool,
-    commands: Arc<Mutex<Vec<Command>>>,
+    requests: Arc<Mutex<Vec<Request>>>,
     ctx: Arc<OnceLock<egui::Context>>,
 ) -> Role {
-    match platform::claim(commands, ctx) {
+    match platform::claim(names, requests, ctx) {
         Ok(guard) => Role::First(guard.unwrap_or(Guard { claim: None })),
         Err(()) => {
             if !quiet {
-                match platform::ask_to_show() {
+                match platform::ask_to_show(names) {
                     Ok(()) => {
                         let _ =
                             dsmon_core::storage::log_line("Asked the running copy for its window");

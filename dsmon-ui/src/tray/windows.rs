@@ -18,6 +18,7 @@ use super::{Command, Status};
 const ID_BALANCE: &str = "view-balance";
 const ID_OPEN: &str = "open-window";
 const ID_REFRESH: &str = "refresh";
+const ID_WIDGET: &str = "toggle-widget";
 const ID_SETTINGS: &str = "settings";
 const ID_QUIT: &str = "quit";
 
@@ -27,17 +28,26 @@ pub struct TrayHandle {
     /// Entries whose text follows the interface language, so they have to be
     /// reachable after the menu is built.
     items: Items,
+    /// Whether the widget is meant to be up. Its entry says what picking it
+    /// would do, which changes with the setting.
+    widget: std::sync::atomic::AtomicBool,
+    /// The language in force, kept so the widget's entry can be reworded
+    /// without waiting for a language change.
+    lang: Mutex<String>,
 }
 
 struct Items {
     balance: MenuItem,
     open: MenuItem,
     refresh: MenuItem,
+    widget: MenuItem,
     settings: MenuItem,
     quit: MenuItem,
 }
 
 impl Items {
+    /// The entries whose wording never changes with the state. The widget's is
+    /// relabelled from [`TrayHandle::set_widget`] instead.
     fn entries(&self) -> [(&MenuItem, &str); 5] {
         [
             (&self.balance, "view_balance"),
@@ -103,6 +113,29 @@ impl TrayHandle {
         for (item, key) in self.items.entries() {
             item.set_text(crate::i18n::tr(lang, key));
         }
+        if let Ok(mut stored) = self.lang.lock() {
+            *stored = lang.to_owned();
+        }
+        self.items
+            .widget
+            .set_text(super::widget_label(lang, self.widget_shown()));
+    }
+
+    pub fn set_widget(&self, shown: bool) {
+        self.widget
+            .store(shown, std::sync::atomic::Ordering::Relaxed);
+        let lang = self
+            .lang
+            .lock()
+            .map(|lang| lang.clone())
+            .unwrap_or_else(|_| "en".to_owned());
+        self.items
+            .widget
+            .set_text(super::widget_label(&lang, shown));
+    }
+
+    fn widget_shown(&self) -> bool {
+        self.widget.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -110,6 +143,7 @@ impl TrayHandle {
 pub fn spawn(
     lang: &str,
     theme: &IconTheme,
+    widget: bool,
     commands: Arc<Mutex<Vec<Command>>>,
     ctx: egui::Context,
 ) -> Result<TrayHandle, String> {
@@ -119,6 +153,7 @@ pub fn spawn(
     let balance = MenuItem::with_id(ID_BALANCE, text("view_balance"), true, None);
     let open = MenuItem::with_id(ID_OPEN, text("open_window"), true, None);
     let refresh = MenuItem::with_id(ID_REFRESH, text("check_now"), true, None);
+    let widget_entry = MenuItem::with_id(ID_WIDGET, super::widget_label(lang, widget), true, None);
     let settings = MenuItem::with_id(ID_SETTINGS, text("settings"), true, None);
     let quit = MenuItem::with_id(ID_QUIT, text("quit"), true, None);
 
@@ -128,6 +163,7 @@ pub fn spawn(
         &open,
         &refresh,
         &separator,
+        &widget_entry,
         &settings,
         &quit,
     ] {
@@ -161,9 +197,12 @@ pub fn spawn(
             balance,
             open,
             refresh,
+            widget: widget_entry,
             settings,
             quit,
         },
+        widget: std::sync::atomic::AtomicBool::new(widget),
+        lang: Mutex::new(lang.to_owned()),
     })
 }
 
@@ -176,6 +215,7 @@ fn install_handlers(commands: Arc<Mutex<Vec<Command>>>, ctx: egui::Context) {
             ID_BALANCE => Some(Command::ShowBalance),
             ID_OPEN => Some(Command::OpenWindow),
             ID_REFRESH => Some(Command::Refresh),
+            ID_WIDGET => Some(Command::ToggleWidget),
             ID_SETTINGS => Some(Command::OpenSettings),
             ID_QUIT => Some(Command::Quit),
             _ => None,

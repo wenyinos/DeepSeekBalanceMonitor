@@ -47,14 +47,17 @@ pub fn run() -> eframe::Result<()> {
         viewport = viewport.with_icon(icon);
     }
 
-    // Everything that can ask the application to do something writes here: the
-    // tray, and a second launch that wants the window raised.
+    // What the tray asks for, and what a second launch asks for, arrive
+    // through two queues: one is the menu, the other is another process
+    // saying it could not start.
     let commands = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let ctx_holder = std::sync::Arc::new(std::sync::OnceLock::new());
 
     let instance = match crate::instance::claim(
+        crate::instance::Names::APPLICATION,
         starts_minimized(),
-        std::sync::Arc::clone(&commands),
+        std::sync::Arc::clone(&requests),
         std::sync::Arc::clone(&ctx_holder),
     ) {
         crate::instance::Role::First(guard) => guard,
@@ -72,7 +75,7 @@ pub fn run() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             let _ = ctx_holder.set(cc.egui_ctx.clone());
-            Ok(Box::new(App::new(cc, commands, instance)))
+            Ok(Box::new(App::new(cc, commands, requests, instance)))
         }),
     )
 }
@@ -81,6 +84,8 @@ struct App {
     page: Page,
     config: AppConfig,
     monitor: Monitor,
+    /// The local interface the desktop widget reads. Dropped with the window.
+    _widget_api: Option<dsmon_core::widget_api::Server>,
     history: views::history::State,
     subscriptions: views::subscriptions::State,
     settings: views::settings::State,
@@ -88,9 +93,10 @@ struct App {
     configured: std::collections::BTreeSet<String>,
     /// The tray icon and the commands picked in its menu.
     tray: crate::tray::Tray,
-    /// Anything that can be asked of the application, from the tray or from a
-    /// second launch.
+    /// The commands picked in the tray menu.
     commands: std::sync::Arc<std::sync::Mutex<Vec<crate::tray::Command>>>,
+    /// The requests a second launch makes, which it cannot carry out itself.
+    requests: std::sync::Arc<std::sync::Mutex<Vec<crate::instance::Request>>>,
     /// The claim on being the running copy, kept for the process's lifetime.
     _instance: crate::instance::Guard,
     /// What the last reading left behind, for the notifications it calls for.
@@ -101,12 +107,16 @@ struct App {
     /// Set when the tray asked to quit, so the close request is honoured
     /// instead of the window hiding itself.
     quitting: bool,
+    /// When the stored widget setting was last read back, so the tray entry
+    /// follows a change the widget made to it.
+    widget_checked: std::time::Instant,
 }
 
 impl App {
     fn new(
         cc: &eframe::CreationContext<'_>,
         commands: std::sync::Arc<std::sync::Mutex<Vec<crate::tray::Command>>>,
+        requests: std::sync::Arc<std::sync::Mutex<Vec<crate::instance::Request>>>,
         instance: crate::instance::Guard,
     ) -> Self {
         crate::fonts::install(&cc.egui_ctx);
@@ -146,6 +156,24 @@ impl App {
         }
 
         let monitor = Monitor::start(config.clone());
+
+        // The desktop widget reads everything it draws from here. A port that
+        // cannot be taken is written to the log and the application carries on
+        // without the interface: the window and the tray do not depend on it.
+        let widget_api = match dsmon_core::widget_api::start(monitor.handle()) {
+            Ok(server) => {
+                let _ = storage::log_line(&format!(
+                    "The local interface is listening on {}.",
+                    server.url()
+                ));
+                Some(server)
+            }
+            Err(error) => {
+                let _ = storage::log_line(&error);
+                None
+            }
+        };
+
         let configured = configured_platforms();
         let mut settings = views::settings::State::new(config.clone(), configured.clone());
         if let Err(error) = &start_up {
@@ -166,22 +194,36 @@ impl App {
             &cc.egui_ctx,
             &config.ui_language,
             &icon_theme(&config),
+            config.widget_enabled,
             std::sync::Arc::clone(&commands),
         );
+
+        // The widget is a program of its own, and whether it should be up is a
+        // setting this one owns. Starting it here is what makes the tray entry
+        // mean "from now on" rather than "until the next start".
+        if config.widget_enabled {
+            if let Err(error) = crate::widget::start_process() {
+                let _ =
+                    storage::log_line(&format!("The desktop widget could not be started: {error}"));
+            }
+        }
 
         let billing_day = config.billing_day_command_code;
         let mut app = Self {
             page: Page::Balance(dsmon_core::storage::KEY_DEEPSEEK.to_owned()),
             config,
             monitor,
+            _widget_api: widget_api,
             history: views::history::State::default(),
             subscriptions: views::subscriptions::State::new(billing_day),
             settings,
             configured,
             tray,
             commands,
+            requests,
             _instance: instance,
             alerts: crate::notify::Watch::default(),
+            widget_checked: std::time::Instant::now(),
             hide_at_start: starts_minimized()
                 .then(|| std::time::Instant::now() + std::time::Duration::from_secs(15)),
             quitting: false,
@@ -307,11 +349,61 @@ impl App {
                     self.page = Page::Settings;
                     show_window(ctx);
                 }
+                Command::ToggleWidget => self.toggle_widget(),
                 Command::Quit => {
                     self.quitting = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
+        }
+    }
+
+    /// Brings the desktop widget up or down for good.
+    ///
+    /// Only the setting and the start are done here: hiding is the widget's own
+    /// business, since it is the process that has to end — it reads the same
+    /// file and closes itself.
+    fn toggle_widget(&mut self) {
+        self.config.widget_enabled = !self.config.widget_enabled;
+        if let Err(error) = self.config.save() {
+            let _ = storage::log_line(&format!("The configuration could not be written: {error}"));
+        }
+
+        if self.config.widget_enabled {
+            if let Err(error) = crate::widget::start_process() {
+                let _ =
+                    storage::log_line(&format!("The desktop widget could not be started: {error}"));
+            }
+        }
+        self.tray.set_widget(self.config.widget_enabled);
+    }
+
+    /// A second launch cannot raise a window that belongs to this process, so
+    /// it asks; showing the window is the whole of what it can ask for.
+    fn drain_instance_requests(&self, ctx: &egui::Context) {
+        let asked = match self.requests.lock() {
+            Ok(mut queue) => std::mem::take(&mut *queue),
+            Err(_) => Vec::new(),
+        };
+        if asked.contains(&crate::instance::Request::Show) {
+            show_window(ctx);
+        }
+    }
+
+    /// The widget's own close button writes the setting the tray entry shows,
+    /// so that entry follows the file rather than only what this process
+    /// remembers. Read on a timer: the file is small, but it is not free.
+    fn follow_widget_setting(&mut self) {
+        const EVERY: std::time::Duration = std::time::Duration::from_secs(2);
+        if self.widget_checked.elapsed() < EVERY {
+            return;
+        }
+        self.widget_checked = std::time::Instant::now();
+
+        let stored = AppConfig::load().widget_enabled;
+        if stored != self.config.widget_enabled {
+            self.config.widget_enabled = stored;
+            self.tray.set_widget(stored);
         }
     }
 
@@ -452,6 +544,8 @@ impl eframe::App for App {
         });
 
         self.drain_tray_commands(ctx);
+        self.drain_instance_requests(ctx);
+        self.follow_widget_setting();
         self.tray.publish(
             &crate::tray::status(&snapshot, &self.config, &lang),
             &icon_theme(&self.config),
@@ -809,7 +903,7 @@ fn starts_minimized() -> bool {
 /// A session with no X display at all keeps its native Wayland window, and
 /// `DSMON_NATIVE_WAYLAND=1` asks for that on purpose.
 #[cfg(target_os = "linux")]
-fn prefer_x11() {
+pub(crate) fn prefer_x11() {
     if std::env::var_os("DSMON_NATIVE_WAYLAND").is_some() {
         return;
     }
@@ -824,7 +918,7 @@ fn prefer_x11() {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn prefer_x11() {}
+pub(crate) fn prefer_x11() {}
 
 /// Hands a URL to the desktop.
 fn open_url(url: &str) {

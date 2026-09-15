@@ -7,7 +7,7 @@
 //! `implemented` marks whether the client exists yet. Unimplemented entries are
 //! listed so the settings page can already accept their keys and so the data
 //! model does not have to change when the client lands. See
-//! `PLATFORM_PORTING.md` for the interface details of each one.
+//! `docs/PLATFORM_PORTING.md` for the interface details of each one.
 
 /// What kind of reading a platform reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

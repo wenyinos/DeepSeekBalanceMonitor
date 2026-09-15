@@ -302,7 +302,7 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
     });
 }
 
-fn format_busy_hours(hours: f64) -> String {
+pub(crate) fn format_busy_hours(hours: f64) -> String {
     if !hours.is_finite() || hours <= 0.0 {
         return "--".to_owned();
     }

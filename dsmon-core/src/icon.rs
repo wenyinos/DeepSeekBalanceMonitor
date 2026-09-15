@@ -79,6 +79,70 @@ pub fn app_icon(size: u32) -> Option<TrayIcon> {
     })
 }
 
+/// The desktop widget's own mark: the application's artwork with a badge in
+/// the corner.
+///
+/// Both programs can be on screen at once, and a desktop shows one icon per
+/// window and one per tray entry; two identical marks would leave the user
+/// guessing which is which. The badge is the same accent colour the widget's
+/// own interface draws with.
+pub fn widget_icon(size: u32) -> Option<TrayIcon> {
+    let mut icon = app_icon(size)?;
+    badge(&mut icon);
+    Some(icon)
+}
+
+/// Colour of the badge, i.e. the accent of the default interface style.
+const BADGE: [u8; 3] = [0x5e, 0xe0, 0xc8];
+
+/// Reorders RGBA into the ARGB32 in network byte order that a
+/// StatusNotifierItem carries.
+pub fn argb32(rgba: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(rgba.len());
+    for pixel in rgba.chunks_exact(4) {
+        out.extend_from_slice(&[pixel[3], pixel[0], pixel[1], pixel[2]]);
+    }
+    out
+}
+
+/// Paints a rounded square into the bottom-right corner.
+fn badge(icon: &mut TrayIcon) {
+    let size = icon.width.min(icon.height) as f32;
+    let box_size = (size * 0.44).round().max(3.0);
+    let radius = box_size * 0.3;
+    // Two pixels of clear space on the right and bottom edges, so the badge
+    // does not run into the artwork's own outline at small sizes.
+    let gap = (size * 0.04).round().max(1.0);
+    let left = size - box_size - gap;
+    let top = size - box_size - gap;
+
+    for row in 0..box_size as u32 {
+        for column in 0..box_size as u32 {
+            let coverage =
+                rounded_rect_coverage(column as f32 + 0.5, row as f32 + 0.5, box_size, radius);
+            if coverage <= 0.0 {
+                continue;
+            }
+            let x = left as u32 + column;
+            let y = top as u32 + row;
+            let index = ((y * icon.width + x) * 4) as usize;
+            let Some(pixel) = icon.rgba.get_mut(index..index + 4) else {
+                continue;
+            };
+            let alpha = coverage;
+            for channel in 0..3 {
+                pixel[channel] = (BADGE[channel] as f32 * alpha
+                    + pixel[channel] as f32 * (1.0 - alpha))
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+            }
+            // The artwork is opaque, and the badge covers it: whatever alpha
+            // was there before is not worth carrying along.
+            pixel[3] = 255;
+        }
+    }
+}
+
 /// Draws the icon described by `spec`.
 pub fn render(spec: &IconSpec<'_>) -> TrayIcon {
     let size = spec.size.max(8);
@@ -432,5 +496,47 @@ mod tests {
         assert_eq!(icon.rgba[3], 0);
         let centre = ((16 * 32 + 16) * 4) as usize;
         assert_eq!(icon.rgba[centre + 3], 255);
+    }
+}
+
+#[cfg(test)]
+mod widget_icon_tests {
+    use super::*;
+
+    #[test]
+    fn the_widget_mark_differs_from_the_application_mark() {
+        let app = app_icon(64).expect("the artwork decodes");
+        let widget = widget_icon(64).expect("the artwork decodes");
+
+        assert_ne!(app.rgba, widget.rgba, "the two marks have to tell apart");
+        assert_eq!((widget.width, widget.height), (64, 64));
+
+        // The badge lands in the bottom-right corner, and leaves the rest of
+        // the artwork alone.
+        let at = |icon: &TrayIcon, x: u32, y: u32| {
+            let index = ((y * icon.width + x) * 4) as usize;
+            [icon.rgba[index], icon.rgba[index + 1], icon.rgba[index + 2]]
+        };
+        // The middle of the badge, where its rounded corners cannot reach.
+        assert_eq!(at(&widget, 47, 47), BADGE, "the corner carries the badge");
+        assert_eq!(
+            at(&widget, 20, 20),
+            at(&app, 20, 20),
+            "the middle is untouched"
+        );
+    }
+
+    #[test]
+    fn argb32_puts_the_alpha_first() {
+        assert_eq!(super::argb32(&[1, 2, 3, 4]), vec![4, 1, 2, 3]);
+    }
+
+    #[test]
+    fn a_very_small_mark_still_gets_a_badge() {
+        // Sizes a tray asks for are smaller than this in practice; the point is
+        // that nothing panics or lands outside the buffer.
+        let icon = widget_icon(16).expect("the artwork decodes");
+        assert_eq!(icon.rgba.len(), 16 * 16 * 4);
+        assert_ne!(icon.rgba, app_icon(16).unwrap().rgba);
     }
 }

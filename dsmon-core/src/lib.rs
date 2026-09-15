@@ -20,6 +20,7 @@ pub mod paths;
 pub mod platforms;
 pub mod storage;
 pub mod time;
+pub mod widget_api;
 
 #[cfg(test)]
 mod test_support;

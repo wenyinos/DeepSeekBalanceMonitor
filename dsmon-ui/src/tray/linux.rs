@@ -27,6 +27,9 @@ pub struct MonitorTray {
     lang: String,
     status: Status,
     theme: IconTheme,
+    /// Whether the desktop widget is meant to be up, which is what the entry
+    /// in the menu offers to change.
+    widget: bool,
     commands: Arc<Mutex<Vec<Command>>>,
     ctx: egui::Context,
 }
@@ -54,6 +57,19 @@ impl MonitorTray {
         }
         .into()
     }
+
+    /// The widget entry, labelled with what picking it would do.
+    ///
+    /// A plain entry rather than a ticked one: this menu has no ticked item to
+    /// offer, and a wording that names the action reads the same either way.
+    fn widget_entry(&self) -> MenuItem<Self> {
+        StandardItem {
+            label: super::widget_label(&self.lang, self.widget).to_owned(),
+            activate: Box::new(|tray: &mut Self| tray.send(Command::ToggleWidget)),
+            ..Default::default()
+        }
+        .into()
+    }
 }
 
 impl Tray for MonitorTray {
@@ -72,7 +88,7 @@ impl Tray for MonitorTray {
         vec![Icon {
             width: rendered.width as i32,
             height: rendered.height as i32,
-            data: argb32(&rendered.rgba),
+            data: dsmon_core::icon::argb32(&rendered.rgba),
         }]
     }
 
@@ -99,6 +115,7 @@ impl Tray for MonitorTray {
             self.entry("open_window", Command::OpenWindow),
             self.entry("check_now", Command::Refresh),
             MenuItem::Separator,
+            self.widget_entry(),
             self.entry("settings", Command::OpenSettings),
             self.entry("quit", Command::Quit),
         ]
@@ -121,6 +138,10 @@ impl TrayHandle {
         let _ = self.handle.update(move |tray| tray.lang = lang);
     }
 
+    pub fn set_widget(&self, shown: bool) {
+        let _ = self.handle.update(move |tray| tray.widget = shown);
+    }
+
     /// Whether the desktop is showing the icon.
     ///
     /// Nothing to ask here: the item travels over the bus from the moment the
@@ -135,11 +156,13 @@ impl TrayHandle {
 pub fn spawn(
     lang: &str,
     theme: &IconTheme,
+    widget: bool,
     commands: Arc<Mutex<Vec<Command>>>,
     ctx: egui::Context,
 ) -> Result<TrayHandle, String> {
     let tray = MonitorTray {
         lang: lang.to_owned(),
+        widget,
         status: Status {
             label: "...".to_owned(),
             state: icon::State::NoData,
@@ -156,24 +179,9 @@ pub fn spawn(
     Ok(TrayHandle { handle })
 }
 
-/// StatusNotifierItem expects ARGB32 in network byte order.
-fn argb32(rgba: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(rgba.len());
-    for pixel in rgba.chunks_exact(4) {
-        out.extend_from_slice(&[pixel[3], pixel[0], pixel[1], pixel[2]]);
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn argb32_reorders_channels() {
-        let rgba = [1u8, 2, 3, 4, 5, 6, 7, 8];
-        assert_eq!(argb32(&rgba), vec![4, 1, 2, 3, 8, 5, 6, 7]);
-    }
 
     #[test]
     fn the_icon_uses_the_state_colour() {
