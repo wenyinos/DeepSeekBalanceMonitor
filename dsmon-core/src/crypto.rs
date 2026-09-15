@@ -166,8 +166,25 @@ mod tests {
     // into the directories of the machine it is run on.
     use crate::test_support::state_in_a_scratch_directory;
 
+    /// Every test here encrypts, and so touches one key file — the same one, at
+    /// the same time as the others, because that is how the test framework runs
+    /// them. On Windows that is not a race the code can wait out: a file
+    /// another thread is in the middle of creating answers "access is denied",
+    /// and a key created between two calls is a key that no longer decrypts
+    /// what the first call wrote. The release build failed on exactly that
+    /// (v2.1.0, three runs, three different errors).
+    ///
+    /// So they take turns: one test at a time reaches the file. The eight
+    /// threads *inside* `several_callers_share_one_key` still run at once —
+    /// that is the thing being tested, and the code guards it.
+    fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        TURN.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
     #[test]
     fn round_trips_a_secret() {
+        let _turn = one_at_a_time();
         state_in_a_scratch_directory();
 
         let blob = encrypt("sk-test-key").expect("encrypts");
@@ -180,6 +197,7 @@ mod tests {
     /// tests encrypt for the first time in parallel.
     #[test]
     fn several_callers_share_one_key() {
+        let _turn = one_at_a_time();
         state_in_a_scratch_directory();
 
         let callers: Vec<_> = (0..8)
@@ -194,6 +212,7 @@ mod tests {
 
     #[test]
     fn rejects_tampered_payloads() {
+        let _turn = one_at_a_time();
         state_in_a_scratch_directory();
 
         let mut blob = encrypt("sk-test-key").expect("encrypts");
@@ -204,6 +223,7 @@ mod tests {
 
     #[test]
     fn rejects_foreign_blobs() {
+        let _turn = one_at_a_time();
         state_in_a_scratch_directory();
 
         assert!(decrypt(b"not-ours").is_err());
