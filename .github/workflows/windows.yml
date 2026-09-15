@@ -1,21 +1,17 @@
 name: Windows
 
-# The same trigger as the Linux build: a version tag publishes, anything else
-# only checks.
+# Triggers: a version tag always publishes, and a push to a development branch
+# always checks — neither is filtered by paths, because a tag can point at a
+# commit whose diff is only documentation while the tree it names is the whole
+# release (that is exactly how the first v2.1.0 tag managed to publish nothing).
+# Pull requests are filtered: ten minutes of CI on a README typo helps nobody.
 on:
   push:
     branches:
       - main
+      - rust-gui
     tags:
       - "v[0-9]*"
-    paths:
-      - "dsmon-core/**"
-      - "dsmon-ui/**"
-      - "assets/**"
-      - "packaging/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/windows.yml"
   pull_request:
     paths:
       - "dsmon-core/**"
