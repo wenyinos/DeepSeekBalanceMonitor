@@ -54,19 +54,31 @@ sidebar and on the subscription page.
 
 ## Install
 
-Download from [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases):
-
-| Platform | Packages |
-|---|---|
-| Linux | `.deb` / `.rpm`, amd64 and arm64 |
-| Windows | MSI installer, x64 and arm64 |
-
+Download the **latest release** from
+[Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/latest).
 The application and the **desktop widget** are packaged apart: install the application alone, or
-add the widget and upgrade the two separately. Once installed, the widget is switched on from the
-tray menu ("Show desktop widget") and can also be opened from the start menu.
+both, and upgrade the two separately. `<version>` below is the release's own version (2.1.1, say) —
+find the matching file names in that release. Every release also carries `checksums-*.txt` for
+verifying the SHA256.
 
-The packages declare what the application needs — XWayland, Vulkan, a CJK font — so a normal
-install pulls them in.
+**Linux** (`.deb` for Debian/Ubuntu, `.rpm` for Fedora and its relatives)
+
+| Architecture | Application | Desktop widget |
+|---|---|---|
+| amd64 / x86-64 | `deepseek-balance-monitor_<version>_amd64.deb`<br>`deepseek-balance-monitor-<version>-1.x86_64.rpm` | `deepseek-balance-monitor-widget_<version>_amd64.deb`<br>`deepseek-balance-monitor-widget-<version>-1.x86_64.rpm` |
+| arm64 / aarch64 | `deepseek-balance-monitor_<version>_arm64.deb`<br>`deepseek-balance-monitor-<version>-1.aarch64.rpm` | `deepseek-balance-monitor-widget_<version>_arm64.deb`<br>`deepseek-balance-monitor-widget-<version>-1.aarch64.rpm` |
+
+**Windows** (MSI installers)
+
+| Architecture | Application | Desktop widget |
+|---|---|---|
+| x64 | `deepseek-balance-monitor-<version>-windows-x64.msi` | `deepseek-balance-monitor-widget-<version>-windows-x64.msi` |
+| arm64 | `deepseek-balance-monitor-<version>-windows-arm64.msi` | `deepseek-balance-monitor-widget-<version>-windows-arm64.msi` |
+
+Once installed, the widget is switched on from the tray menu ("Show desktop widget") and can also
+be opened from the start menu. Each package ships its own icon and desktop entry, and the
+application's declares what it needs — XWayland, Vulkan, a CJK font — so a normal install pulls
+them in.
 
 ## First run
 
