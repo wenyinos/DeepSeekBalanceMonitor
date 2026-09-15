@@ -14,6 +14,11 @@ pub const DIGITS_FAMILY: &str = "Digits";
 
 const DIGITS_FONT: &[u8] = include_bytes!("../../assets/font/ShareTech-Regular.ttf");
 
+/// The font for text this interface paints itself, as the card buttons do.
+pub fn ui_font(size: f32) -> egui::FontId {
+    egui::FontId::proportional(size)
+}
+
 /// Registers the embedded digits face and, when available, a system font that
 /// covers CJK. Call once during start-up.
 pub fn install(ctx: &egui::Context) {

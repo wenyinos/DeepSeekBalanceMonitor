@@ -366,7 +366,7 @@ pub fn toggled(current: Theme) -> ThemeMode {
 ///
 /// Comparing the two WCAG ratios also guarantees the better choice clears 4.5,
 /// since their geometric mean is sqrt(21).
-fn readable_on(fill: Color32) -> Color32 {
+pub(crate) fn readable_on(fill: Color32) -> Color32 {
     let luminance = relative_luminance(fill);
     let against_black = (luminance + 0.05) / 0.05;
     let against_white = 1.05 / (luminance + 0.05);

@@ -11,5 +11,6 @@ pub mod notify;
 pub mod theme;
 pub mod tray;
 pub mod views;
+pub mod widget;
 
 pub use app::run;
