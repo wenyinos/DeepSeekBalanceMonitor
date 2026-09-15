@@ -141,6 +141,15 @@ jobs:
       - name: List them
         run: ls -l packages
 
+      # The download table is written here and nowhere else. Both workflows
+      # publish into one release, and if each appended its own the table would
+      # appear twice — the Windows one creates the release when it finishes
+      # first and leaves the body alone, so the order they finish in does not
+      # matter.
+      #
+      # The links carry the tag, which is what makes every version's record
+      # download the files of that version: a `latest` link would have to be the
+      # file's exact name, and those carry the version too.
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -148,5 +157,27 @@ jobs:
             packages/*.deb
             packages/*.rpm
             packages/checksums-*.txt
-          generate_release_notes: true
+          append_body: true
+          body: |
+            ## 下载
+
+            主程序与桌面小工具**各是一个包**：可以只装主程序，也可以两个都装、分别升级。
+            每个架构另附 `checksums-*.txt`，可核对 SHA256。本版改了什么见
+            [CHANGELOG](https://github.com/wenyinos/DeepSeekBalanceMonitor/blob/main/docs/CHANGELOG_zh.md)。
+
+            **Linux**（Debian / Ubuntu 用 `.deb`，Fedora 系用 `.rpm`）
+
+            | 架构 | 主程序 | 桌面小工具 |
+            |---|---|---|
+            | amd64 / x86-64 | [.deb](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor_${{ steps.version.outputs.value }}_amd64.deb) · [.rpm](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-${{ steps.version.outputs.value }}-1.x86_64.rpm) | [.deb](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-widget_${{ steps.version.outputs.value }}_amd64.deb) · [.rpm](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-widget-${{ steps.version.outputs.value }}-1.x86_64.rpm) |
+            | arm64 / aarch64 | [.deb](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor_${{ steps.version.outputs.value }}_arm64.deb) · [.rpm](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-${{ steps.version.outputs.value }}-1.aarch64.rpm) | [.deb](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-widget_${{ steps.version.outputs.value }}_arm64.deb) · [.rpm](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-widget-${{ steps.version.outputs.value }}-1.aarch64.rpm) |
+
+            **Windows**（MSI 安装包）
+
+            | 架构 | 主程序 | 桌面小工具 |
+            |---|---|---|
+            | x64 | [.msi](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-${{ steps.version.outputs.value }}-windows-x64.msi) | [.msi](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-widget-${{ steps.version.outputs.value }}-windows-x64.msi) |
+            | arm64 | [.msi](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-${{ steps.version.outputs.value }}-windows-arm64.msi) | [.msi](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/download/${{ github.ref_name }}/deepseek-balance-monitor-widget-${{ steps.version.outputs.value }}-windows-arm64.msi) |
+
+            小工具装好后由托盘菜单「显示/隐藏桌面小工具」开关，也可以从开始菜单直接打开。
           overwrite_files: true

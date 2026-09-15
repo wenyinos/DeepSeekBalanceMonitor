@@ -54,31 +54,13 @@ sidebar and on the subscription page.
 
 ## Install
 
-Download the **latest release** from
-[Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/latest).
+**[Download the latest release](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/latest)** —
+each release's notes carry a download table split by platform and architecture, with a link on every
+file name, plus `checksums-*.txt` in the same release for verifying the SHA256.
+
 The application and the **desktop widget** are packaged apart: install the application alone, or
-both, and upgrade the two separately. `<version>` below is the release's own version (2.1.1, say) —
-find the matching file names in that release. Every release also carries `checksums-*.txt` for
-verifying the SHA256.
-
-**Linux** (`.deb` for Debian/Ubuntu, `.rpm` for Fedora and its relatives)
-
-| Architecture | Application | Desktop widget |
-|---|---|---|
-| amd64 / x86-64 | `deepseek-balance-monitor_<version>_amd64.deb`<br>`deepseek-balance-monitor-<version>-1.x86_64.rpm` | `deepseek-balance-monitor-widget_<version>_amd64.deb`<br>`deepseek-balance-monitor-widget-<version>-1.x86_64.rpm` |
-| arm64 / aarch64 | `deepseek-balance-monitor_<version>_arm64.deb`<br>`deepseek-balance-monitor-<version>-1.aarch64.rpm` | `deepseek-balance-monitor-widget_<version>_arm64.deb`<br>`deepseek-balance-monitor-widget-<version>-1.aarch64.rpm` |
-
-**Windows** (MSI installers)
-
-| Architecture | Application | Desktop widget |
-|---|---|---|
-| x64 | `deepseek-balance-monitor-<version>-windows-x64.msi` | `deepseek-balance-monitor-widget-<version>-windows-x64.msi` |
-| arm64 | `deepseek-balance-monitor-<version>-windows-arm64.msi` | `deepseek-balance-monitor-widget-<version>-windows-arm64.msi` |
-
-Once installed, the widget is switched on from the tray menu ("Show desktop widget") and can also
-be opened from the start menu. Each package ships its own icon and desktop entry, and the
-application's declares what it needs — XWayland, Vulkan, a CJK font — so a normal install pulls
-them in.
+both, and upgrade the two separately. Each package declares what it needs — XWayland, Vulkan, a CJK
+font — so a normal install pulls them in.
 
 ## First run
 

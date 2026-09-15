@@ -45,28 +45,12 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
 
 ## 安装
 
-从 [Releases](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/latest) 的**最新一版**下载。
-**主程序与桌面小工具各是一个包**：可以只装主程序，也可以两个都装、分别升级。
-下表里的 `<版本>` 是该 Release 的版本号（例如 `2.1.1`），按这一版的文件名去 Release 里对号入座即可；
-每个 Release 另附 `checksums-*.txt`，可核对 SHA256。
+**[下载最新版](https://github.com/wenyinos/DeepSeekBalanceMonitor/releases/latest)** —— 每个版本的更新
+记录里都有一张**按平台与架构分好的下载表**，直接点表里的文件名即可下载该版本的文件；同一条记录里
+还附 `checksums-*.txt`，可核对 SHA256。
 
-**Linux**（`.deb` 给 Debian/Ubuntu，`.rpm` 给 Fedora 及其衍生版）
-
-| 架构 | 主程序 | 桌面小工具 |
-|---|---|---|
-| amd64 / x86-64 | `deepseek-balance-monitor_<版本>_amd64.deb`<br>`deepseek-balance-monitor-<版本>-1.x86_64.rpm` | `deepseek-balance-monitor-widget_<版本>_amd64.deb`<br>`deepseek-balance-monitor-widget-<版本>-1.x86_64.rpm` |
-| arm64 / aarch64 | `deepseek-balance-monitor_<版本>_arm64.deb`<br>`deepseek-balance-monitor-<版本>-1.aarch64.rpm` | `deepseek-balance-monitor-widget_<版本>_arm64.deb`<br>`deepseek-balance-monitor-widget-<版本>-1.aarch64.rpm` |
-
-**Windows**（MSI 安装包）
-
-| 架构 | 主程序 | 桌面小工具 |
-|---|---|---|
-| x64 | `deepseek-balance-monitor-<版本>-windows-x64.msi` | `deepseek-balance-monitor-widget-<版本>-windows-x64.msi` |
-| arm64 | `deepseek-balance-monitor-<版本>-windows-arm64.msi` | `deepseek-balance-monitor-widget-<版本>-windows-arm64.msi` |
-
-小工具装好后由托盘菜单「显示/隐藏桌面小工具」开关，也可以从开始菜单直接打开。
-两个包都自带各自的图标与桌面项；包内已声明应用所需的依赖（XWayland、Vulkan、CJK 字体），
-正常安装会自动拉齐。
+**主程序与桌面小工具各是一个包**：可以只装主程序，也可以两个都装、分别升级。包内已声明应用所需的
+依赖（XWayland、Vulkan、CJK 字体），正常安装会自动拉齐。
 
 ## 首次运行
 
