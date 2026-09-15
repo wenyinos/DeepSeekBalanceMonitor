@@ -1,12 +1,13 @@
 //! Helpers for the tests, which the shipped build does not carry.
 //!
-//! One thing has to be arranged before any test runs. The tests that encrypt
-//! and decrypt reach the key file through `paths::secret_key_file()`, and that
-//! call creates the file — and the directory holding it — when it is not there.
-//! A test run must not write into the real directories of the machine it runs
-//! on: the key it leaves behind is not only clutter, it also takes the place of
-//! the key a database needs, since the move out of the earlier build's
-//! directory skips a file that is already in place.
+//! One thing has to be arranged before any test runs: the directories a test
+//! writes to have to be its own. The application reaches its key file, its
+//! database and its log through `paths::*`, all of which read the environment,
+//! so pointing the environment at a scratch directory is what keeps a run of
+//! the suite out of the directories of the machine it runs on — a key left
+//! behind there is not only clutter, it takes the place of the key a database
+//! needs, since the move out of the earlier build's directory skips a file that
+//! is already in place.
 
 use std::sync::Once;
 

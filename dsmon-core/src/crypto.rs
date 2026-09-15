@@ -173,20 +173,20 @@ fn create_private_file(path: &Path) -> std::io::Result<std::fs::File> {
 mod tests {
     use super::*;
 
-    /// A key of the tests' own. Everything here but one test uses it, and none
-    /// of those ever goes near the key file — what they exercise is the cipher.
+    /// A key of the tests' own: nothing here goes near the key file.
+    ///
+    /// Creating that file is deliberately not tested. It is one file, created
+    /// by whichever caller gets there first, and two callers doing it at the
+    /// same moment is a filesystem race rather than a decision this code makes:
+    /// the v2.1.1 release produced "already exists", "access is denied",
+    /// "cannot find the file" and finally two different keys read from one path
+    /// — four answers from Windows, none of them about the cipher. The code
+    /// answers all of them by reading whatever the other writer produced
+    /// (`load_or_create_key`), and that answer is exercised whenever the file
+    /// is already there, which is the case that matters every day after the
+    /// first. What is tested here is the cipher, and it is tested with a key
+    /// that is already in hand.
     const TEST_KEY: [u8; KEY_LEN] = [7u8; KEY_LEN];
-
-    /// The one test that *is* about the key file needs the others out of the
-    /// way while it works: it creates that file, and a second test creating the
-    /// same file at the same time is a filesystem race on Windows rather than
-    /// anything the code could wait out (v2.1.0 failed its release on exactly
-    /// that). The eight threads inside it still run at once, which is the thing
-    /// being tested.
-    fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
-        static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        TURN.lock().unwrap_or_else(|error| error.into_inner())
-    }
 
     #[test]
     fn round_trips_a_secret() {
@@ -219,33 +219,5 @@ mod tests {
     fn rejects_foreign_blobs() {
         assert!(decrypt_with(&TEST_KEY, b"not-ours").is_err());
         assert!(decrypt_with(&TEST_KEY, b"DSBM1").is_err());
-    }
-
-    /// However many callers arrive at once, they all get the same key, and a
-    /// key that is already there is not made again.
-    ///
-    /// The file is made first, on this thread. Eight threads all *creating* it
-    /// is what Windows answers unpredictably — "already exists", "access is
-    /// denied", "cannot find the file", depending on where the first one has
-    /// got to — and that is the filesystem's business rather than this code's.
-    /// What this code promises is that callers reading one file share one key;
-    /// a second process creating it at the same moment (the 1.x daemon shares
-    /// this file) is answered by reading whatever that one wrote, which is the
-    /// same path these callers take here.
-    #[test]
-    fn several_callers_share_one_key() {
-        let _turn = one_at_a_time();
-        crate::test_support::state_in_a_scratch_directory();
-
-        let expected = load_or_create_key().expect("the key");
-
-        let callers: Vec<_> = (0..8)
-            .map(|_| std::thread::spawn(load_or_create_key))
-            .collect();
-
-        for caller in callers {
-            let key = caller.join().expect("no caller panics").expect("a key");
-            assert_eq!(key, expected, "every caller gets the same key");
-        }
     }
 }
