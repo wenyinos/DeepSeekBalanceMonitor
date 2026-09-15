@@ -42,7 +42,7 @@
 ```json
 {
   "version": 2,
-  "provider": { "name": "dsmon2", "version": "2.1.0" },
+  "provider": { "name": "dsmon2", "version": "2.1.1" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,
@@ -216,15 +216,22 @@ secure_settings(key PRIMARY KEY, value BLOB, updated_at)
 
 ## 5. 开机自启 🔒
 
-| 平台 | 位置 | 内容 |
-|---|---|---|
-| Linux | `$XDG_CONFIG_HOME/autostart/deepseek-balance-monitor.desktop` | `Exec=<可执行文件绝对路径> --minimized`；文件要 **0755**（有些会话只启动可执行的自启项） |
-| Windows | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | 值名 `DeepSeek Balance Monitor`，数据是可执行文件路径 |
+**两个程序各有一条自启项**，互不干扰：主程序与小工具都可以单独开机启动（小工具在没有主程序时会
+显示断开提示并重试）。
 
+| 程序 | Linux | Windows |
+|---|---|---|
+| 主程序 `dsmon2` | `$XDG_CONFIG_HOME/autostart/deepseek-balance-monitor.desktop`，`Exec=<绝对路径> --minimized` | `Run` 键下值名 `DeepSeek Balance Monitor`，数据是 `"<绝对路径>" --minimized` |
+| 小工具 `dsmon2-widget` | `$XDG_CONFIG_HOME/autostart/deepseek-balance-monitor-widget.desktop`，`Exec=<绝对路径>`（**无参数**） | `Run` 键下值名 `DeepSeek Balance Monitor Widget`，数据是 `"<绝对路径>"` |
+
+- Linux 的桌面项文件要 **0755**（有些会话只启动可执行的自启项）。
+- 对应的配置字段：主程序 `auto_start`、小工具 `widget_auto_start`（默认都为 true）。
 - 该设置**每次启动都对账**（按配置写入或移除），不是只在设置页点一下时写——这样换了可执行文件位置、
-  或从别的版本继承了设置，都能自愈。
+  或从别的版本继承了设置，都能自愈。小工具被关闭（它自己的 ✕）时**连自启项一起去掉**：关闭就是
+  「不再需要」，留下条目会在下次登录又把它带回来。
 - `--minimized` 的语义见 §6：启动后**不进窗口**，但要等托盘图标真的注册成功再隐藏；托盘不在就不藏
-  （否则会出现「程序在跑、屏幕上一个东西都没有」）。
+  （否则会出现「程序在跑、屏幕上一个东西都没有」）。小工具没有窗口要收起来，所以不带参数，按上次
+  的位置与大小出现。
 
 ---
 
