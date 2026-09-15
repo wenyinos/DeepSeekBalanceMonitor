@@ -2,6 +2,25 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.1.1 (2026-09-15)
+
+### Added
+
+- **The desktop widget can start with the session too**: it has a start-up entry of its own
+  (`widget_auto_start`, on by default), independent of the application's — so the widget can come up
+  at login by itself (the application is not running yet, so it says so and reconnects every ten
+  seconds), or wait to be started by the application. Closing the widget with its ✕ takes that
+  entry away as well, or it would come back at the next login
+
+### Fixed
+
+- Creating the key file for the first time failed outright when another caller was creating the
+  same file at that moment: Windows reports that as "access is denied" or "cannot find the file"
+  rather than "already exists". All three answers are now treated as the same thing — look for the
+  file again, waiting out a write that has not finished — and only when there is nothing to find is
+  the original error reported. This is what failed the v2.1.0 Windows release three times in a row,
+  always on the same test
+
 ## Rust v2.1.0 (2026-09-15)
 
 ### Added: the desktop widget, `dsmon2-widget`

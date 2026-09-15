@@ -9,7 +9,7 @@
 ## 项目概述
 
 跨平台桌面应用（Windows + Linux，**同一份界面代码**）：常驻托盘，定时查询 DeepSeek 及其他
-平台的余额与套餐额度，写入本地历史，余额低或服务异常时发系统通知。版本 2.1.0，纯 Rust，
+平台的余额与套餐额度，写入本地历史，余额低或服务异常时发系统通知。版本 2.1.1，纯 Rust，
 无 WebView、无 Python。
 
 ## 常用命令
@@ -29,7 +29,7 @@ cargo run -p dsmon-ui --example widget_preview # 开发时直接启动桌面小�
 cargo test --workspace --locked         # 全部测试（与 CI 一致）
 
 # 打包（需要 dpkg-deb / rpmbuild / ImageMagick，CI 在容器里跑）
-packaging/build-packages.sh 2.1.0 amd64 target/release/dsmon2 dist
+packaging/build-packages.sh 2.1.1 amd64 target/release/dsmon2 dist
 ```
 
 Rust 工具链为 **stable**（根 `rust-toolchain.toml`）。1.x 的 1.77.2 固定版本随 Windows 7
@@ -53,7 +53,8 @@ dsmon-core/                # 平台无关，无 GUI 依赖
   widget_api.rs            # 桌面小工具的本地数据接口：127.0.0.1:18964 上的
                            # /widget-status 与 /check，契约见 docs/INTERFACES.md
   icon.rs                  # 托盘图标位图渲染 + 应用图标解码
-  autostart.rs             # 开机自启：Windows 注册表 Run / Linux ~/.config/autostart
+  autostart.rs             # 开机自启：Windows 注册表 Run / Linux ~/.config/autostart；
+                           #   主程序与小工具各一条（`autostart::Program`）
   demo.rs                  # 演示模式（API Key 填 demo 触发）
 dsmon-ui/                  # 唯一一份界面；两个平台的可执行文件也从这里产出
   app.rs                   # 应用外壳：窗口、侧边栏、页面分发、logic/ui 回调
@@ -120,7 +121,8 @@ packaging/                 # .desktop 与 deb/rpm 打包脚本
 | 托盘 | ksni（StatusNotifierItem，纯 D-Bus，无 GTK） | tray-icon（Win32 通知区，muda 菜单） |
 | 通知 | `org.freedesktop.Notifications`（zbus 直连，无守护则静默） | 托盘气泡 `Shell_NotifyIconW` + NIF_INFO |
 | 单实例 | 会话总线名 `com.github.wenyinos.deepseek-balance-monitor` + `Show` 方法 | 命名互斥体判定 + 命名事件传递唤出 |
-| 自启 | `~/.config/autostart/deepseek-balance-monitor.desktop` | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
+| 自启（主程序） | `~/.config/autostart/deepseek-balance-monitor.desktop` | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，值名 `DeepSeek Balance Monitor` |
+| 自启（小工具） | `~/.config/autostart/deepseek-balance-monitor-widget.desktop` | 同一个 Run 键，值名 `DeepSeek Balance Monitor Widget`；**不带参数** |
 | 窗口图标 | `_NET_WM_ICON`，128px | `ViewportCommand::Icon` + exe 资源（build.rs 嵌 `assets/app.ico`） |
 
 **Windows 托盘图标与气泡**：图标由 `tray-icon` 注册，该库给图标编号「从 1 起、每个图标消耗

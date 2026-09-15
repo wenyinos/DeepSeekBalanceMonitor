@@ -96,7 +96,7 @@ cargo run -p dsmon-ui --example widget_preview          # 开发时直接开小�
 工具链为 stable。Linux 包在 Debian 12 容器里构建，以保持 glibc 2.36 基线：
 
 ```bash
-packaging/build-packages.sh 2.1.0 arm64 target/release/dsmon2 dist
+packaging/build-packages.sh 2.1.1 arm64 target/release/dsmon2 dist
 ```
 
 本版本的变化见 [CHANGELOG_zh.md](docs/CHANGELOG_zh.md)。

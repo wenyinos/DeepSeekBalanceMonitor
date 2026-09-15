@@ -190,7 +190,7 @@ egui/eframe 能把窗口做成 ARGB 透明（`.with_transparent(true)` + `App::c
 ```json
 {
   "version": 2,
-  "provider": { "name": "dsmon2", "version": "2.1.0" },
+  "provider": { "name": "dsmon2", "version": "2.1.1" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,
@@ -509,6 +509,11 @@ ViewportBuilder::default()
   任务栏与窗口列表之外；Windows 用 `with_taskbar(false)`。两边的窗口图标仍然带着角标，所以即便某个
   桌面坚持把它列出来，也认得出是哪一个。
 - 托盘图标与文字都随语言变化：`follow_config()` 发现 `ui_language` 变了就 `tray.set_language()`。
+- **小工具有自己的开机自启项**（`widget_auto_start`，默认开）：与主程序那条**互相独立**，所以小工具
+  可以单独随会话启动——那时主程序还没跑，它就显示断开提示并每 10 秒重连。两次对账：启动时按配置写入
+  或移除，**关闭时（✕）一并移除**（关闭就是不再需要，留着条目下次登录又会把它带回来）。路径与主程序
+  同一套约定，只是文件/值名带 `-widget` 后缀、**不带 `--minimized`**（它没有窗口要收起来），见
+  `INTERFACES.md` §5。
 - **Windows 的托盘注册要自己问**：`tray-icon` 对 `Shell_NotifyIconW(NIM_ADD)` 失败**不报错**，所以
   `Tray::report()`（每帧调用，只在答案变化时写一行日志）用 `TrayIcon::rect()` 反查系统是否真的持有
   图标——`Shell_NotifyIconGetRect` 只对系统持有的图标给出矩形。这与主程序是同一个坑（见 §7 与
