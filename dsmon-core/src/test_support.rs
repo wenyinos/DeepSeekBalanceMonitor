@@ -30,21 +30,14 @@ pub fn state_in_a_scratch_directory() {
         std::env::set_var("XDG_CONFIG_HOME", scratch.join("config"));
         std::env::set_var("APPDATA", scratch.join("appdata"));
 
-        // And then the key file, here and now, while one thread is running this
-        // and no other test has started looking.
-        //
-        // Every test that encrypts creates that file when it is missing, and
-        // several of them do it at the same time: on a Windows runner the one
-        // that finds the file another thread is still writing answers "access
-        // is denied", and the release build fails on a test rather than on the
-        // code (v2.1.0, 2026-09-15). Made once here, every test after it only
-        // ever reads it. The directories are made too, for the same reason:
-        // `create_dir_all` racing against itself answers "the system cannot
-        // find the path specified" for a directory that is about to exist.
+        // And then the directories themselves, here and now, while one thread
+        // runs this and no other test has started looking: a `create_dir_all`
+        // racing against itself answers "the system cannot find the path
+        // specified" for a directory another thread is busy creating. Made
+        // here, the tests that follow find them already there.
         for directory in [crate::paths::state_dir(), crate::paths::config_dir()] {
             let _ = std::fs::create_dir_all(&directory);
         }
-        let _ = crate::crypto::encrypt("warm-up");
     });
 }
 

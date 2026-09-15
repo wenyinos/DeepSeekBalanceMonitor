@@ -22,9 +22,18 @@ const KEY_LEN: usize = 32;
 
 /// Encrypts `plaintext`, returning `PREFIX || nonce || ciphertext || tag`.
 pub fn encrypt(plaintext: &str) -> Result<Vec<u8>, String> {
-    let key_bytes = load_or_create_key()?;
+    encrypt_with(&load_or_create_key()?, plaintext)
+}
+
+/// Encrypts with a key that is already in hand.
+///
+/// The tests use this one. What they exercise is the cipher, and going through
+/// the key file would have each of them creating that file — the same one, at
+/// the same time as the others — which is a filesystem race on Windows and
+/// nothing to do with the cipher at all.
+fn encrypt_with(key_bytes: &[u8; KEY_LEN], plaintext: &str) -> Result<Vec<u8>, String> {
     let key = LessSafeKey::new(
-        UnboundKey::new(&AES_256_GCM, &key_bytes).map_err(|_| "invalid secure key".to_string())?,
+        UnboundKey::new(&AES_256_GCM, key_bytes).map_err(|_| "invalid secure key".to_string())?,
     );
 
     let mut nonce_bytes = [0u8; NONCE_LEN];
@@ -47,13 +56,17 @@ pub fn encrypt(plaintext: &str) -> Result<Vec<u8>, String> {
 /// Reverses [`encrypt`]. Fails on a truncated blob, a wrong prefix or a
 /// tampered payload.
 pub fn decrypt(blob: &[u8]) -> Result<String, String> {
+    decrypt_with(&load_or_create_key()?, blob)
+}
+
+/// Reverses [`encrypt_with`].
+fn decrypt_with(key_bytes: &[u8; KEY_LEN], blob: &[u8]) -> Result<String, String> {
     if blob.len() <= PREFIX.len() + NONCE_LEN || !blob.starts_with(PREFIX) {
         return Err("invalid encrypted value".to_string());
     }
 
-    let key_bytes = load_or_create_key()?;
     let key = LessSafeKey::new(
-        UnboundKey::new(&AES_256_GCM, &key_bytes).map_err(|_| "invalid secure key".to_string())?,
+        UnboundKey::new(&AES_256_GCM, key_bytes).map_err(|_| "invalid secure key".to_string())?,
     );
 
     let nonce_start = PREFIX.len();
@@ -160,23 +173,16 @@ fn create_private_file(path: &Path) -> std::io::Result<std::fs::File> {
 mod tests {
     use super::*;
 
-    // These tests encrypt, and that reaches the real key file — creating it,
-    // and the directory holding it, when it is not there. The state directory
-    // is pointed at a scratch one first, so a run of the suite cannot write
-    // into the directories of the machine it is run on.
-    use crate::test_support::state_in_a_scratch_directory;
+    /// A key of the tests' own. Everything here but one test uses it, and none
+    /// of those ever goes near the key file — what they exercise is the cipher.
+    const TEST_KEY: [u8; KEY_LEN] = [7u8; KEY_LEN];
 
-    /// Every test here encrypts, and so touches one key file — the same one, at
-    /// the same time as the others, because that is how the test framework runs
-    /// them. On Windows that is not a race the code can wait out: a file
-    /// another thread is in the middle of creating answers "access is denied",
-    /// and a key created between two calls is a key that no longer decrypts
-    /// what the first call wrote. The release build failed on exactly that
-    /// (v2.1.0, three runs, three different errors).
-    ///
-    /// So they take turns: one test at a time reaches the file. The eight
-    /// threads *inside* `several_callers_share_one_key` still run at once —
-    /// that is the thing being tested, and the code guards it.
+    /// The one test that *is* about the key file needs the others out of the
+    /// way while it works: it creates that file, and a second test creating the
+    /// same file at the same time is a filesystem race on Windows rather than
+    /// anything the code could wait out (v2.1.0 failed its release on exactly
+    /// that). The eight threads inside it still run at once, which is the thing
+    /// being tested.
     fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
         static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
         TURN.lock().unwrap_or_else(|error| error.into_inner())
@@ -184,49 +190,54 @@ mod tests {
 
     #[test]
     fn round_trips_a_secret() {
-        let _turn = one_at_a_time();
-        state_in_a_scratch_directory();
-
-        let blob = encrypt("sk-test-key").expect("encrypts");
+        let blob = encrypt_with(&TEST_KEY, "sk-test-key").expect("encrypts");
         assert!(blob.starts_with(PREFIX));
-        assert_eq!(decrypt(&blob).expect("decrypts"), "sk-test-key");
+        assert_eq!(
+            decrypt_with(&TEST_KEY, &blob).expect("decrypts"),
+            "sk-test-key"
+        );
     }
 
-    /// However many callers arrive at once, the key file is made once and they
-    /// all end up with the same key. This is what failed on CI, where several
-    /// tests encrypt for the first time in parallel.
     #[test]
-    fn several_callers_share_one_key() {
-        let _turn = one_at_a_time();
-        state_in_a_scratch_directory();
-
-        let callers: Vec<_> = (0..8)
-            .map(|_| std::thread::spawn(|| encrypt("sk-test-key")))
-            .collect();
-
-        for caller in callers {
-            let blob = caller.join().expect("no caller panics").expect("encrypts");
-            assert_eq!(decrypt(&blob).expect("decrypts"), "sk-test-key");
-        }
+    fn another_key_does_not_decrypt_it() {
+        let blob = encrypt_with(&TEST_KEY, "sk-test-key").expect("encrypts");
+        assert!(decrypt_with(&[9u8; KEY_LEN], &blob).is_err());
     }
 
     #[test]
     fn rejects_tampered_payloads() {
-        let _turn = one_at_a_time();
-        state_in_a_scratch_directory();
-
-        let mut blob = encrypt("sk-test-key").expect("encrypts");
+        let mut blob = encrypt_with(&TEST_KEY, "sk-test-key").expect("encrypts");
         let last = blob.len() - 1;
         blob[last] ^= 0xff;
-        assert!(decrypt(&blob).is_err(), "a flipped bit must not decrypt");
+        assert!(
+            decrypt_with(&TEST_KEY, &blob).is_err(),
+            "a flipped bit must not decrypt"
+        );
     }
 
     #[test]
     fn rejects_foreign_blobs() {
-        let _turn = one_at_a_time();
-        state_in_a_scratch_directory();
+        assert!(decrypt_with(&TEST_KEY, b"not-ours").is_err());
+        assert!(decrypt_with(&TEST_KEY, b"DSBM1").is_err());
+    }
 
-        assert!(decrypt(b"not-ours").is_err());
-        assert!(decrypt(b"DSBM1").is_err());
+    /// However many callers arrive at once, the key file is made once and they
+    /// all end up with the same key.
+    #[test]
+    fn several_callers_share_one_key() {
+        let _turn = one_at_a_time();
+        crate::test_support::state_in_a_scratch_directory();
+
+        let callers: Vec<_> = (0..8)
+            .map(|_| std::thread::spawn(load_or_create_key))
+            .collect();
+
+        let keys: Vec<_> = callers
+            .into_iter()
+            .map(|caller| caller.join().expect("no caller panics").expect("a key"))
+            .collect();
+        for key in &keys {
+            assert_eq!(key, &keys[0], "every caller gets the same key");
+        }
     }
 }
