@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The desktop widget's own installer, built by .github/workflows/windows.yml:
+
+    wix build packaging/windows/widget.wxs -arch x64 \
+      -d Version=2.1.0 -d ExePath=<absolute path to dsmon2-widget.exe> \
+      -d IconPath=<absolute path to assets/app.ico> \
+      -o deepseek-balance-monitor-widget-2.1.0-windows-x64.msi
+
+  It is a product of its own — its own UpgradeCode, its own entry under Apps &
+  features — so it can be installed, upgraded and removed on its own. What it
+  shares with the application is the directory: both put their executable in
+  `Program Files\DeepSeek Balance Monitor`, because that is how the two find
+  each other. `dsmon2-widget` starts `dsmon2` from its own directory when the
+  application is not running, and the application starts the widget the same
+  way, so either can be installed first.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="DeepSeek Balance Monitor Widget"
+      Manufacturer="wenyinos"
+      Version="$(var.Version)"
+      UpgradeCode="5F996640-55FB-4D92-8F2A-1AB95E5E758F"
+      Scope="perMachine"
+      Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="ApplicationIcon" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="ApplicationIcon" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/wenyinos/DeepSeekBalanceMonitor" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- The application's directory: the two executables belong together. -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="DeepSeek Balance Monitor" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationMenuFolder" Name="DeepSeek Balance Monitor" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="Widget" Directory="INSTALLFOLDER">
+      <Component Id="WidgetFiles" Guid="BA00BC15-24CF-494D-9C50-E8E12A248F9E">
+        <File Id="WidgetExecutable" Source="$(var.ExePath)" KeyPath="yes" />
+      </Component>
+
+      <!-- Beside the application's own entry, in the same folder: the two are
+           one program to a user, whichever of them they started with. -->
+      <Component Id="StartMenuEntry" Guid="442C4939-CF3E-42FF-9BD3-3D435243CFB5">
+        <Shortcut Id="StartMenuShortcut"
+                  Directory="ApplicationMenuFolder"
+                  Name="DeepSeek Balance Widget"
+                  Description="Shows the balance and quota readings on the desktop"
+                  Target="[#WidgetExecutable]"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveApplicationMenuFolder" Directory="ApplicationMenuFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\wenyinos\DeepSeekBalanceMonitorWidget"
+                       Name="startMenuEntry" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="DeepSeek Balance Monitor Widget" Level="1">
+      <ComponentGroupRef Id="Widget" />
+    </Feature>
+  </Package>
+</Wix>

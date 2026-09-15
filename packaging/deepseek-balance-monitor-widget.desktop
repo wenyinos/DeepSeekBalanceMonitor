@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=DeepSeek Balance Widget
+Name[zh_CN]=DeepSeek 余额小工具
+Comment=Shows the balance and quota readings on the desktop
+Comment[zh_CN]=在桌面显示余额与订阅额度
+Exec=dsmon2-widget
+Icon=deepseek-balance-monitor
+Terminal=false
+Categories=Utility;
+Keywords=deepseek;balance;widget;
+StartupWMClass=deepseek-balance-monitor-widget

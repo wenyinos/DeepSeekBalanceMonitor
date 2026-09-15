@@ -66,8 +66,9 @@ jobs:
         if: matrix.arch == 'x64'
         run: cargo test --workspace --locked
 
-      - name: Build release executable
-        run: cargo build --release --locked --target ${{ matrix.target }} -p dsmon-ui --bin dsmon2
+      # Both executables: one installer wraps each of them, in the steps below.
+      - name: Build release executables
+        run: cargo build --release --locked --target ${{ matrix.target }} -p dsmon-ui --bin dsmon2 --bin dsmon2-widget
 
       - name: Resolve the version
         id: version
@@ -80,19 +81,25 @@ jobs:
               Select-Object -First 1).Matches.Groups[1].Value
           }
           if (-not $version) { throw "the version could not be read" }
-          # Both the version and the file name are used downstream: the WiX
+          # Both the version and the file names are used downstream: the WiX
           # sources take the first, the packages are named after the second.
           "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "asset=deepseek-balance-monitor-$version-windows-${{ matrix.arch }}" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          # The widget is packaged apart from the application — an installer of
+          # its own — and follows the same version tag.
+          "widget=deepseek-balance-monitor-widget-$version-windows-${{ matrix.arch }}" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "version: $version"
 
-      - name: Name the executable
+      - name: Name the executables
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/dsmon2.exe" `
             "build/${{ steps.version.outputs.asset }}.exe"
+          Copy-Item "target/${{ matrix.target }}/release/dsmon2-widget.exe" `
+            "build/${{ steps.version.outputs.widget }}.exe"
 
       # The executable is signed before it goes into the installer, so the copy
       # that ends up in Program Files carries a signature of its own.
@@ -102,7 +109,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-exe-${{ matrix.arch }}
-          path: build/*.exe
+          path: build/${{ steps.version.outputs.asset }}.exe
 
       - name: Sign the executable
         id: sign-exe
@@ -117,6 +124,30 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: signed-exe
 
+      # The widget is signed on its own: SignPath is asked for one file per
+      # request, and a request holding both names would make the answer — which
+      # file came back signed — a guess.
+      - name: Upload the widget for signing
+        id: upload-widget
+        if: env.SIGNING_CONFIGURED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-widget-${{ matrix.arch }}
+          path: build/${{ steps.version.outputs.widget }}.exe
+
+      - name: Sign the widget
+        id: sign-widget
+        if: env.SIGNING_CONFIGURED == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORG_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: 'release'
+          github-artifact-id: ${{ steps.upload-widget.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-widget
+
       # Pinned to WiX 5: the sources here are written for the v4/v5 schema, and
       # WiX 7 refuses to run without accepting its maintenance-fee licence.
       - name: Install WiX
@@ -129,7 +160,9 @@ jobs:
         run: |
           $exe = "build/${{ steps.version.outputs.asset }}.exe"
           if (Test-Path "signed-exe") {
-            $signed = Get-ChildItem "signed-exe" -Filter "*.exe" -File -Recurse | Select-Object -First 1
+            $signed = Get-ChildItem "signed-exe" `
+              -Filter "${{ steps.version.outputs.asset }}.exe" -File -Recurse |
+              Select-Object -First 1
             if ($signed) {
               Copy-Item $signed.FullName $exe -Force
               Write-Host "the installer wraps the signed executable"
@@ -151,7 +184,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-msi-${{ matrix.arch }}
-          path: build/*.msi
+          path: build/${{ steps.version.outputs.asset }}.msi
 
       - name: Sign the installer
         id: sign-msi
@@ -171,28 +204,98 @@ jobs:
         run: |
           $msi = "build/${{ steps.version.outputs.asset }}.msi"
           if (Test-Path "signed-msi") {
-            $signed = Get-ChildItem "signed-msi" -Filter "*.msi" -File -Recurse | Select-Object -First 1
+            $signed = Get-ChildItem "signed-msi" `
+              -Filter "${{ steps.version.outputs.asset }}.msi" -File -Recurse |
+              Select-Object -First 1
             if ($signed) {
               Copy-Item $signed.FullName $msi -Force
               Write-Host "using the signed installer"
             }
           }
 
-      - name: Write the checksum
+      # The widget is a product of its own — its own MSI, its own entry under
+      # Apps & features, installed and upgraded on its own — but it installs
+      # into the application's directory, because that is where the two find
+      # each other. Either can be installed first.
+      - name: Build the widget installer
         shell: pwsh
         run: |
-          $asset = "${{ steps.version.outputs.asset }}.msi"
-          "$((Get-FileHash "build/$asset" -Algorithm SHA256).Hash)  $asset" |
-            Out-File "build/checksums-${{ matrix.arch }}.txt" -Encoding ascii
+          $widget = "build/${{ steps.version.outputs.widget }}.exe"
+          if (Test-Path "signed-widget") {
+            $signed = Get-ChildItem "signed-widget" `
+              -Filter "${{ steps.version.outputs.widget }}.exe" -File -Recurse |
+              Select-Object -First 1
+            if ($signed) {
+              Copy-Item $signed.FullName $widget -Force
+              Write-Host "the installer wraps the signed widget"
+            }
+          } else {
+            Write-Host "signing is not configured; the installer wraps the unsigned widget"
+          }
+
+          wix build packaging/windows/widget.wxs `
+            -arch ${{ matrix.arch }} `
+            -d Version=${{ steps.version.outputs.value }} `
+            -d ExePath=$((Resolve-Path $widget).Path) `
+            -d IconPath=$((Resolve-Path assets/app.ico).Path) `
+            -o "build/${{ steps.version.outputs.widget }}.msi"
+
+      - name: Upload the widget installer for signing
+        id: upload-widget-msi
+        if: env.SIGNING_CONFIGURED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-widget-msi-${{ matrix.arch }}
+          path: build/${{ steps.version.outputs.widget }}.msi
+
+      - name: Sign the widget installer
+        id: sign-widget-msi
+        if: env.SIGNING_CONFIGURED == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORG_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: 'release'
+          github-artifact-id: ${{ steps.upload-widget-msi.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-widget-msi
+
+      - name: Use the signed widget installer
+        shell: pwsh
+        run: |
+          $msi = "build/${{ steps.version.outputs.widget }}.msi"
+          if (Test-Path "signed-widget-msi") {
+            $signed = Get-ChildItem "signed-widget-msi" `
+              -Filter "${{ steps.version.outputs.widget }}.msi" -File -Recurse |
+              Select-Object -First 1
+            if ($signed) {
+              Copy-Item $signed.FullName $msi -Force
+              Write-Host "using the signed widget installer"
+            }
+          }
+
+      - name: Write the checksums
+        shell: pwsh
+        run: |
+          $assets = @(
+            "${{ steps.version.outputs.asset }}.msi",
+            "${{ steps.version.outputs.widget }}.msi"
+          )
+          $assets | ForEach-Object {
+            "$((Get-FileHash "build/$_" -Algorithm SHA256).Hash)  $_"
+          } | Out-File "build/checksums-${{ matrix.arch }}.txt" -Encoding ascii
           Get-Content "build/checksums-${{ matrix.arch }}.txt"
 
-      # The installer is the deliverable; the executable is only ever wrapped.
-      - name: Upload the installer
+      # Two installers, one per program; the bare executables are only ever
+      # wrapped.
+      - name: Upload the installers
         uses: actions/upload-artifact@v4
         with:
           name: deepseek-balance-monitor-windows-${{ matrix.arch }}
           path: |
-            build/*.msi
+            build/${{ steps.version.outputs.asset }}.msi
+            build/${{ steps.version.outputs.widget }}.msi
             build/checksums-${{ matrix.arch }}.txt
 
   # The installer is published once, after both architectures are built, and

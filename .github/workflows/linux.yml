@@ -71,14 +71,18 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --locked
 
-      - name: Build release binary
-        run: cargo build --release --locked -p dsmon-ui --bin dsmon2
+      # Both binaries: the packaging step builds a package per binary, and the
+      # widget's is only made when its executable is there to pack.
+      - name: Build release binaries
+        run: cargo build --release --locked -p dsmon-ui --bin dsmon2 --bin dsmon2-widget
 
       - name: Report the glibc floor
         run: |
-          file target/release/dsmon2
-          echo -n "highest glibc symbol: "
-          objdump -T target/release/dsmon2 | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1
+          for binary in target/release/dsmon2 target/release/dsmon2-widget; do
+            file "$binary"
+            echo -n "highest glibc symbol in $binary: "
+            objdump -T "$binary" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1
+          done
 
       # The container runs `sh`, and the version is a line of the workspace
       # manifest either way, so neither bash nor an interpreter is needed.
@@ -96,6 +100,8 @@ jobs:
           echo "value=$version" >> "$GITHUB_OUTPUT"
           echo "version: $version"
 
+      # One package per program: the application, and the desktop widget beside
+      # it. The script finds the second binary by the first one's directory.
       - name: Build packages
         run: |
           packaging/build-packages.sh "${{ steps.version.outputs.value }}" \
