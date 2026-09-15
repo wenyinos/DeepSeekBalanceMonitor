@@ -111,6 +111,15 @@ impl App {
     ) -> Self {
         crate::fonts::install(&cc.egui_ctx);
 
+        // This build used to keep its files where the earlier build reads its
+        // own, so what is still there is moved to this build's own directory
+        // before anything is read — the configuration included.
+        if let Err(error) = dsmon_core::adopt::earlier_files() {
+            let _ = storage::log_line(&format!(
+                "The files left in the shared directory could not be moved: {error}"
+            ));
+        }
+
         let config = AppConfig::load();
         apply_theme(&cc.egui_ctx, &config);
 
@@ -610,6 +619,20 @@ impl eframe::App for App {
                                     }
                                     views::settings::Action::ImportLegacy => {
                                         self.import_from_legacy()
+                                    }
+                                    views::settings::Action::AutoStart(enabled) => {
+                                        // Remembered here and now, not left to
+                                        // "save": every start reconciles the
+                                        // entry against the configuration, so a
+                                        // switch that was never saved would be
+                                        // written back out at the next one.
+                                        self.config.auto_start = enabled;
+                                        if let Err(error) = self.config.save() {
+                                            let _ = storage::log_line(&format!(
+                                                "The configuration could not be written: {error}"
+                                            ));
+                                        }
+                                        self.apply_auto_start();
                                     }
                                     views::settings::Action::ClearOldData => self.clear_old_data(),
                                     views::settings::Action::ConfirmClear => {

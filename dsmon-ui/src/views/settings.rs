@@ -33,6 +33,11 @@ pub enum Action {
     ClearOldData,
     /// Apply the draft's theme without saving, so the change is visible at once.
     Preview,
+    /// The start-up setting was switched. It is told to the system at once
+    /// rather than on save: it is not a draft value but a request to the
+    /// desktop, and a ticked box behind an unsaved page is exactly what
+    /// "starting with the session does not work" looked like.
+    AutoStart(bool),
 }
 
 /// Page state, owned by the application.
@@ -75,7 +80,7 @@ pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Act
     let mut preview = false;
 
     credentials_card(ui, view, state, &mut action);
-    general_card(ui, view, state, &mut preview);
+    general_card(ui, view, state, &mut preview, &mut action);
     alerts_card(ui, view, state);
     data_card(ui, view, state, &mut action);
     about_card(ui, view, &mut action);
@@ -244,7 +249,13 @@ fn key_field(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut Stri
     });
 }
 
-fn general_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State, preview: &mut bool) {
+fn general_card(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    state: &mut State,
+    preview: &mut bool,
+    action: &mut Option<Action>,
+) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
@@ -300,7 +311,12 @@ fn general_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State, preview: 
         });
 
         ui.add_space(4.0);
-        ui.checkbox(&mut state.draft.auto_start, view.text("auto_start"));
+        if ui
+            .checkbox(&mut state.draft.auto_start, view.text("auto_start"))
+            .changed()
+        {
+            *action = Some(Action::AutoStart(state.draft.auto_start));
+        }
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {

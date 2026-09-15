@@ -35,6 +35,13 @@
   编号被拒时 `notify/windows.rs` 用 `Shell_NotifyIconGetRect` 反查真实编号再试一次。
   ② 图标库对 `Shell_NotifyIconW(NIM_ADD)` 失败**不报错**，所以隐藏窗口前必须问
   `Tray::is_registered()`，否则会出现「程序在跑、屏幕上一个东西都没有」。
+- **数据目录与 1.x 彻底分开**：本版用 `dsmon2`（Windows `%APPDATA%\dsmon2`，Linux
+  `~/.config/dsmon2` + `~/.local/state/dsmon2`）；1.x 的目录只被只读导入。两版曾经共用
+  目录，本版把 1.x 的 `config.json`/`app.log` 覆盖过，所以首启会用 `adopt::earlier_files`
+  把本版遗留的文件搬出来（只搬本版自己的：`dsmon.db`、`.secure_settings.key`、
+  `.dsmon.db.initialized`，以及靠独有字段辨认出的本版 `config.json`）。
+- **托盘不在就不许藏窗口**：`Tray::is_registered()` 是唯一依据——登录启动若外壳还没接收
+  图标，窗口会留在屏幕上（等 15 秒后放弃隐藏）。「程序在跑、屏幕上一个东西都没有」就是这么来的。
 - **API Key 永不写入 `config.json`**：按平台 key 加密存于 SQLite `secure_settings`。
   1.x 的 `balance_history.db` 只读，本版用 `dsmon.db`，两者互不影响。
 - **数据库删除不等于缩小文件**：只有 `wal_checkpoint + VACUUM`（设置页的手动清理）才回收空间。

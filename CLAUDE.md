@@ -72,12 +72,17 @@ packaging/                 # .desktop 与 deb/rpm 打包脚本
 
 ### 数据与存储
 
-- 配置：`~/.config/deepseek-balance-monitor/config.json`（Windows：`%APPDATA%\DeepSeek Balance Monitor\`）
-- 状态目录（Linux 走 XDG state）：`~/.local/state/deepseek-balance-monitor/`，含
+- 配置：`~/.config/dsmon2/config.json`（Windows：`%APPDATA%\dsmon2\`）
+- 状态目录（Linux 走 XDG state）：`~/.local/state/dsmon2/`，含
   - `dsmon.db`：**本版自己的库**，表 `balance_history`（带 `platform` 列）、
     `subscription_history`、`secure_settings`
   - `.secure_settings.key`：32 字节密钥，权限 0600
   - `app.log`：按天裁剪
+- **目录与 1.x 彻底分开**：1.x 用 `~/.config/deepseek-balance-monitor`（Windows：
+  `%APPDATA%\DeepSeek Balance Monitor`），本版绝不写入。本版曾经与它共用目录，把 1.x 的
+  `config.json`/`app.log` 覆盖过，因此首启由 `adopt::earlier_files` 把本版遗留的文件搬进
+  自己的目录（`dsmon.db`/`.secure_settings.key`/`.dsmon.db.initialized`，以及确属本版的
+  `config.json`——靠 `billing_day_command_code` 等本版独有字段辨认）。
 - **1.x 的 `balance_history.db` 只读**（设置页「从 1.x 数据库导入」），本版绝不写入；
   两个版本可同时运行。`storage::import_from_legacy` 是唯一入口。
 - 历史去重窗口 120 秒，时间戳格式 `%Y-%m-%d %H:%M:%S`（与 1.x 一致）。

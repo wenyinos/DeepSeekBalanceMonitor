@@ -1,18 +1,23 @@
 //! Filesystem locations for configuration and state.
 //!
-//! The paths deliberately match the ones the previous Rust implementations
-//! used, so an existing installation keeps reading its own configuration and
-//! history after upgrading.
+//! This build keeps everything in a directory of its own, named after its
+//! executable. The earlier builds keep theirs under a name of their own, and
+//! that separation is the point: this build used to share their directory, where
+//! its `config.json` and log were written over theirs and theirs over its.
 
 use std::path::PathBuf;
 
-/// Directory name used under the XDG base directories on Linux.
-#[cfg(unix)]
-const APP_DIR: &str = "deepseek-balance-monitor";
+/// Directory this build keeps its files under.
+const APP_DIR: &str = "dsmon2";
 
-/// Directory name used under `%APPDATA%` on Windows.
+/// Directory the earlier builds use, for finding their data — and for moving
+/// this build's files out of it, once.
+#[cfg(unix)]
+const EARLIER_DIR: &str = "deepseek-balance-monitor";
+
+/// Directory name used under `%APPDATA%` by the earlier Windows build.
 #[cfg(windows)]
-const APP_DIR: &str = "DeepSeek Balance Monitor";
+const EARLIER_DIR: &str = "DeepSeek Balance Monitor";
 
 #[cfg(windows)]
 fn base_dir(env_var: &str, _fallback: &str) -> PathBuf {
@@ -34,8 +39,8 @@ fn base_dir(env_var: &str, fallback: &str) -> PathBuf {
     home.join(fallback)
 }
 
-/// Configuration directory: `%APPDATA%\DeepSeek Balance Monitor` on Windows,
-/// `$XDG_CONFIG_HOME/deepseek-balance-monitor` on Linux.
+/// Configuration directory: `%APPDATA%\dsmon2` on Windows,
+/// `$XDG_CONFIG_HOME/dsmon2` on Linux.
 pub fn config_dir() -> PathBuf {
     #[cfg(windows)]
     {
@@ -50,7 +55,7 @@ pub fn config_dir() -> PathBuf {
 /// State directory holding the log, the history database and the secret key.
 ///
 /// Windows keeps everything in the configuration directory; Linux follows the
-/// XDG split and uses `$XDG_STATE_HOME/deepseek-balance-monitor`.
+/// XDG split and uses `$XDG_STATE_HOME/dsmon2`.
 pub fn state_dir() -> PathBuf {
     #[cfg(windows)]
     {
@@ -59,6 +64,33 @@ pub fn state_dir() -> PathBuf {
     #[cfg(unix)]
     {
         base_dir("XDG_STATE_HOME", ".local/state").join(APP_DIR)
+    }
+}
+
+/// The directory the earlier builds keep their configuration in.
+///
+/// Nothing is written here; it is where this build's own files may still be
+/// sitting, waiting to be moved to [`config_dir`].
+pub fn earlier_config_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        base_dir("APPDATA", "").join(EARLIER_DIR)
+    }
+    #[cfg(unix)]
+    {
+        base_dir("XDG_CONFIG_HOME", ".config").join(EARLIER_DIR)
+    }
+}
+
+/// The directory the earlier builds keep their state in.
+pub fn earlier_state_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        earlier_config_dir()
+    }
+    #[cfg(unix)]
+    {
+        base_dir("XDG_STATE_HOME", ".local/state").join(EARLIER_DIR)
     }
 }
 
@@ -81,19 +113,16 @@ pub fn log_file() -> PathBuf {
 }
 
 /// The database this build owns.
-///
-/// Deliberately separate from the one the CLI and Python builds use: this
-/// version must never write into their data.
 pub fn history_db_file() -> PathBuf {
     state_dir().join("dsmon.db")
 }
 
-/// The database the CLI and Python builds share.
+/// The database the earlier builds keep, in their own directory.
 ///
 /// Opened read-only, and only by an explicit import: this build never writes
 /// there, so the other versions keep working alongside it.
 pub fn legacy_db_file() -> PathBuf {
-    state_dir().join("balance_history.db")
+    earlier_state_dir().join("balance_history.db")
 }
 
 pub fn history_db_marker_file() -> PathBuf {
@@ -140,5 +169,19 @@ mod tests {
     #[test]
     fn windows_keeps_state_next_to_config() {
         assert_eq!(state_dir(), config_dir());
+    }
+
+    /// The two versions must not share a directory: this build used to write
+    /// its own `config.json` and log over the earlier build's, in the place the
+    /// earlier build reads them from.
+    #[test]
+    fn this_build_keeps_out_of_the_earlier_builds_directory() {
+        assert_ne!(config_dir(), earlier_config_dir());
+        assert_ne!(state_dir(), earlier_state_dir());
+        assert_eq!(
+            legacy_db_file(),
+            earlier_state_dir().join("balance_history.db"),
+            "the import reads the database where the earlier build keeps it"
+        );
     }
 }

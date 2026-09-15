@@ -27,6 +27,20 @@ All notable changes to DeepSeek Balance Monitor are documented here.
   reads whichever of its tables are present: a database that was never given a
   key has no key table at all
 
+### Changed
+
+- The application keeps a data directory of its own (`dsmon2`: `%APPDATA%\dsmon2`
+  on Windows, `~/.config/dsmon2` and `~/.local/state/dsmon2` on Linux). It used to
+  share the earlier build's directory, where its own `config.json` and log were
+  written over the earlier build's — and the earlier build's over its. What it
+  left behind there is moved across on the first start, stored keys and history
+  included, so nothing has to be entered again; the earlier build keeps its own
+  database where it is
+- "Start with the session" takes effect the moment it is ticked instead of waiting
+  for "save", and the setting is written down at once: every start reconciles the
+  entry against the configuration, so a switch that was never saved used to be
+  written back out again at the next one
+
 ## Rust v2.0.1 (2026-09-14)
 
 ### Fixed
