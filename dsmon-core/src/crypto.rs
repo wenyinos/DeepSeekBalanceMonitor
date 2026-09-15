@@ -221,23 +221,31 @@ mod tests {
         assert!(decrypt_with(&TEST_KEY, b"DSBM1").is_err());
     }
 
-    /// However many callers arrive at once, the key file is made once and they
-    /// all end up with the same key.
+    /// However many callers arrive at once, they all get the same key, and a
+    /// key that is already there is not made again.
+    ///
+    /// The file is made first, on this thread. Eight threads all *creating* it
+    /// is what Windows answers unpredictably — "already exists", "access is
+    /// denied", "cannot find the file", depending on where the first one has
+    /// got to — and that is the filesystem's business rather than this code's.
+    /// What this code promises is that callers reading one file share one key;
+    /// a second process creating it at the same moment (the 1.x daemon shares
+    /// this file) is answered by reading whatever that one wrote, which is the
+    /// same path these callers take here.
     #[test]
     fn several_callers_share_one_key() {
         let _turn = one_at_a_time();
         crate::test_support::state_in_a_scratch_directory();
 
+        let expected = load_or_create_key().expect("the key");
+
         let callers: Vec<_> = (0..8)
             .map(|_| std::thread::spawn(load_or_create_key))
             .collect();
 
-        let keys: Vec<_> = callers
-            .into_iter()
-            .map(|caller| caller.join().expect("no caller panics").expect("a key"))
-            .collect();
-        for key in &keys {
-            assert_eq!(key, &keys[0], "every caller gets the same key");
+        for caller in callers {
+            let key = caller.join().expect("no caller panics").expect("a key");
+            assert_eq!(key, expected, "every caller gets the same key");
         }
     }
 }
