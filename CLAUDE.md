@@ -102,6 +102,12 @@ packaging/                 # .desktop 与 deb/rpm 打包脚本
 | 自启 | `~/.config/autostart/deepseek-balance-monitor.desktop` | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
 | 窗口图标 | `_NET_WM_ICON`，128px | `ViewportCommand::Icon` + exe 资源（build.rs 嵌 `assets/app.ico`） |
 
+**Windows 托盘图标与气泡**：图标由 `tray-icon` 注册，该库给图标编号「从 1 起、每个图标消耗
+两个号」（字符串 id 一个、系统看到的一个），因此本程序唯一的图标是 **2 号**，气泡就靠这个号
+指认它；编号被拒时 `notify/windows.rs` 用 `Shell_NotifyIconGetRect` 反查真实编号再试一次。
+图标注册失败时库**不报错**，所以隐藏窗口前一律先问 `Tray::is_registered()`（Windows 用
+`rect()` 是否有值判断），否则会出现「程序在跑、屏幕上什么都没有」。
+
 **Linux 默认走 XWayland**（`app.rs::prefer_x11`）：Wayland 下窗口无法隐藏、也无法唤回
 （winit 的 Wayland 后端 `set_visible` 是空实现、拒绝取消最小化、`focus_window` 为空），
 而本应用的核心就是关闭进托盘。会话没有 X 显示时保持原生 Wayland；

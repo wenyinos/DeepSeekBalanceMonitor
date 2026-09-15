@@ -30,6 +30,11 @@
   并显式选 `async-io`，勿改回去。
 - **托盘图标是代码绘制的**（余额数字 + 状态色块），不是图片文件；`assets/app.ico` 只用于
   窗口/任务栏与 Windows exe。
+- **Windows 托盘两处易错**：① 气泡要靠编号指认图标，而 `tray-icon` 的编号是「从 1 起、
+  每个图标消耗两个号」（字符串 id 一个、系统看到的一个），本程序唯一的图标是 **2 号**；
+  编号被拒时 `notify/windows.rs` 用 `Shell_NotifyIconGetRect` 反查真实编号再试一次。
+  ② 图标库对 `Shell_NotifyIconW(NIM_ADD)` 失败**不报错**，所以隐藏窗口前必须问
+  `Tray::is_registered()`，否则会出现「程序在跑、屏幕上一个东西都没有」。
 - **API Key 永不写入 `config.json`**：按平台 key 加密存于 SQLite `secure_settings`。
   1.x 的 `balance_history.db` 只读，本版用 `dsmon.db`，两者互不影响。
 - **数据库删除不等于缩小文件**：只有 `wal_checkpoint + VACUUM`（设置页的手动清理）才回收空间。

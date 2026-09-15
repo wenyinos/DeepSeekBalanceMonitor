@@ -95,9 +95,9 @@ struct App {
     _instance: crate::instance::Guard,
     /// What the last reading left behind, for the notifications it calls for.
     alerts: crate::notify::Watch,
-    /// Set by a start that was asked to stay out of the way, until the window
-    /// has been drawn once and can be hidden.
-    hide_at_start: bool,
+    /// Set by a start that was asked to stay out of the way, holding the moment
+    /// by which it stops waiting for the tray icon to be there.
+    hide_at_start: Option<std::time::Instant>,
     /// Set when the tray asked to quit, so the close request is honoured
     /// instead of the window hiding itself.
     quitting: bool,
@@ -117,15 +117,34 @@ impl App {
         // Starting with the session is a setting the system is told about, and
         // that telling lives outside this application's own storage: it is
         // reconciled on every run, so a setting carried over from another build
-        // — or an executable that has moved since — still works. Failures are
-        // logged rather than shown: nothing is waiting on this.
-        if let Err(error) = dsmon_core::autostart::set_enabled(config.auto_start) {
-            let _ = storage::log_line(&format!("The start-up entry could not be written: {error}"));
+        // — or an executable that has moved since — still works. Whether the
+        // system holds the entry afterwards is logged, since that is the one
+        // question a log can answer about starting with the session; a refusal
+        // is also shown on the settings page, where the setting lives.
+        let start_up = dsmon_core::autostart::set_enabled(config.auto_start);
+        match &start_up {
+            Ok(()) => {
+                let _ = storage::log_line(&format!(
+                    "Start-up entry: asked for {}, the system holds {}.",
+                    config.auto_start,
+                    dsmon_core::autostart::is_enabled()
+                ));
+            }
+            Err(error) => {
+                let _ =
+                    storage::log_line(&format!("The start-up entry could not be written: {error}"));
+            }
         }
 
         let monitor = Monitor::start(config.clone());
         let configured = configured_platforms();
-        let settings = views::settings::State::new(config.clone(), configured.clone());
+        let mut settings = views::settings::State::new(config.clone(), configured.clone());
+        if let Err(error) = &start_up {
+            settings.notice = Some(format!(
+                "{} {error}",
+                tr(&config.ui_language, "auto_start_failed")
+            ));
+        }
 
         // eframe only hands the window icon to Windows and macOS itself; on
         // Linux the window comes up without one unless it is passed along.
@@ -154,7 +173,8 @@ impl App {
             commands,
             _instance: instance,
             alerts: crate::notify::Watch::default(),
-            hide_at_start: starts_minimized(),
+            hide_at_start: starts_minimized()
+                .then(|| std::time::Instant::now() + std::time::Duration::from_secs(15)),
             quitting: false,
         };
         app.reload_history();
@@ -303,7 +323,11 @@ impl App {
         }
 
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        if window_can_hide() {
+
+        // Out of sight only while the tray can bring the window back: with no
+        // icon registered, the task bar is the way in, so the window goes there
+        // instead of disappearing.
+        if window_can_hide() && self.tray.is_registered() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -428,11 +452,24 @@ impl eframe::App for App {
             crate::notify::send(message);
         }
 
-        // A start asked for by the session stays out of the way. eframe shows
-        // every window once it has painted, so asking before that would be
-        // undone; asking here leaves it hidden with the tray in charge.
-        if std::mem::take(&mut self.hide_at_start) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        // A start asked for by the session stays out of the way — but only once
+        // the tray icon is really there, because the window is the only other
+        // way into the application. A desktop that has not taken the icon yet is
+        // waited for; one that never takes it leaves the window on screen,
+        // rather than hiding the last way in.
+        //
+        // Asking here rather than at startup is also what makes it stick: eframe
+        // shows every window once it has painted one frame.
+        if let Some(deadline) = self.hide_at_start {
+            if self.tray.is_registered() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                self.hide_at_start = None;
+            } else if std::time::Instant::now() >= deadline {
+                let _ = storage::log_line(
+                    "The tray icon is not there; the window stays on screen this run.",
+                );
+                self.hide_at_start = None;
+            }
         }
 
         self.hide_on_close(ctx);

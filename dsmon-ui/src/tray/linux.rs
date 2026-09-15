@@ -120,6 +120,15 @@ impl TrayHandle {
         let lang = lang.to_owned();
         let _ = self.handle.update(move |tray| tray.lang = lang);
     }
+
+    /// Whether the desktop is showing the icon.
+    ///
+    /// Nothing to ask here: the item travels over the bus from the moment the
+    /// tray is built, and whether a panel then puts it on screen is the panel's
+    /// business, not something this side is told about.
+    pub fn is_registered(&self) -> bool {
+        true
+    }
 }
 
 /// Registers the tray icon; the interface drives it through the returned handle.
@@ -128,7 +137,7 @@ pub fn spawn(
     theme: &IconTheme,
     commands: Arc<Mutex<Vec<Command>>>,
     ctx: egui::Context,
-) -> TrayHandle {
+) -> Result<TrayHandle, String> {
     let tray = MonitorTray {
         lang: lang.to_owned(),
         status: Status {
@@ -143,8 +152,8 @@ pub fn spawn(
 
     let handle = tray
         .spawn()
-        .expect("the session bus accepts a StatusNotifierItem");
-    TrayHandle { handle }
+        .map_err(|error| format!("the session bus refused the item: {error}"))?;
+    Ok(TrayHandle { handle })
 }
 
 /// StatusNotifierItem expects ARGB32 in network byte order.

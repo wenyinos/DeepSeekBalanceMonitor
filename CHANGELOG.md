@@ -9,6 +9,20 @@ All notable changes to DeepSeek Balance Monitor are documented here.
 - The Windows tray icon is registered the ordinary way again. It had been given
   a fixed GUID so that a balloon could name it; that registration survives a
   killed process and the shell can then refuse to show the icon on the next run
+- A click on the Windows tray icon raises its balloon again. A balloon names the
+  icon by number, and the number used was off by one: the tray library numbers
+  its icons from one and draws two numbers for each of ours, so the single icon
+  this application makes is number two. A number the shell refuses is now
+  followed by asking the shell which one it holds, and the balloon is raised again
+- The window is hidden only while the tray can bring it back. A start with the
+  session that reached the notification area before the shell did left the
+  application running with nothing on screen, which is what "starting with the
+  session does not work" looked like from the outside. The window now waits for
+  the icon and stays on screen when the icon never comes, so a tray that never
+  registered can no longer leave the application out of sight
+- Starting with the session now reports itself: every start records whether the
+  system holds the entry, since an entry that was never written and one the
+  system will not run need different answers
 - Importing the earlier database says where it looked when it finds nothing, and
   reads whichever of its tables are present: a database that was never given a
   key has no key table at all

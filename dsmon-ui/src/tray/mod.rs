@@ -124,7 +124,10 @@ fn state_of(snapshot: &Snapshot, config: &AppConfig, total: f64) -> State {
 /// queue the application shares with everything else that can ask it to do
 /// something.
 pub struct Tray {
-    handle: platform::TrayHandle,
+    /// Nothing at all when the desktop would not take an icon: the application
+    /// keeps working, and the window stays on screen because there is no tray
+    /// to bring it back from.
+    handle: Option<platform::TrayHandle>,
     /// What the icon shows right now, so an unchanged reading costs nothing.
     published: Mutex<Option<(Status, IconTheme)>>,
 }
@@ -141,7 +144,16 @@ impl Tray {
         theme: &IconTheme,
         commands: Arc<Mutex<Vec<Command>>>,
     ) -> Self {
-        let handle = platform::spawn(lang, theme, commands, ctx.clone());
+        let handle = match platform::spawn(lang, theme, commands, ctx.clone()) {
+            Ok(handle) => Some(handle),
+            Err(error) => {
+                let _ = dsmon_core::storage::log_line(&format!(
+                    "There is no tray icon this run: {error}"
+                ));
+                None
+            }
+        };
+
         Self {
             handle,
             published: Mutex::new(None),
@@ -150,6 +162,10 @@ impl Tray {
 
     /// Draws `status`, unless the icon already shows it.
     pub fn publish(&self, status: &Status, theme: &IconTheme) {
+        let Some(handle) = &self.handle else {
+            return;
+        };
+
         let Ok(mut published) = self.published.lock() else {
             return;
         };
@@ -158,13 +174,25 @@ impl Tray {
                 return;
             }
         }
-        self.handle.draw(status, theme);
+        handle.draw(status, theme);
         *published = Some((status.clone(), theme.clone()));
+    }
+
+    /// Whether the desktop is really showing the icon.
+    ///
+    /// The question to ask before anything relies on the tray to reach the
+    /// application, since the window is the only other way in.
+    pub fn is_registered(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(|handle| handle.is_registered())
     }
 
     /// Relabels the menu after the interface language changed.
     pub fn set_language(&self, lang: &str) {
-        self.handle.set_language(lang);
+        if let Some(handle) = &self.handle {
+            handle.set_language(lang);
+        }
     }
 }
 

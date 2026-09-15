@@ -72,17 +72,31 @@ impl TrayHandle {
         let tooltip = format!("{}\n{}", dsmon_core::APP_NAME, status.tooltip);
         let _ = self.icon.set_tooltip(Some(tooltip));
 
-        // Once per run, in the log: the shell answers with a rectangle only for
-        // an icon it really holds, so this is what tells "the icon is missing"
-        // apart from "the panel keeps it out of sight".
-        static REPORTED: std::sync::Once = std::sync::Once::new();
-        REPORTED.call_once(|| {
-            let where_it_is = match self.icon.rect() {
-                Some(rect) => format!("{rect:?}"),
-                None => "unknown to the shell".to_owned(),
-            };
-            let _ = dsmon_core::storage::log_line(&format!("the tray icon is at {where_it_is}"));
-        });
+        // The shell answers with a rectangle only for an icon it really holds,
+        // so this is what tells an icon it is holding from one it never took —
+        // which is what a registration it refused looks like from here, since
+        // the library keeps that refusal to itself. Written whenever the answer
+        // changes, so an icon that arrives late is in the log as well.
+        static REPORTED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+        let rect = self.icon.rect();
+        let state = if rect.is_some() { 1 } else { 2 };
+        if REPORTED.swap(state, std::sync::atomic::Ordering::SeqCst) != state {
+            let _ = dsmon_core::storage::log_line(&format!(
+                "the tray icon is {}",
+                match rect {
+                    Some(rect) => format!("at {rect:?}"),
+                    None => "not held by the shell".to_owned(),
+                }
+            ));
+        }
+    }
+
+    /// Whether the shell is holding the icon.
+    ///
+    /// The same question the log above answers, for the code that has to decide
+    /// whether the tray can be relied on to bring the window back.
+    pub fn is_registered(&self) -> bool {
+        self.icon.rect().is_some()
     }
 
     pub fn set_language(&self, lang: &str) {
@@ -98,7 +112,7 @@ pub fn spawn(
     theme: &IconTheme,
     commands: Arc<Mutex<Vec<Command>>>,
     ctx: egui::Context,
-) -> TrayHandle {
+) -> Result<TrayHandle, String> {
     let text = |key: &str| crate::i18n::tr(lang, key).to_owned();
 
     let menu = Menu::new();
@@ -127,7 +141,7 @@ pub fn spawn(
         size: 64,
     });
     let image = tray_icon::Icon::from_rgba(rendered.rgba, rendered.width, rendered.height)
-        .expect("generated icon is a valid RGBA bitmap");
+        .map_err(|error| format!("the icon it draws was refused: {error}"))?;
 
     // A left click shows the reading, so the menu waits for the right button.
     let icon = TrayIconBuilder::new()
@@ -136,12 +150,12 @@ pub fn spawn(
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
         .build()
-        .expect("tray icon registers with the shell");
+        .map_err(|error| format!("the shell refused an icon: {error}"))?;
 
     crate::notify::windows::remember_icon(icon.window_handle());
     install_handlers(Arc::clone(&commands), ctx);
 
-    TrayHandle {
+    Ok(TrayHandle {
         icon,
         items: Items {
             balance,
@@ -150,7 +164,7 @@ pub fn spawn(
             settings,
             quit,
         },
-    }
+    })
 }
 
 /// Routes menu picks and clicks into the command queue and wakes the interface.
