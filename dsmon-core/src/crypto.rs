@@ -82,7 +82,20 @@ fn load_or_create_key() -> Result<[u8; KEY_LEN], String> {
         return read_key_when_written(&path);
     }
 
-    paths::ensure_dir(&paths::state_dir()).map_err(|error| error.to_string())?;
+    // Making the directory and the file can both go wrong for the same reason —
+    // someone else is doing exactly this, right now — so neither failure is an
+    // error until the file has been looked for again. Windows reports that
+    // someone-else as "already exists" when the other caller is between calls,
+    // but as "access is denied" while it still has the file open, and as
+    // "cannot find the file" in the moment before it appears; the v2.1.0
+    // release failed on all three across three runs. Looking for the file is
+    // the answer to all of them: `read_key_when_written` waits out a write that
+    // has not finished. Only when there is nothing to find is the original
+    // problem reported, and it is reported as itself.
+    if let Err(error) = paths::ensure_dir(&paths::state_dir()) {
+        return read_key_when_written(&path).map_err(|_| error.to_string());
+    }
+
     let mut key = [0u8; KEY_LEN];
     SystemRandom::new()
         .fill(&mut key)
@@ -93,12 +106,10 @@ fn load_or_create_key() -> Result<[u8; KEY_LEN], String> {
             file.write_all(&key).map_err(|error| error.to_string())?;
             Ok(key)
         }
-        // Another process was quicker — the 1.x daemon shares this key file —
-        // so use what it wrote rather than making a second key.
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            read_key_when_written(&path)
-        }
-        Err(error) => Err(error.to_string()),
+        // Another caller was quicker — another process (the 1.x daemon shares
+        // this key file) or another thread of this one — so use what it wrote
+        // rather than making a second key.
+        Err(error) => read_key_when_written(&path).map_err(|_| error.to_string()),
     }
 }
 
