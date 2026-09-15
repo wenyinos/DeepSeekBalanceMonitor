@@ -29,6 +29,18 @@ pub fn state_in_a_scratch_directory() {
         std::env::set_var("XDG_STATE_HOME", scratch.join("state"));
         std::env::set_var("XDG_CONFIG_HOME", scratch.join("config"));
         std::env::set_var("APPDATA", scratch.join("appdata"));
+
+        // And then the directories themselves, here and now, while one thread
+        // is running this and no other test has started looking: several tests
+        // encrypt at the same time and each of them creates the state directory
+        // on its way to the key file. A `create_dir_all` racing against itself
+        // is how a Windows runner answers "the system cannot find the path
+        // specified" for a directory another thread is busy creating — which is
+        // what broke the v2.1.0 release build (2026-09-15). Made here, the
+        // tests that follow find them already there and create nothing.
+        for directory in [crate::paths::state_dir(), crate::paths::config_dir()] {
+            let _ = std::fs::create_dir_all(&directory);
+        }
     });
 }
 
