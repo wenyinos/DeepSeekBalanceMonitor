@@ -19,6 +19,14 @@ cargo fmt --all --check                 # CI 校验格式
 cargo build --release -p dsmon-ui --bin dsmon2  # Linux 可执行文件：target/release/dsmon2
 cargo run -p dsmon-ui --example preview # 开发时直接启动界面（不走平台入口）
 
+# ⚠️ 测试会写**真实**用户目录，在别人的机器上跑之前务必换一套临时目录：
+# dsmon-core 的 crypto 用例加密/解密时会经 load_or_create_key() 落到 paths::secret_key_file()，
+# 密钥文件不存在就**创建**一份（连同目录）。这既污染用户数据，又会挡住首启从旧目录搬移——
+# 搬移对"目标已存在"是跳过，于是数据库搬来了、密钥没搬来，库里密钥全解不开。
+# （storage 的用例用内存库、paths 的用例只算路径，都不碰真实文件。）
+XDG_STATE_HOME=/tmp/dsmon-test/state XDG_CONFIG_HOME=/tmp/dsmon-test/config HOME=/tmp/dsmon-test \
+  cargo test --workspace --locked       # Windows 上换 APPDATA 指向临时目录
+
 # 打包（需要 dpkg-deb / rpmbuild / ImageMagick，CI 在容器里跑）
 packaging/build-packages.sh 2.0.2 amd64 target/release/dsmon2 dist
 ```

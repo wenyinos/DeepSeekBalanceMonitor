@@ -40,6 +40,14 @@
   目录，本版把 1.x 的 `config.json`/`app.log` 覆盖过，所以首启会用 `adopt::earlier_files`
   把本版遗留的文件搬出来（只搬本版自己的：`dsmon.db`、`.secure_settings.key`、
   `.dsmon.db.initialized`，以及靠独有字段辨认出的本版 `config.json`）。
+- **别在有真实数据的机器上直接 `cargo test`**：`dsmon-core` 的 crypto 用例加密/解密时会经
+  `load_or_create_key()` 落到 `paths::secret_key_file()`，密钥文件不存在就**创建**一份（连目录
+  一起）到真实状态目录（storage 的用例用内存库、paths 的用例只算路径，都不会碰真实文件）。危害
+  不止污染：首启搬移对"目标已存在"是**跳过**，于是 `dsmon.db` 搬来了、密钥没搬来，库里所有密钥
+  都解不开（2026-09-15 真机踩过）。要跑就换一套临时 `HOME`/`XDG_STATE_HOME`/`XDG_CONFIG_HOME`
+  （Windows 换 `APPDATA`）。真出事了不是没救：真密钥还在旧目录
+  `~/.local/state/deepseek-balance-monitor/.secure_settings.key`（Windows
+  `%APPDATA%\DeepSeek Balance Monitor\`），拷回新目录即可。
 - **托盘不在就不许藏窗口**：`Tray::is_registered()` 是唯一依据——登录启动若外壳还没接收
   图标，窗口会留在屏幕上（等 15 秒后放弃隐藏）。「程序在跑、屏幕上一个东西都没有」就是这么来的。
 - **API Key 永不写入 `config.json`**：按平台 key 加密存于 SQLite `secure_settings`。
