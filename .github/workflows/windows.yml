@@ -320,11 +320,14 @@ jobs:
       - name: List them
         run: ls -l packages
 
+      # The body — the download table — belongs to the Linux workflow, which
+      # writes it whole. This one must not touch it: `generate_release_notes`
+      # would replace whatever is there with GitHub's own list, and which of the
+      # two workflows finishes last is not something either of them decides.
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             packages/*.msi
             packages/checksums-*.txt
-          generate_release_notes: true
           overwrite_files: true

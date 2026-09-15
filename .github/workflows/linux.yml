@@ -141,11 +141,11 @@ jobs:
       - name: List them
         run: ls -l packages
 
-      # The download table is written here and nowhere else. Both workflows
-      # publish into one release, and if each appended its own the table would
-      # appear twice — the Windows one creates the release when it finishes
-      # first and leaves the body alone, so the order they finish in does not
-      # matter.
+      # The download table is written here and nowhere else: the Windows
+      # workflow leaves the body alone, so the release reads the same whichever
+      # of the two finishes first. It is written rather than appended, so
+      # re-running this job for a tag — which is what a failed publish needs —
+      # replaces the table instead of adding a second copy of it.
       #
       # The links carry the tag, which is what makes every version's record
       # download the files of that version: a `latest` link would have to be the
@@ -157,7 +157,6 @@ jobs:
             packages/*.deb
             packages/*.rpm
             packages/checksums-*.txt
-          append_body: true
           body: |
             ## 下载
 
