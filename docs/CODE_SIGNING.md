@@ -375,12 +375,20 @@ Release 中的 `checksums.txt` 文件格式：
 |---|---|
 | 触发 | tag `v*`（与 Linux 工作流同一个 tag，两者都会发布） |
 | 架构 | 矩阵 `x64` / `arm64`（`x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`），各自独立签名 |
-| 产物 | `deepseek-balance-monitor-<版本>-windows-<x64\|arm64>.msi`（**只发布安装包**） |
-| 上传的未签名 artifact | `unsigned-exe-<arch>` 与 `unsigned-msi-<arch>`，两次签名各传一个 |
+| 产物 | `deepseek-balance-monitor-<版本>-windows-<x64\|arm64>.msi` 与 `deepseek-balance-monitor-widget-<版本>-windows-<x64\|arm64>.msi`（**只发布安装包**） |
+| 上传的未签名 artifact | `unsigned-exe-<arch>`、`unsigned-widget-<arch>`、`unsigned-msi-<arch>`、`unsigned-widget-msi-<arch>`，四次签名各传一个 |
 | 签名策略 | 仍为 `release` |
 
 **签名顺序**：先签 exe（此时它只是中间产物）→ 用签好的 exe 打 MSI → 再签 MSI → 只发布 MSI。
 这样安装到 Program Files 的 exe 自身也带签名，用户第一次运行时不会被告知「未知发布者」。
+**两个程序各走一遍**（主程序与小工具）：它们的 MSI 是彼此独立的产品
+（`packaging/windows/product.wxs` / `widget.wxs`），但装进同一个目录
+`Program Files\DeepSeek Balance Monitor`，因为两个 exe 必须在一起才能互相拉起。
+一次签名请求只放一个文件：SignPath 的应答里不会说明它签了 artifact 中的哪一个，
+把两个 exe 放进同一个 artifact 就会变成猜测。
+
+Linux 侧的小工具包（`deepseek-balance-monitor-widget` 的 .deb/.rpm）与主程序包一样**不签名**，
+发布时附 SHA256 校验和（见下文「Linux 版本验证」）。
 
 **需要同步调整的地方**：SignPath 的 Artifact Configuration 目前只匹配 `.exe`，需要把 `.msi`
 一并纳入匹配规则，否则第二次签名会因找不到可签文件而失败（未配置签名时流程照旧跳过，只发布
@@ -389,18 +397,35 @@ Release 中的 `checksums.txt` 文件格式：
 MSI 由 WiX v5 构建：`dotnet tool install --global wix`，然后
 
 ```
-wix build packaging/windows/product.wxs -arch x64 -d Version=<版本> -d ExePath=<exe 路径> -o <输出>.msi
+wix build packaging/windows/product.wxs -arch x64 \
+  -d Version=<版本> -d ExePath=<dsmon2.exe 路径> -d IconPath=<assets/app.ico 路径> -o <输出>.msi
+
+wix build packaging/windows/widget.wxs -arch x64 \
+  -d Version=<版本> -d ExePath=<dsmon2-widget.exe 路径> -d IconPath=<assets/app.ico 路径> \
+  -o <输出>.msi
 ```
 
 `-arch` 取 `x86` / `x64` / `arm64`，安装范围为 per-machine，装到 Program Files 并创建开始菜单
 快捷方式；安装包图标取自 exe 内嵌的 `assets/app.ico`。
 
+**两个 MSI 是一个目录、两个产品**：`product.wxs` 装 `dsmon2.exe`，`widget.wxs` 装
+`dsmon2-widget.exe`，两者的 `INSTALLFOLDER` 都是 `Program Files\DeepSeek Balance Monitor`
+——两个 exe 得在同一目录里才能互相找到（主程序按 `widget_enabled` 拉起小工具，小工具按按钮
+拉起主程序）。它们各有各的 `UpgradeCode`、组件 GUID 与「应用和功能」条目，所以可以只装一个、
+只升级一个、只卸载一个；卸载其中一个不会带走另一个的文件（安装器只删自己装的那些）。
+
 ## 2.0 的发布命令
 
 ```bash
-git tag -a v2.0.0 -m "v2.0.0"
-git push origin v2.0.0
+git tag -a v2.1.0 -m "v2.1.0"
+git push origin v2.1.0
 ```
 
-两个工作流各自出包：Linux 为 `.deb`/`.rpm`（amd64 与 arm64 各一份），Windows 为 `.msi`
-（x64 与 arm64 各一份），并各带一份 SHA256 校验和。
+两个工作流各自出包，每个架构四个：
+
+| 平台 | 主程序 | 桌面小工具 |
+|---|---|---|
+| Linux | `deepseek-balance-monitor_<版本>_<amd64\|arm64>.deb` 与 `.rpm` | `deepseek-balance-monitor-widget_<版本>_<amd64\|arm64>.deb` 与 `.rpm` |
+| Windows | `deepseek-balance-monitor-<版本>-windows-<x64\|arm64>.msi` | `deepseek-balance-monitor-widget-<版本>-windows-<x64\|arm64>.msi` |
+
+小工具的版本号跟着主项目的 tag 走，但两者可以分开装、分开升级。每个架构各带一份 SHA256 校验和。

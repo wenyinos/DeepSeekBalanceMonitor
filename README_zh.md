@@ -1,4 +1,4 @@
-# DeepSeek 余额监控 2.0
+# DeepSeek 余额监控 2.1
 
 Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账户，以及其他它认识的平台。
 一个纯 Rust 应用、一份界面代码，两个平台共用。
@@ -16,6 +16,11 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
   尚未配置、数据库被重建。
 - **不打扰。** 关闭窗口是收进托盘，只有托盘的「退出」才结束进程；开机自启是一个勾选框；
   重复启动会唤出已在运行的窗口，而不是再开一个。
+- **还有一块桌面小工具。** 单独的可执行文件 `dsmon2-widget`：无边框、半透明、可置顶的竖排
+  卡片面板，挂在桌面上随时看。每个已配置的余额渠道一张卡（余额、消耗速率、曲线），每个订阅
+  一张卡（各额度窗口与重置倒计时），最下方一张额度活动热力图（全部订阅合计，或点标签看某一家）。
+  它**只从主程序取数**，自己不查 API、不读数据库、不碰密钥；主程序没在跑时会明确告诉您，并每
+  10 秒自动重连。
 
 ## 支持平台
 
@@ -47,6 +52,9 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
 | Linux | `.deb` / `.rpm`，amd64 与 arm64 |
 | Windows | MSI 安装包，x64 与 arm64 |
 
+主程序与**桌面小工具**各是一个包：可以只装主程序，也可以把小工具单独装上、单独升级。
+小工具装好后由托盘菜单「显示/隐藏桌面小工具」开关，也可以从开始菜单直接打开。
+
 包内已声明应用所需的依赖（XWayland、Vulkan、CJK 字体），正常安装会自动拉齐。
 
 ## 首次运行
@@ -60,11 +68,12 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
 
 | 内容 | Linux | Windows |
 |---|---|---|
-| 配置 | `~/.config/deepseek-balance-monitor/config.json` | `%APPDATA%\DeepSeek Balance Monitor\config.json` |
-| 历史与日志 | `~/.local/state/deepseek-balance-monitor/` | `%APPDATA%\DeepSeek Balance Monitor\` |
+| 配置 | `~/.config/dsmon2/config.json` | `%APPDATA%\dsmon2\config.json` |
+| 历史与日志 | `~/.local/state/dsmon2/` | `%APPDATA%\dsmon2\` |
 | 密钥 | `dsmon.db` 的 `secure_settings` 表，密钥文件在同一目录 | 同上 |
 
-设置页可以把 1.x 版本的密钥与历史导入进来。那个库只会被读取，所以两个版本可以同时使用。
+本版本用自己的目录（`dsmon2`），**绝不写入** 1.x 的 `~/.config/deepseek-balance-monitor`。
+设置页可以把 1.x 的密钥与历史导入进来，那个库只会被读取，所以两个版本可以同时使用。
 数据页还会显示数据库当前大小，并提供会压缩文件的手动清理（不是只删行）。
 
 ## 关于 XWayland
@@ -79,14 +88,15 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
 
 ```bash
 cargo test --workspace --locked
-cargo build --release -p dsmon-ui --bin dsmon2          # Linux：target/release/dsmon2
+cargo build --release -p dsmon-ui --bin dsmon2 --bin dsmon2-widget   # 主程序 + 桌面小工具
 cargo build --release -p dsmon-ui --bin dsmon2 --target aarch64-pc-windows-msvc
+cargo run -p dsmon-ui --example widget_preview          # 开发时直接开小工具（不走托盘）
 ```
 
 工具链为 stable。Linux 包在 Debian 12 容器里构建，以保持 glibc 2.36 基线：
 
 ```bash
-packaging/build-packages.sh 2.0.2 arm64 target/release/dsmon2 dist
+packaging/build-packages.sh 2.1.0 arm64 target/release/dsmon2 dist
 ```
 
-本版本的变化见 [CHANGELOG_zh.md](CHANGELOG_zh.md)。
+本版本的变化见 [CHANGELOG_zh.md](docs/CHANGELOG_zh.md)。

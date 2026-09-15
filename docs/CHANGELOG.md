@@ -2,6 +2,77 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.1.0 (2026-09-15)
+
+### Added: the desktop widget, `dsmon2-widget`
+
+- A program of its own: a frameless, translucent, always-on-top column of cards showing every
+  platform's balance and subscription quota. It **reads from the application only** — a read-only
+  interface on the loopback address, `127.0.0.1:18964` — and never calls a provider, opens the
+  database or touches a key. With the application not running it says so, reconnects every ten
+  seconds, and keeps the old readings on screen in grey
+- Three kinds of card: **one per configured balance provider** (balance, burn rate and curve; a
+  provider with no consumption history yet shows the balance and curve alone), one per
+  subscription (each quota window on two lines: `name …… reset 3h 56m 86%` over a progress bar),
+  and an **activity** card at the bottom (12 weeks × 7 days heat map, with tabs beside the title to
+  switch between "all" — the configured subscriptions added up by date, which is what it opens on —
+  and any single one; tabs use a one-word short name, with the full name on hover)
+- Six title-bar buttons: light/dark, four opacity steps (25 / 50 / 75 / 90, shown as how full a
+  circle is rather than as digits), keep-on-top (drawn in the accent colour while it is on),
+  refresh now (greyed out while disconnected or while a poll is in flight), open the application's
+  settings, close
+- The window: **its width is fixed** (stretching a column of cards buys nothing) and **its height
+  is dragged from the two bottom corners**; position and height are written back to the
+  configuration and restored on the next start. The title bar does not drag the window — a drag
+  area lying under the buttons swallows their clicks
+- **A tray entry of its own**: "show/hide desktop widget", "start the app", "quit", with a left
+  click toggling the panel
+- **An icon of its own** (the application's whale with an accent-coloured corner badge), shared by
+  the window and the tray; on X11 the window is a `Utility` and on Windows it is built with
+  `with_taskbar(false)`, so neither a task bar nor a window list shows it
+- Single-instance under names of its own (`…-widget` on D-Bus,
+  `Local\DeepSeekBalanceMonitorWidget` on Windows): starting it twice only raises the window that
+  is there, and neither program can mistake the other for itself
+- Bilingual and light/dark through the same strings and palette as the application: change either
+  on one side and the other follows within two seconds
+
+### Added: the application side
+
+- **A local read-only interface**: `GET /widget-status?days=1|7|30` and `GET /check` (which asks
+  for a poll and answers with the current snapshot straight away). Loopback only, no credentials
+  and no authentication; the contract is written down in `docs/INTERFACES.md`, which is all a
+  Python build has to follow — the widget itself needs no change
+- A tray entry, "Show desktop widget", whose tick is `widget_enabled`; the application starts the
+  widget with it at login, and the widget's own close button turns that setting back off
+- **One package per program**: a `.deb` and a `.rpm` for each on Linux, an `.msi` for each on
+  Windows. The two MSIs install into one directory (`Program Files\DeepSeek Balance Monitor`),
+  because the two executables have to be together to start each other — but they are separate
+  products, installed, upgraded and removed on their own
+
+### Changed
+
+- `config.json` is written atomically (temporary file, then rename). Two processes read and write
+  that file from this version on, and a half-written file would be taken for a corrupt one and
+  moved aside — which is how a user's settings would disappear
+- `widget_opacity` now has the four steps 0.25 / 0.50 / 0.75 / 0.90, replacing the two it had
+  (0.5 and 1.0, the top one not being opaque) in earlier builds
+
+### Fixed
+
+- The widget's six title-bar buttons work again. The whole title bar used to double as the window's
+  drag handle, and a drag area lying under the buttons takes the press for itself (the pointer
+  moves at all, the window manager takes it over), so all six did nothing — the window could still
+  be dragged, only the buttons were dead. Dragging now lives on three narrow bands along the left,
+  right and bottom edges, and the title bar senses nothing
+- Three things the contract asked for and the widget did not do (the serving side was complete all
+  along — these were on the consuming end): the payload `version` is checked, so an application
+  speaking a newer format shows a red strip ("the app is newer: update this widget") instead of
+  drawing whichever half parses; the refresh button shows a poll in flight and goes dead while the
+  application is away; and `widget_show_trend` is read at last — turning it off hides the curves
+- Two gaps in the widget's Windows tray: a missing `use std::sync::Arc` (the Windows half is only
+  compiled by CI, so this was found by reading), and a check for whether the shell really took the
+  icon — the library does not report a refused registration, so a line now goes to the log
+
 ## Rust v2.0.2 (2026-09-14)
 
 ### Fixed

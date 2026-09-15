@@ -1,6 +1,6 @@
 # 1.x → 2.0 差异与后续改进
 
-2.0 是纯 Rust 重写（见 `PLAN.md`），1.x 的文档里有不少内容描述的是已经删除的 Python/tkinter
+2.0 是纯 Rust 重写（重写计划 `PLAN.md` 在 2.0 落地后删除，只留在 git 历史里），1.x 的文档里有不少内容描述的是已经删除的 Python/tkinter
 实现。`CONTRIBUTING.md` 保持原样未动，本文件把差异与功能缺口单独列出，作为后续改进清单。
 
 - **本文只描述差异与待办，不改写 1.x 文档**；`CONTRIBUTING.md` 里仍然适用的知识见第二节。
@@ -13,7 +13,7 @@
 
 | 1.x 文档位置 | 原文描述 | 2.0 现状 |
 |---|---|---|
-| 抬头（3–5 行） | 「描述 v2.0.2 的 Python-Windows 运行时架构」 | 纯 Rust；版本号 2.0.0 |
+| 抬头（3–5 行） | 「描述 v2.0.2 的 Python-Windows 运行时架构」 | 纯 Rust；版本号 2.1.0 |
 | 抬头（5 行） | 「Python 与 Rust 双实现，改 API 客户端/忙时算法/告警逻辑必须同步检查两端」 | **该约定作废**：Python 实现与 `src/` 已整体删除，只剩一套 Rust |
 | 项目状态（7–9 行） | 15 平台、管理页设为首选、并行/单打双查询、双实现 | 14 个平台条目、无「首选」概念、无查询模式开关 |
 | 架构总览（11–47 行） | `src/**` 全树、`integrations/rainmeter_server.py`、`mac/`、`webview/`、依赖方向与循环依赖消解 | 目录已删。现在依赖是单向的：平台入口 → `dsmon-ui` → `dsmon-core`，结构上不可能成环 |
@@ -52,7 +52,8 @@
 
 ## 三、描述与新版行为不同（读 1.x 文档时要注意）
 
-1. **版本号**：1.x 文档写到 v2.0.2（Python 线末版），本分支是 **2.0.0**。
+1. **版本号**：1.x 文档写到 v2.0.2（Python 线末版），本分支是 **2.1.0**（新增桌面小工具，
+   详见 `WIDGET.md`）。
 2. **平台清单**：15 个（含 `command_code_goat`）→ **14 个**，没有 goat 条目；以
    `catalog.rs` 的 `PLATFORMS` 为准。
 3. **额度口径相反**：1.x 以 `percent_remaining` 为主、`usage_percent` 派生、剩余可 >100% 不
@@ -65,9 +66,13 @@
 6. **历史表结构**：1.x 是 `api_id` 列 + `balance_history`/`package_history`；2.0 是
    `platform` 列 + `balance_history`/`subscription_history`，订阅表存 `used/cap`。
 7. **托盘菜单**：1.x「⚡余额速览 / 看板 / API选择 / 立即查询 / 控制台 / 设置」→ 2.0
-   「查看余额 / 打开主窗口 / 立即查询 / 设置 / 退出」。
+   「查看余额 / 打开主窗口 / 立即查询 / 显示·隐藏桌面小工具 / 设置 / 退出」。
 8. **构建与验证**：rockylinux:8 + Rust 1.77.2 + glibc 2.28 → **debian:12 + stable + glibc 2.36**，
-   产物为 .deb/.rpm（依赖含 xwayland 与 CJK 字体）。
+   产物为 .deb/.rpm（依赖含 xwayland 与 CJK 字体），**主程序与小工具各一份**；Windows 侧同理，
+   各一个 MSI。
+9. **桌面小工具**：1.x 是 Rainmeter 皮肤（监听 `17654`，皮肤工程独立于程序）→ 2.0 是自带的第二个
+   可执行文件 `dsmon2-widget`（监听 `18964`，只读、只在本机）。两者端口不同，可以与 1.x 的皮肤
+   同时运行；接口契约见 `docs/INTERFACES.md`。
 
 ---
 

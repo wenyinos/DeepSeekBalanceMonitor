@@ -1,6 +1,5 @@
 build/
 dist/
-docs/
 __pycache__/
 *.pyc
 *.pyo
@@ -10,6 +9,9 @@ __pycache__/
 # IDE / tooling
 .claude/
 .workbuddy/
+
+# `docs/` is deliberately NOT ignored: it holds the design documents
+# (see docs/README.md). The 1.x ignore entry for it was build output.
 
 # Rust local build output and cache
 target/

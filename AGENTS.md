@@ -3,7 +3,8 @@
 跨平台 DeepSeek 余额监控（2.0，纯 Rust）。**权威项目细节见 `CLAUDE.md`**（架构、存储格式、
 平台集成矩阵、打包），本文件只列 agent 容易踩坑的高信号事实。
 
-1.x 文档与 2.0 的差异、以及尚未移植的功能，见 `GAPS.md`。
+设计文档都在 `docs/`（索引见 `docs/README.md`）：1.x 与 2.0 的差异见 `docs/GAPS.md`，
+Rust 与 Python 版应共同暴露的接口见 `docs/INTERFACES.md`。
 
 ## 命令与工具链
 
@@ -48,6 +49,22 @@
   于是数据库搬来了、密钥没搬来、库里所有密钥都解不开（2026-09-15 真机踩过）。真出事了不是没救：
   真密钥仍在旧目录 `~/.local/state/deepseek-balance-monitor/.secure_settings.key`（Windows
   `%APPDATA%\DeepSeek Balance Monitor\`），拷回新目录即可。
+- **egui 里不要让热区重叠**（2026-09-15 踩过两次）：① 小工具标题条整行曾是 `Sense::drag()`，
+  六个按钮叠在上面，结果**按钮集体失效**——按下只要被判成拖动，`ViewportCommand::StartDrag` 就把
+  指针交给窗口管理器，按钮再也收不到释放；拖动因此改到左/右/下三条 8pt 边带，标题条改
+  `Sense::hover()`。② 三条移动带把底边占满后，改高度的角热区落不到手，所以角要**后注册**
+  （egui 里后注册的更靠上、命中优先）。
+- **无边框窗口改尺寸只能自己发请求**：`with_resizable(true)` 不等于用户能改，X11 下没有可拖的
+  边框，必须 `ViewportCommand::BeginResize(方向)`。小工具的两个角用 `South`（只改高度）而不是
+  `SouthWest`/`SouthEast`——宽度是锁死的（`lock_width` 每帧把宽度拉回预设，它发的
+  `InnerSize` 里带着高度），对角方向会让窗口管理器同时改宽高，用户拖出来的高度又被写回去。
+- **平台代码有一半本地编不到**：小工具的 Windows 分支在 `#[cfg(windows)]` 里，本地只跑
+  `cargo fmt`——rustfmt 会解析 cfg 掉的模块，所以**语法**错误它能报，**类型/名称**错误报不出来
+  （`use std::sync::Arc` 少了这一句就是人工审读才发现的）。动了 Windows 分支就 push 一次让
+  `windows.yml` 编过再算数。
+- **Windows 的托盘注册要自己问**：图标库对 `Shell_NotifyIconW(NIM_ADD)` 失败不报错，所以
+  小工具的 `Tray::report()`（每帧、只在答案变化时写日志）用 `TrayIcon::rect()` 反查系统是否真的
+  持有图标——与主程序同一条教训，只是小工具不需要据此改变行为。
 - **托盘不在就不许藏窗口**：`Tray::is_registered()` 是唯一依据——登录启动若外壳还没接收
   图标，窗口会留在屏幕上（等 15 秒后放弃隐藏）。「程序在跑、屏幕上一个东西都没有」就是这么来的。
 - **API Key 永不写入 `config.json`**：按平台 key 加密存于 SQLite `secure_settings`。
@@ -63,4 +80,4 @@
 
 - tag `v*` → Linux（.deb/.rpm）与 Windows（签名 exe）两个 workflow 都发布；push/PR 只检查。
 - Linux 在 `debian:12` 容器构建（glibc 2.36 基线），包依赖含 `xwayland` 与 CJK 字体。
-- 签名细节见 `CODE_SIGNING.md`。
+- 签名细节见 `docs/CODE_SIGNING.md`。
