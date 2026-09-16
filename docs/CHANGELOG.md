@@ -2,22 +2,6 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
-## Unreleased
-
-### Fixed
-
-- **The first start after an upgrade no longer comes up without its keys.** Opening the database is a
-  look-then-do — read the columns, add the one that is missing — and an upgrade is when two
-  connections do it at once: the polling thread and the interface's own key lookup both add the
-  `window` column (one is told it is already there) and take the write lock from each other
-  (`database is locked`). The interface lost that race, so its lookup read no key at all and told
-  the user to configure one, while the keys had been in the database the whole time — a restart
-  found them. One connection at a time does the migrating now, and adding a column tolerates being
-  told it is already there
-- **A fresh installation can open its database again.** Adding the `window` column ran before the
-  table it belongs to was created, so a database that did not exist yet was answered `no such
-  table`. The tables are made first now, then the columns, then the indexes that name them
-
 ## Rust v2.1.2 (2026-09-16)
 
 ### Added (five capabilities the 1.x build had)
@@ -53,6 +37,17 @@ All notable changes to DeepSeek Balance Monitor are documented here.
   and monthly windows down to decimals, and both places that draw them printed `{:.0}%` — the
   refinement arrived and was rounded away, so `70.43` had been `70` all along.
   `history::format_percent` leaves whole numbers whole and gives a refined one its two decimals
+- **The first start after an upgrade no longer comes up without its keys.** Opening the database is a
+  look-then-do — read the columns, add the one that is missing — and an upgrade is when two
+  connections do it at once: the polling thread and the interface's own key lookup both add the
+  `window` column (one is told it is already there) and take the write lock from each other
+  (`database is locked`). The interface lost that race, so its lookup read no key at all and told
+  the user to configure one, while the keys had been in the database the whole time — a restart
+  found them. One connection at a time does the migrating now, and adding a column tolerates being
+  told it is already there
+- **A fresh installation can open its database again.** Adding the `window` column ran before the
+  table it belongs to was created, so a database that did not exist yet was answered `no such
+  table`. The tables are made first now, then the columns, then the indexes that name them
 
 ## Rust v2.1.1 (2026-09-15)
 
