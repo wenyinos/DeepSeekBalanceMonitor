@@ -14,7 +14,7 @@
 # binaries in one directory, which is all this script has to see:
 #
 #   cargo build --release -p dsmon-ui --bin dsmon2 --bin dsmon2-widget
-#   packaging/build-packages.sh 2.1.1 amd64 target/release/dsmon2 dist
+#   packaging/build-packages.sh 2.1.2 amd64 target/release/dsmon2 dist
 #
 # Needs `dpkg-deb` for the Debian package, `rpmbuild` for the RPM, and
 # ImageMagick to turn the application icon into the PNG sizes a desktop wants;

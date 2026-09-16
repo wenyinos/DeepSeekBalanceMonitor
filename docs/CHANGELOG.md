@@ -2,7 +2,7 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
-## Unreleased
+## Rust v2.1.2 (2026-09-16)
 
 ### Added (four capabilities the 1.x build had)
 
