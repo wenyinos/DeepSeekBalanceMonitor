@@ -140,6 +140,14 @@ jobs:
       - name: List them
         run: ls -l packages
 
+      # The version, read off the tag right here. The build job reads it too,
+      # but a step's output does not cross jobs: the first release written
+      # without this had an empty version in every link, and every one of them
+      # answered 404.
+      - name: Read the version off the tag
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       # The download table is written here and nowhere else: the Windows
       # workflow leaves the body alone, so the release reads the same whichever
       # of the two finishes first. It is written rather than appended, so
@@ -161,7 +169,7 @@ jobs:
 
             主程序与桌面小工具**各是一个包**：可以只装主程序，也可以两个都装、分别升级。
             每个架构另附 `checksums-*.txt`，可核对 SHA256。本版改了什么见
-            [CHANGELOG](https://github.com/wenyinos/DeepSeekBalanceMonitor/blob/main/docs/CHANGELOG_zh.md)。
+            [CHANGELOG](https://github.com/wenyinos/DeepSeekBalanceMonitor/blob/rust-2.x/docs/CHANGELOG_zh.md)。
 
             **Linux**（Debian / Ubuntu 用 `.deb`，Fedora 系用 `.rpm`）
 
