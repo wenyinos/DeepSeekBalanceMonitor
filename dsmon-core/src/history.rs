@@ -351,6 +351,20 @@ pub fn daily_usage(points: &[SubscriptionPoint]) -> Vec<DailyUsage> {
 ///
 /// When this month's billing date has not arrived yet, the cycle began last
 /// month.
+/// A quota percentage as the interface writes it.
+///
+/// Most windows arrive as whole percents and stay whole; OpenCode Go's coarse
+/// ones are refined into decimals from the money that was spent
+/// ([`refined_percent`]), and printing those as whole numbers would throw away
+/// exactly what the refinement is for.
+pub fn format_percent(value: f64) -> String {
+    if (value - value.round()).abs() < 0.005 {
+        format!("{value:.0}%")
+    } else {
+        format!("{value:.2}%")
+    }
+}
+
 /// Where between two whole percents a coarse window really is.
 ///
 /// The endpoint reports the weekly and monthly windows as whole percents, one
@@ -623,6 +637,17 @@ mod tests {
                 cap: 0.0,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_percent_keeps_decimals_only_when_it_has_some() {
+        assert_eq!(format_percent(86.0), "86%");
+        assert_eq!(format_percent(100.0), "100%");
+        assert_eq!(format_percent(0.0), "0%");
+
+        // What the refinement produces, and what the previous build showed.
+        assert_eq!(format_percent(70.428), "70.43%");
+        assert_eq!(format_percent(41.5), "41.50%");
     }
 
     #[test]

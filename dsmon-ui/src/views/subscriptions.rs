@@ -237,7 +237,7 @@ fn window_row(ui: &mut egui::Ui, palette: &Palette, label: &str, window: Option<
                         );
                     }
                     ui.label(
-                        RichText::new(format!("{percent:.0}%"))
+                        RichText::new(dsmon_core::history::format_percent(percent))
                             .color(palette.text_primary)
                             .size(12.0),
                     );

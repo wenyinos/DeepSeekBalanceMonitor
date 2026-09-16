@@ -212,7 +212,7 @@ pub fn subscription(ui: &mut egui::Ui, look: &Look<'_>, platform: &Platform) {
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
-                        RichText::new(format!("{:.0}%", window.usage_percent))
+                        RichText::new(dsmon_core::history::format_percent(window.usage_percent))
                             .font(FontId::new(
                                 13.0,
                                 egui::FontFamily::Name(DIGITS_FAMILY.into()),
