@@ -51,6 +51,25 @@ pub struct Snapshot {
     pub checking: bool,
     /// Whether the configured key selects the demo data set.
     pub demo: bool,
+    /// What DeepSeek has cost today, and in which currency — `None` when there
+    /// is nothing to compare, which is the case for a day holding a single
+    /// reading, for a balance that went up, and before the first poll.
+    pub today_spend: Option<(String, f64)>,
+}
+
+impl Snapshot {
+    /// Whether today's spending has passed the line the user set.
+    ///
+    /// A line of zero means the alert is off, and a day with nothing to
+    /// compare (`today_spend` is `None`) is never brisk.
+    pub fn spending_is_brisk(&self, config: &crate::config::AppConfig) -> bool {
+        if config.brisk_threshold_yuan <= 0.0 {
+            return false;
+        }
+        self.today_spend
+            .as_ref()
+            .is_some_and(|(_, spent)| *spent >= config.brisk_threshold_yuan)
+    }
 }
 
 /// Commands the interface sends to the polling thread.
@@ -210,6 +229,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
             guard.service_status = outcome.service_status;
             guard.consumption_rates = outcome.consumption_rates;
             guard.packages = outcome.packages;
+            guard.today_spend = today_spend();
             guard.last_error = None;
             guard.last_check = Some(Local::now());
         }
@@ -218,6 +238,25 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
             guard.last_check = Some(Local::now());
         }
     }
+}
+
+/// What today has cost the DeepSeek account: the first reading of the day
+/// against the last, in the currency they share.
+///
+/// The window is the same rolling day the history page calls "1d", so this
+/// figure and that page agree. A day holding one reading has nothing to
+/// compare, and a balance that went up (a top-up) is not spending: both say
+/// nothing rather than a confident zero.
+fn today_spend() -> Option<(String, f64)> {
+    let records = storage::history_records(storage::KEY_DEEPSEEK, 1, None, 2000).ok()?;
+    let first = records.first()?;
+    let last = records.last()?;
+    if first.currency != last.currency {
+        return None;
+    }
+
+    let spent = first.total - last.total;
+    (spent > 0.0).then(|| (last.currency.clone(), spent))
 }
 
 /// Refreshes the package plans' quotas alone.
@@ -443,5 +482,31 @@ mod tests {
         assert!(snapshot.last_check.is_none());
         assert!(!snapshot.checking);
         assert!(!snapshot.demo);
+    }
+
+    #[test]
+    fn brisk_spending_needs_a_line_and_a_figure() {
+        let mut config = AppConfig::default();
+        let mut snapshot = Snapshot {
+            today_spend: Some(("CNY".to_owned(), 12.0)),
+            ..Snapshot::default()
+        };
+
+        // It ships off: no line, no alert, whatever the day cost.
+        assert!(!snapshot.spending_is_brisk(&config));
+
+        config.brisk_threshold_yuan = 10.0;
+        assert!(
+            snapshot.spending_is_brisk(&config),
+            "12 spent against a line of 10"
+        );
+
+        config.brisk_threshold_yuan = 20.0;
+        assert!(!snapshot.spending_is_brisk(&config));
+
+        // A day with nothing to compare is never brisk, however low the line.
+        snapshot.today_spend = None;
+        config.brisk_threshold_yuan = 1.0;
+        assert!(!snapshot.spending_is_brisk(&config));
     }
 }

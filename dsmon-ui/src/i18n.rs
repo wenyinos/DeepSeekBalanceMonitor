@@ -198,6 +198,10 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "widget_tip_on_top") => "Keep on top",
             ("en", "widget_tip_settings") => "Open the app settings",
             ("en", "widget_tip_close") => "Close the widget",
+            ("en", "brisk_title") => "⚠ Spending is brisk today",
+            ("en", "brisk_body") => "Spent today",
+            ("en", "brisk_threshold_label") => "Daily spending alert line (0 = off)",
+            ("en", "brisk_threshold_hint") => "0",
             ("en", "widget_version_mismatch") => "The app is newer: update this widget",
             ("en", "widget_menu_show") => "Show desktop widget",
             ("en", "widget_menu_hide") => "Hide desktop widget",
@@ -367,6 +371,10 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "widget_tip_on_top") => "置顶显示",
             (_, "widget_tip_settings") => "打开主程序设置",
             (_, "widget_tip_close") => "关闭小工具",
+            (_, "brisk_title") => "⚠ 今日消耗偏快",
+            (_, "brisk_body") => "今日已消耗",
+            (_, "brisk_threshold_label") => "单日消耗提醒线值（0 = 关闭）",
+            (_, "brisk_threshold_hint") => "0",
             (_, "widget_version_mismatch") => "主程序版本过新，请升级小工具",
             (_, "widget_menu_show") => "显示桌面小工具",
             (_, "widget_menu_hide") => "隐藏桌面小工具",
@@ -454,7 +462,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 120] = [
+    const USED_KEYS: [&str; 124] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -550,6 +558,10 @@ mod tests {
         "widget_offline_hint",
         "widget_offline_stale",
         "widget_offline_title",
+        "brisk_body",
+        "brisk_threshold_hint",
+        "brisk_threshold_label",
+        "brisk_title",
         "widget_menu_hide",
         "widget_version_mismatch",
         "widget_menu_show",

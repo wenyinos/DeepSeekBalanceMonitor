@@ -79,6 +79,11 @@ pub struct AppConfig {
     pub alert_mode: String,
     #[serde(default = "default_api_alert_enabled")]
     pub api_alert_enabled: bool,
+    /// Spending in one day that is worth a notification, in the account's own
+    /// currency. Zero turns the alert off, which is how it ships: the line is
+    /// a figure each user has to pick for themselves.
+    #[serde(default)]
+    pub brisk_threshold_yuan: f64,
     #[serde(default = "default_retention_days")]
     pub retention_days: u64,
     #[serde(default)]
@@ -147,6 +152,7 @@ impl Default for AppConfig {
             auto_start: false,
             alert_mode: default_alert_mode(),
             api_alert_enabled: default_api_alert_enabled(),
+            brisk_threshold_yuan: 0.0,
             retention_days: default_retention_days(),
             export_path: String::new(),
             http_proxy: String::new(),
@@ -284,6 +290,11 @@ impl AppConfig {
             self.threshold_yuan = 0.0;
         }
         self.threshold_yuan = self.threshold_yuan.min(MAX_THRESHOLD_YUAN);
+
+        if !self.brisk_threshold_yuan.is_finite() || self.brisk_threshold_yuan < 0.0 {
+            self.brisk_threshold_yuan = 0.0;
+        }
+        self.brisk_threshold_yuan = self.brisk_threshold_yuan.min(MAX_THRESHOLD_YUAN);
         self.retention_days = self
             .retention_days
             .clamp(MIN_RETENTION_DAYS, MAX_RETENTION_DAYS);

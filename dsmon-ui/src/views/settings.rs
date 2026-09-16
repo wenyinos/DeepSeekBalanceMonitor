@@ -365,6 +365,16 @@ fn alerts_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
             &mut state.draft.api_alert_enabled,
             view.text("api_alert_label"),
         );
+
+        // The line for a day that is costing a lot. Zero is off, which is how
+        // it ships: only the user knows what "a lot" is for their account.
+        row(ui, palette, view.text("brisk_threshold_label"), |ui| {
+            ui.add(
+                egui::DragValue::new(&mut state.draft.brisk_threshold_yuan)
+                    .range(0.0..=MAX_THRESHOLD_YUAN)
+                    .speed(0.1),
+            );
+        });
     });
 }
 

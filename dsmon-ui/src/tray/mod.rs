@@ -122,8 +122,8 @@ fn reading(snapshot: &Snapshot) -> Option<(PlatformMeta, String, f64)> {
         })
 }
 
-/// Low balance first, then a degraded service, the order the previous build
-/// used.
+/// Low balance first, then a degraded service, then a day that is costing a
+/// lot — the order the previous build used.
 fn state_of(snapshot: &Snapshot, config: &AppConfig, total: f64) -> State {
     if total < config.threshold_yuan {
         State::Low
@@ -132,6 +132,8 @@ fn state_of(snapshot: &Snapshot, config: &AppConfig, total: f64) -> State {
         "maintenance" | "minor" | "major" | "critical"
     ) {
         State::Degraded
+    } else if snapshot.spending_is_brisk(config) {
+        State::Brisk
     } else {
         State::Ok
     }

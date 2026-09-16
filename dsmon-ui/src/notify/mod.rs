@@ -54,6 +54,9 @@ pub struct Watch {
     /// The reading the last judgement was passed on, so redrawing the window
     /// does not repeat a notification.
     judged: Option<DateTime<Local>>,
+    /// The day whose brisk spending has been reported, so a day is only said
+    /// once.
+    brisk_reported_on: Option<chrono::NaiveDate>,
 }
 
 impl Watch {
@@ -79,6 +82,9 @@ impl Watch {
         }
         if let Some(balance) = self.low_balance_message(snapshot, config, lang) {
             messages.push(balance);
+        }
+        if let Some(brisk) = self.brisk_message(snapshot, config, lang) {
+            messages.push(brisk);
         }
 
         messages
@@ -120,6 +126,42 @@ impl Watch {
                 title: tr(lang, "api_recovered_title").to_owned(),
                 body: tr(lang, "api_recovered_msg").to_owned(),
             }
+        })
+    }
+
+    /// A day whose spending passed the line, said once for that day.
+    ///
+    /// The memory is the date, so a new day speaks on its own; a day that never
+    /// crosses the line clears it, in case the line was lowered since.
+    fn brisk_message(
+        &mut self,
+        snapshot: &Snapshot,
+        config: &AppConfig,
+        lang: &str,
+    ) -> Option<Message> {
+        if !snapshot.spending_is_brisk(config) {
+            self.brisk_reported_on = None;
+            return None;
+        }
+
+        let (currency, spent) = snapshot.today_spend.as_ref()?;
+        let today = Local::now().date_naive();
+        if self.brisk_reported_on == Some(today) {
+            return None;
+        }
+        self.brisk_reported_on = Some(today);
+
+        Some(Message {
+            title: tr(lang, "brisk_title").to_owned(),
+            body: format!(
+                "{} {} {}, {} {} {}",
+                tr(lang, "brisk_body"),
+                format_amount(*spent),
+                currency,
+                tr(lang, "threshold"),
+                format_amount(config.brisk_threshold_yuan),
+                currency,
+            ),
         })
     }
 
@@ -556,5 +598,37 @@ mod tests {
             assert!(!recreated.title.is_empty() && !recreated.body.is_empty());
             assert_ne!(missing.title, recreated.title, "the two are distinct");
         }
+    }
+
+    #[test]
+    fn a_brisk_day_is_reported_once() {
+        let mut config = AppConfig::default();
+        config.brisk_threshold_yuan = 5.0;
+        let snapshot = Snapshot {
+            today_spend: Some(("CNY".to_owned(), 9.0)),
+            ..Snapshot::default()
+        };
+
+        let mut watch = Watch::default();
+        assert!(
+            watch.brisk_message(&snapshot, &config, "en").is_some(),
+            "the first judgement of the day speaks"
+        );
+        assert!(
+            watch.brisk_message(&snapshot, &config, "en").is_none(),
+            "and the same day does not speak twice"
+        );
+
+        // A day that never crossed the line clears the memory, so a line
+        // lowered afterwards can still speak.
+        let quiet = Snapshot {
+            today_spend: Some(("CNY".to_owned(), 1.0)),
+            ..Snapshot::default()
+        };
+        assert!(watch.brisk_message(&quiet, &config, "en").is_none());
+        assert!(
+            watch.brisk_message(&snapshot, &config, "en").is_some(),
+            "and then it can speak again"
+        );
     }
 }

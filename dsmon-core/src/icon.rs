@@ -280,6 +280,9 @@ fn label_scale(label: &str, size: u32) -> f32 {
 pub enum State {
     Ok,
     Low,
+    /// Today's spending passed the line the user set for it — the fifth state
+    /// the previous build had and this one did not.
+    Brisk,
     Degraded,
     NoData,
 }
@@ -309,6 +312,7 @@ impl IconTheme {
         let key = match state {
             State::Ok => "ok",
             State::Low => "low",
+            State::Brisk => "brisk",
             State::Degraded => "degraded",
             State::NoData => "nodata",
         };
@@ -327,34 +331,39 @@ impl IconTheme {
 
 /// The six presets, as `(ok, low, degraded, nodata)`.
 fn preset_color(style: &str, state: State) -> [u8; 3] {
-    let (ok, low, degraded, nodata) = match style {
+    let (ok, low, brisk, degraded, nodata) = match style {
         "contrast" => (
             [0x2d, 0x80, 0x74],
             [0xd4, 0x34, 0x2e],
+            [0xd4, 0x7a, 0x1e],
             [0x8b, 0x69, 0x14],
             [0x55, 0x55, 0x55],
         ),
         "bright" => (
             [0xc8, 0xeb, 0xe6],
             [0xf5, 0xd2, 0xcd],
+            [0xf5, 0xe2, 0xc8],
             [0xeb, 0xdc, 0xcd],
             [0xd7, 0xd7, 0xdc],
         ),
         "dark_mode" => (
             [0x50, 0x9b, 0x94],
             [0xd7, 0x64, 0x5a],
+            [0xc9, 0x93, 0x3f],
             [0x9b, 0x8c, 0x73],
             [0x7d, 0x7d, 0x82],
         ),
         "mono" => (
             [0x55, 0x55, 0x55],
             [0x22, 0x22, 0x22],
+            [0x3d, 0x3d, 0x3d],
             [0x77, 0x77, 0x77],
             [0x99, 0x99, 0x99],
         ),
         _ => (
             [0x3c, 0x69, 0x66],
             [0xb9, 0x46, 0x3c],
+            [0xb0, 0x7a, 0x35],
             [0x78, 0x69, 0x5a],
             [0x69, 0x69, 0x6e],
         ),
@@ -363,6 +372,7 @@ fn preset_color(style: &str, state: State) -> [u8; 3] {
     match state {
         State::Ok => ok,
         State::Low => low,
+        State::Brisk => brisk,
         State::Degraded => degraded,
         State::NoData => nodata,
     }
@@ -404,7 +414,13 @@ mod tests {
                 style: style.to_owned(),
                 custom: Default::default(),
             };
-            for state in [State::Ok, State::Low, State::Degraded, State::NoData] {
+            for state in [
+                State::Ok,
+                State::Low,
+                State::Brisk,
+                State::Degraded,
+                State::NoData,
+            ] {
                 let color = theme.state_color(state);
                 assert_ne!(color, [0, 0, 0], "{style} {state:?} should be defined");
             }
