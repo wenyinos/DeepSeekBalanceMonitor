@@ -47,7 +47,21 @@ pub const KEY_COMMAND_CODE: &str = "command_code";
 static DATABASE_RECREATED: AtomicBool = AtomicBool::new(false);
 
 /// Opens the history database, creating and migrating it as needed.
+///
+/// One connection at a time does the creating and the migrating. Both are
+/// look-then-do statements — read the columns, add the one that is missing —
+/// and two connections doing that at once collide twice over: both try to add
+/// the same column, so one is told it is already there, and one takes the
+/// write lock while the other holds it, which SQLite answers with "database is
+/// locked". An upgrade is exactly when both connections arrive together: the
+/// polling thread is started before the interface reads its keys, so on the
+/// first start after 2.1.2 the interface's own lookup lost that race, read no
+/// key at all, and asked the user to enter one. Every later call finds the
+/// schema in place and only reads.
 pub fn open_db() -> Result<Connection, String> {
+    static MIGRATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _in_turn = MIGRATION.lock().unwrap_or_else(|error| error.into_inner());
+
     paths::ensure_dir(&paths::state_dir()).map_err(|error| error.to_string())?;
     let path = paths::history_db_file();
     note_recreated_database(&path);
@@ -82,9 +96,6 @@ pub fn open_db() -> Result<Connection, String> {
         [],
     )
     .map_err(|error| error.to_string())?;
-    ensure_service_status_column(&conn)?;
-    ensure_platform_column(&conn)?;
-    ensure_window_column(&conn)?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS subscription_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +108,43 @@ pub fn open_db() -> Result<Connection, String> {
         [],
     )
     .map_err(|error| error.to_string())?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS secure_settings (
+            key TEXT PRIMARY KEY,
+            value BLOB NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+
+    // Every table above is made with the columns it carries now; these add the
+    // ones a database from an earlier build is missing. They come after the
+    // tables, and before the indexes: the `window` index names a column an
+    // older database does not have yet.
+    //
+    // Rows already present belong to DeepSeek, which was the only provider then.
+    add_column_if_missing(
+        &conn,
+        "balance_history",
+        "platform",
+        "platform TEXT NOT NULL DEFAULT 'deepseek'",
+    )?;
+    add_column_if_missing(
+        &conn,
+        "balance_history",
+        "service_status",
+        "service_status TEXT NOT NULL DEFAULT 'unknown'",
+    )?;
+    // Rows already present are monthly ones: that window was the only one this
+    // build recorded, so the default says exactly what they are.
+    add_column_if_missing(
+        &conn,
+        "subscription_history",
+        "window",
+        "window TEXT NOT NULL DEFAULT 'monthly'",
+    )?;
+
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_subscription_history_provider_timestamp
             ON subscription_history (provider, timestamp)",
@@ -111,85 +159,43 @@ pub fn open_db() -> Result<Connection, String> {
         [],
     )
     .map_err(|error| error.to_string())?;
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS secure_settings (
-            key TEXT PRIMARY KEY,
-            value BLOB NOT NULL,
-            updated_at TEXT NOT NULL
-        )",
-        [],
-    )
-    .map_err(|error| error.to_string())?;
 
     mark_initialized().map_err(|error| error.to_string())?;
     Ok(conn)
 }
 
-/// Adds the `platform` column to databases created before it existed. Rows
-/// already present belong to DeepSeek, which was the only provider then.
-fn ensure_platform_column(conn: &Connection) -> Result<(), String> {
-    let mut stmt = conn
-        .prepare("PRAGMA table_info(balance_history)")
-        .map_err(|error| error.to_string())?;
-    let columns = stmt
-        .query_map([], |row| row.get::<_, String>(1))
-        .map_err(|error| error.to_string())?;
-    for column in columns {
-        if column.map_err(|error| error.to_string())? == "platform" {
-            return Ok(());
-        }
-    }
-    conn.execute(
-        "ALTER TABLE balance_history ADD COLUMN platform TEXT NOT NULL DEFAULT 'deepseek'",
-        [],
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-/// Adds the `service_status` column to databases created before it existed.
-fn ensure_service_status_column(conn: &Connection) -> Result<(), String> {
-    let mut stmt = conn
-        .prepare("PRAGMA table_info(balance_history)")
-        .map_err(|error| error.to_string())?;
-    let columns = stmt
-        .query_map([], |row| row.get::<_, String>(1))
-        .map_err(|error| error.to_string())?;
-    for column in columns {
-        if column.map_err(|error| error.to_string())? == "service_status" {
-            return Ok(());
-        }
-    }
-    conn.execute(
-        "ALTER TABLE balance_history ADD COLUMN service_status TEXT NOT NULL DEFAULT 'unknown'",
-        [],
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-/// Adds the `window` column to databases created before it existed.
+/// Adds a column that databases made before it existed do not carry.
 ///
-/// Rows already present are monthly ones: that window was the only one this
-/// build recorded, so the default says exactly what they are.
-fn ensure_window_column(conn: &Connection) -> Result<(), String> {
-    let mut stmt = conn
-        .prepare("PRAGMA table_info(subscription_history)")
-        .map_err(|error| error.to_string())?;
-    let columns = stmt
-        .query_map([], |row| row.get::<_, String>(1))
-        .map_err(|error| error.to_string())?;
-    for column in columns {
-        if column.map_err(|error| error.to_string())? == "window" {
-            return Ok(());
+/// The look and the alter are two statements, so two connections can both find
+/// the column missing and both add it: one succeeds, the other is told the
+/// column is already there. That is the state the loser was after, so it is not
+/// an error here. The lock in [`open_db`] keeps this process's own connections
+/// from racing; another implementation sharing the database is what this is
+/// left for.
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), String> {
+    {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .map_err(|error| error.to_string())?;
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|error| error.to_string())?;
+        for existing in columns {
+            if existing.map_err(|error| error.to_string())? == column {
+                return Ok(());
+            }
         }
     }
-    conn.execute(
-        "ALTER TABLE subscription_history ADD COLUMN window TEXT NOT NULL DEFAULT 'monthly'",
-        [],
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(())
+    match conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {definition}"), []) {
+        Ok(_) => Ok(()),
+        Err(error) if error.to_string().contains("duplicate column name") => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 /// Flags a database that disappeared while its marker file survived.
@@ -989,5 +995,98 @@ mod tests {
         assert!(keep_log_line("[2026-01-02 12:00:00] later", cutoff));
         assert!(keep_log_line("[2026-01-01 23:59:59] earlier", cutoff) == false);
         assert!(keep_log_line("no timestamp here", cutoff));
+    }
+
+    /// Opening the database works on the real path, and every test in this
+    /// process shares one scratch directory: the two below take turns.
+    fn migrating_in_turn() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// Starts from no database at all, whatever another test left behind.
+    fn remove_history_database() {
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", paths::history_db_file().display()));
+        }
+    }
+
+    fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
+        conn.prepare(&format!("PRAGMA table_info({table})"))
+            .expect("the table is there")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("the columns list")
+            .filter_map(Result::ok)
+            .any(|name| name == column)
+    }
+
+    /// Opening a database that does not exist yet must not alter a table that
+    /// is not there. The `window` migration ran before the table it belongs to
+    /// was created, so a fresh installation could not open its own database.
+    #[test]
+    fn opens_a_database_that_does_not_exist_yet() {
+        let _in_turn = migrating_in_turn();
+        crate::test_support::state_in_a_scratch_directory();
+        remove_history_database();
+
+        let conn = open_db().expect("a fresh database opens");
+        assert!(
+            has_column(&conn, "subscription_history", "window"),
+            "the table is made with the column the migrations add"
+        );
+    }
+
+    /// The look-then-alter is two statements, so two connections can both find
+    /// the column missing and both add it. Being told it is already there is
+    /// the state the loser of that race wanted, not a failure: on the first
+    /// start after the 2.1.2 upgrade the interface's own key lookup lost
+    /// exactly that race, read no key at all, and asked for one.
+    #[test]
+    fn two_connections_migrating_at_once_both_succeed() {
+        let _in_turn = migrating_in_turn();
+        crate::test_support::state_in_a_scratch_directory();
+        remove_history_database();
+
+        // A database from before these columns existed.
+        paths::ensure_dir(&paths::state_dir()).expect("the state directory");
+        let old = Connection::open(paths::history_db_file()).expect("an older database");
+        old.execute_batch(
+            "CREATE TABLE balance_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                total REAL NOT NULL,
+                topped REAL NOT NULL,
+                granted REAL NOT NULL
+            );
+            CREATE TABLE subscription_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                used REAL NOT NULL,
+                cap REAL NOT NULL
+            );",
+        )
+        .expect("the schema of an earlier build");
+        drop(old);
+
+        // Both go at once, the way the polling thread and the interface do.
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    open_db().map(|_| ())
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle
+                .join()
+                .expect("the thread finishes")
+                .expect("both connections migrate the same database");
+        }
     }
 }

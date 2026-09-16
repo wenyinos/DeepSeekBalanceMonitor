@@ -70,6 +70,15 @@ Rust 与 Python 版应共同暴露的接口见 `docs/INTERFACES.md`。
 - **API Key 永不写入 `config.json`**：按平台 key 加密存于 SQLite `secure_settings`。
   1.x 的 `balance_history.db` 只读，本版用 `dsmon.db`，两者互不影响。
 - **数据库删除不等于缩小文件**：只有 `wal_checkpoint + VACUUM`（设置页的手动清理）才回收空间。
+- **迁移只许一个连接做**：`storage::open_db()` 的建表与补列是「看了再改」，两个连接同时做会撞
+  两次——同一列加两遍（第二个被告知已存在，错误文本是 `duplicate column name`），以及写锁互抢
+  （`database is locked`）。**升级后的第一次启动正好是两边一起到**：轮询线程先起，界面的密钥
+  查询紧跟其后。2.1.2 上界面那次抢输了，于是一个密钥都没读到、弹「尚未配置」并跳到设置页——
+  而密钥一直在库里、能被解开（2026-09-16 真机踩过，重启即好）。现在 `open_db()` 用一把进程内锁
+  把整段串起来，补列另外容忍 `duplicate column name`（`docs/INTERFACES.md` 允许另一个实现共用
+  同一个库，那种情况下这把锁护不住对面）。**补列必须在建表之后、建索引之前**：`subscription_history`
+  的 `window` 列由迁移补上，而 `idx_subscription_history_window` 引用它——补早了表还不存在
+  （`no such table`，全新安装直接开不了库），补晚了索引建不起来。
 - **文案**：全部在 `dsmon-ui/src/i18n.rs`，中英都要加；`every_key_the_interface_uses_is_answered`
   测试会检查界面用到的每个键。
 - 清理测试实例时按路径锚定匹配（`pkill -f '^\./target/debug/dsmon2'`），不要用 `pkill -x`：
