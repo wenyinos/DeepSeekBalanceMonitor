@@ -174,6 +174,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "widget_title") => "Token Usage",
             ("en", "widget_title_short") => "Token Usage",
             ("en", "widget_reset_label") => "Reset",
+            ("en", "widget_today_spend") => "Spent today",
             ("en", "widget_provider_note") => "Not reported by API",
             ("en", "widget_activity") => "Activity",
             ("en", "widget_tab_all") => "All",
@@ -352,6 +353,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "widget_title") => "token 用量",
             (_, "widget_title_short") => "token 用量",
             (_, "widget_reset_label") => "重置",
+            (_, "widget_today_spend") => "今日消耗",
             (_, "widget_provider_note") => "该平台不提供此窗口",
             (_, "widget_activity") => "额度活动",
             (_, "widget_tab_all") => "全部",
@@ -472,7 +474,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 129] = [
+    const USED_KEYS: [&str; 130] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -586,6 +588,7 @@ mod tests {
         "widget_retry",
         "widget_retry_every",
         "widget_source",
+        "widget_today_spend",
         "widget_start_app",
         "widget_tab_all",
         "widget_tab_daily",

@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use dsmon_core::platforms::format_reset_seconds;
-use dsmon_core::widget_api::{Day, Platform};
+use dsmon_core::widget_api::{Day, Platform, Spend};
 use egui::{Color32, CornerRadius, FontId, RichText};
 
 use crate::fonts::DIGITS_FAMILY;
@@ -75,6 +75,7 @@ pub fn balance_card(
     platform: &Platform,
     range: u64,
     with_range: bool,
+    spend: Option<&Spend>,
 ) -> Option<Action> {
     let mut action = None;
 
@@ -116,6 +117,31 @@ pub fn balance_card(
                 );
                 ui.label(
                     RichText::new(&balance.currency)
+                        .size(10.5)
+                        .color(look.palette.text_secondary),
+                );
+            });
+            ui.add_space(1.0);
+        }
+
+        // What the day has cost so far, under the balance it is eating into.
+        if let Some(spend) = spend {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(tr(look.lang, "widget_today_spend"))
+                        .size(10.5)
+                        .color(look.palette.text_secondary),
+                );
+                ui.label(
+                    RichText::new(format_amount(spend.amount))
+                        .font(FontId::new(
+                            13.0,
+                            egui::FontFamily::Name(DIGITS_FAMILY.into()),
+                        ))
+                        .color(look.palette.text_primary),
+                );
+                ui.label(
+                    RichText::new(&spend.currency)
                         .size(10.5)
                         .color(look.palette.text_secondary),
                 );

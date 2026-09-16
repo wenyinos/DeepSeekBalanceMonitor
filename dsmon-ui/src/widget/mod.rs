@@ -820,10 +820,17 @@ impl Widget {
                 } else {
                     // One card per configured balance provider. The curve range
                     // is shared, so only the first card carries its button.
+                    let spend = payload.today_spend.as_ref();
                     let mut first = true;
                     for platform in payload.platforms.iter().filter(|p| p.kind == "payg") {
-                        if let Some(chosen) = cards::balance_card(ui, look, platform, range, first)
-                        {
+                        if let Some(chosen) = cards::balance_card(
+                            ui,
+                            look,
+                            platform,
+                            range,
+                            first,
+                            spend.filter(|spend| spend.platform == platform.key),
+                        ) {
                             action = Some(chosen);
                         }
                         first = false;

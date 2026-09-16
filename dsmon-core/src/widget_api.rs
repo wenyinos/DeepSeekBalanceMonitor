@@ -76,7 +76,23 @@ pub struct Payload {
     pub last_check_at: Option<String>,
     /// How long ago that was, in seconds.
     pub last_check_sec: Option<i64>,
+    /// What today has cost so far, when there is anything to compare.
+    pub today_spend: Option<Spend>,
     pub platforms: Vec<Platform>,
+}
+
+/// What one account has spent today, for the card that shows it.
+///
+/// Only the balance providers have a figure: it is the day's first reading
+/// against its last, which is what the application works out for its own
+/// alerts as well.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Spend {
+    /// The platform the figure belongs to.
+    pub platform: String,
+    pub currency: String,
+    pub amount: f64,
 }
 
 /// Who is answering.
@@ -178,6 +194,14 @@ pub fn payload(snapshot: &crate::monitor::Snapshot, config: &AppConfig, days: u6
         last_check_sec: snapshot
             .last_check
             .map(|checked| (Local::now() - checked).num_seconds().max(0)),
+        today_spend: snapshot
+            .today_spend
+            .as_ref()
+            .map(|(currency, amount)| Spend {
+                platform: storage::KEY_DEEPSEEK.to_owned(),
+                currency: currency.clone(),
+                amount: *amount,
+            }),
         platforms,
     }
 }
@@ -627,6 +651,7 @@ mod tests {
             },
         );
         snapshot.balances.insert("deepseek".to_owned(), balances);
+        snapshot.today_spend = Some(("CNY".to_owned(), 12.5));
 
         let config = AppConfig::default();
         let payload = payload(&snapshot, &config, 7);
@@ -635,6 +660,13 @@ mod tests {
         assert_eq!(payload.provider.name, "dsmon2");
         assert!(payload.checking);
         assert_eq!(payload.lang, config.ui_language);
+
+        // What the day has cost so far, and whose day it is: the widget shows
+        // it on that platform's card and no other.
+        let spend = payload.today_spend.as_ref().expect("the day's spending");
+        assert_eq!(spend.platform, "deepseek");
+        assert_eq!(spend.currency, "CNY");
+        assert_eq!(spend.amount, 12.5);
 
         // No key is stored in this scratch directory, so the widget is told
         // about no platform at all — the same rule the sidebar follows.

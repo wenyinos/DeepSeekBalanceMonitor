@@ -49,6 +49,7 @@
   "service_status": "none",
   "last_check_at": "2026-09-15 10:42:00",
   "last_check_sec": 42,
+  "today_spend": { "platform": "deepseek", "currency": "CNY", "amount": 12.5 },
   "platforms": [
     {
       "key": "deepseek", "display": "DeepSeek", "kind": "payg",
@@ -73,6 +74,7 @@
 | `service_status` | 字符串 | 服务状态指示，取值见 §7.4 |
 | `last_check_at` | 字符串｜null | 上次成功查询的时刻，**已格式化**（`%Y-%m-%d %H:%M:%S`）；客户端直接显示，不需要日期库 |
 | `last_check_sec` | 整数｜null | 距上次成功查询的秒数，供客户端判断数据新鲜度 |
+| `today_spend` | 对象｜null | 某个余额平台**今天已经花掉的金额**：`platform`（哪个平台）、`currency`、`amount`。算法是「当日第一条读数 − 最后一条」（与历史页的 `1d` 同一个滚动窗口），余额上升（充值）或当天只有一条读数时为 `null`——**没有可比的东西就不报数**，不拿 0 冒充。客户端应把它显示在**对应平台**的卡片上 |
 | `platforms[].key` | 字符串 | 平台标识，与 §2 的密钥名、§3 的 `platform` 列**同一个值** |
 | `platforms[].display` | 字符串 | 展示名（专有名词，不翻译） |
 | `platforms[].kind` | 字符串 | `payg`（余额）或 `package`（额度窗口），同 `catalog::Mode` |
