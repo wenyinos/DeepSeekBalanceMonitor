@@ -23,9 +23,10 @@ both platforms.
   window of the one already running instead of starting another.
 - **A desktop widget as well.** A separate executable, `dsmon2-widget`: a frameless, translucent,
   always-on-top column of cards that sits on the desktop. One card per configured balance provider
-  (balance, burn rate, curve), one per subscription (each quota window with its reset countdown),
-  and a heat map of the last twelve weeks at the bottom — every subscription added up, or any
-  single one from its tabs. It **reads from the application only**: no API calls, no database and
+  (balance, today's spending, burn rate, curve), one per subscription (each quota window with its
+  reset countdown), and a heat map of the last twelve weeks at the bottom — every subscription
+  added up, or any single one from its tabs. The bottom corners drag the height, so a long column
+  fits; the width stays put. It **reads from the application only**: no API calls, no database and
   no keys of its own, and it says so plainly while the application is not running, reconnecting
   every ten seconds.
 

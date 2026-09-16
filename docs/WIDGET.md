@@ -196,9 +196,10 @@ egui/eframe 能把窗口做成 ARGB 透明（`.with_transparent(true)` + `App::c
   "checking": false,
   "service_status": "none",
   "last_check_sec": 42,
+  "today_spend": { "platform": "deepseek", "currency": "CNY", "amount": 12.5 },
   "platforms": [{
     "key": "command_code", "display": "Command Code", "kind": "package",
-    "balances": [{ "currency": "CNY", "total": 12.34 }],
+    "balances": [{ "currency": "CNY", "total_balance": 12.34 }],
     "rate": { "hourly_rate": 0.42, "busy_hours_left": 291.5, "currency": "CNY" },
     "windows": [
       { "name_key": "window_5h",     "usage_percent": 12.0, "reset_in_sec": 7200 },
@@ -221,6 +222,8 @@ egui/eframe 能把窗口做成 ARGB 透明（`.with_transparent(true)` + `App::c
   轮询背上 ~90KB 的载荷，而绘图根本用不到那么多点）。
 - `daily` 只给热力图用的数字（`history::daily_usage` 的结果），**按平台各来一份**；热力图要的
   「全部订阅合计」由客户端把几份按日期相加（§4.4），服务端不另算一份。
+- `today_spend` 是**当日已花金额**（当日首末余额之差，花掉才为正，否则为 `null`），口径与主程序
+  自己的「单日消耗过快」提醒是同一个数；小工具只把它显示在余额卡上（§4.2），不参与判定。
 - `lang` 是主程序当前语言，**给小工具之外的消费者参考**（例如第三方客户端）；小工具自己从
   `config.json` 读语言，不依赖这个字段（§4.8）。
 

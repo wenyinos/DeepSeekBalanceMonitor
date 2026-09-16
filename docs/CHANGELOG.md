@@ -2,24 +2,13 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
-## Unreleased
+## Rust v2.1.2 (2026-09-16)
 
-### Added
+### Added (five capabilities the 1.x build had)
 
 - **The widget shows what the day has cost** (the other half of 4.5): the balance card carries a line
   under the balance with today's spending, which arrives over the contract's `today_spend` field
   (platform, currency, amount). The application's own alert reads the same figure
-
-### Fixed
-
-- **A refined percentage is shown as one.** `history::refined_percent` computes OpenCode Go's weekly
-  and monthly windows down to decimals, and both places that draw them printed `{:.0}%` — the
-  refinement arrived and was rounded away, so `70.43` had been `70` all along.
-  `history::format_percent` leaves whole numbers whole and gives a refined one its two decimals
-
-## Rust v2.1.2 (2026-09-16)
-
-### Added (four capabilities the 1.x build had)
 
 - **An alert for a day that is costing a lot** (4.5): when the day's DeepSeek spending passes a line
   the user sets (0 = off, and it ships off), the tray icon turns orange and says so once for that
@@ -44,6 +33,10 @@ All notable changes to DeepSeek Balance Monitor are documented here.
 - The history table gains a `window` column (older databases get it added, defaulting to `monthly`,
   which is what every existing row is): the five-hour and weekly windows are recorded now, which is
   what the refinement reads
+- **A refined percentage is shown as one.** `history::refined_percent` computes OpenCode Go's weekly
+  and monthly windows down to decimals, and both places that draw them printed `{:.0}%` — the
+  refinement arrived and was rounded away, so `70.43` had been `70` all along.
+  `history::format_percent` leaves whole numbers whole and gives a refined one its two decimals
 
 ## Rust v2.1.1 (2026-09-15)
 
