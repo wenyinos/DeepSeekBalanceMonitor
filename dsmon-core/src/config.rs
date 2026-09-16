@@ -84,6 +84,9 @@ pub struct AppConfig {
     /// a figure each user has to pick for themselves.
     #[serde(default)]
     pub brisk_threshold_yuan: f64,
+    /// Whether DeepSeek's off-peak discount starting and ending is announced.
+    #[serde(default = "default_true")]
+    pub peak_alert_enabled: bool,
     #[serde(default = "default_retention_days")]
     pub retention_days: u64,
     #[serde(default)]
@@ -153,6 +156,7 @@ impl Default for AppConfig {
             alert_mode: default_alert_mode(),
             api_alert_enabled: default_api_alert_enabled(),
             brisk_threshold_yuan: 0.0,
+            peak_alert_enabled: true,
             retention_days: default_retention_days(),
             export_path: String::new(),
             http_proxy: String::new(),

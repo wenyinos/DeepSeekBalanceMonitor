@@ -198,6 +198,11 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "widget_tip_on_top") => "Keep on top",
             ("en", "widget_tip_settings") => "Open the app settings",
             ("en", "widget_tip_close") => "Close the widget",
+            ("en", "off_peak_title") => "🌙 Off-peak rates start",
+            ("en", "off_peak_body") => "DeepSeek has entered its off-peak window.",
+            ("en", "peak_title") => "☀ Peak rates start",
+            ("en", "peak_body") => "DeepSeek has entered its peak hours.",
+            ("en", "peak_alert_label") => "Off-peak changes",
             ("en", "brisk_title") => "⚠ Spending is brisk today",
             ("en", "brisk_body") => "Spent today",
             ("en", "brisk_threshold_label") => "Daily spending alert line (0 = off)",
@@ -371,6 +376,11 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "widget_tip_on_top") => "置顶显示",
             (_, "widget_tip_settings") => "打开主程序设置",
             (_, "widget_tip_close") => "关闭小工具",
+            (_, "off_peak_title") => "🌙 谷时优惠开始",
+            (_, "off_peak_body") => "DeepSeek 已进入谷时计费时段。",
+            (_, "peak_title") => "☀ 峰时时段开始",
+            (_, "peak_body") => "DeepSeek 已进入峰时计费时段。",
+            (_, "peak_alert_label") => "峰谷切换提醒",
             (_, "brisk_title") => "⚠ 今日消耗偏快",
             (_, "brisk_body") => "今日已消耗",
             (_, "brisk_threshold_label") => "单日消耗提醒线值（0 = 关闭）",
@@ -462,7 +472,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 124] = [
+    const USED_KEYS: [&str; 129] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -559,6 +569,11 @@ mod tests {
         "widget_offline_stale",
         "widget_offline_title",
         "brisk_body",
+        "off_peak_body",
+        "off_peak_title",
+        "peak_alert_label",
+        "peak_body",
+        "peak_title",
         "brisk_threshold_hint",
         "brisk_threshold_label",
         "brisk_title",

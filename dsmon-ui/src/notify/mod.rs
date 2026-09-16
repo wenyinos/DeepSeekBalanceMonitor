@@ -57,6 +57,9 @@ pub struct Watch {
     /// The day whose brisk spending has been reported, so a day is only said
     /// once.
     brisk_reported_on: Option<chrono::NaiveDate>,
+    /// Whether the off-peak discount was in force at the last judgement, so a
+    /// phase change is noticed once and only once.
+    off_peak: Option<bool>,
 }
 
 impl Watch {
@@ -85,6 +88,9 @@ impl Watch {
         }
         if let Some(brisk) = self.brisk_message(snapshot, config, lang) {
             messages.push(brisk);
+        }
+        if let Some(peak) = self.peak_message(config, lang) {
+            messages.push(peak);
         }
 
         messages
@@ -125,6 +131,36 @@ impl Watch {
             Message {
                 title: tr(lang, "api_recovered_title").to_owned(),
                 body: tr(lang, "api_recovered_msg").to_owned(),
+            }
+        })
+    }
+
+    /// DeepSeek's off-peak discount starting or ending, said once each way.
+    ///
+    /// The previous build tied this to its "preferred platform" being DeepSeek;
+    /// there is no preferred platform here, so it speaks whenever the discount
+    /// changes phase — which is a fact about the vendor's clock, not about any
+    /// account.
+    fn peak_message(&mut self, config: &AppConfig, lang: &str) -> Option<Message> {
+        if !config.peak_alert_enabled {
+            return None;
+        }
+
+        let off_peak = dsmon_core::time::is_off_peak();
+        let previous = self.off_peak.replace(off_peak)?;
+        if previous == off_peak {
+            return None;
+        }
+
+        Some(if off_peak {
+            Message {
+                title: tr(lang, "off_peak_title").to_owned(),
+                body: tr(lang, "off_peak_body").to_owned(),
+            }
+        } else {
+            Message {
+                title: tr(lang, "peak_title").to_owned(),
+                body: tr(lang, "peak_body").to_owned(),
             }
         })
     }

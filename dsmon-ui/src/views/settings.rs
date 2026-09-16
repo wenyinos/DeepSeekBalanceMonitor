@@ -366,6 +366,11 @@ fn alerts_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
             view.text("api_alert_label"),
         );
 
+        ui.checkbox(
+            &mut state.draft.peak_alert_enabled,
+            view.text("peak_alert_label"),
+        );
+
         // The line for a day that is costing a lot. Zero is off, which is how
         // it ships: only the user knows what "a lot" is for their account.
         row(ui, palette, view.text("brisk_threshold_label"), |ui| {
