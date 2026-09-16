@@ -162,15 +162,22 @@
 
 ```sql
 balance_history(id, platform, timestamp, currency, total, topped, granted, service_status)
-subscription_history(id, timestamp, provider, used, cap)
+subscription_history(id, timestamp, provider, used, cap, window)
 secure_settings(key PRIMARY KEY, value BLOB, updated_at)
 -- 索引：balance_history(timestamp)、balance_history(currency, timestamp)、
---       subscription_history(provider, timestamp)
+--       subscription_history(provider, timestamp)、
+--       subscription_history(provider, window, timestamp)
 ```
 
 - `timestamp` 一律 `%Y-%m-%d %H:%M:%S`（本地时间，与 1.x 一致）。
 - 同一平台 **120 秒**内的重复读数跳过（去重窗口），时间戳相同的写入视为重复。
 - `platform` / `provider` 列的值就是 §7.1 的 `key`。
+- `window` 是 `5h` / `weekly` / `monthly`：一个套餐有多个窗口，历史要分得开。**没有 `window` 列的老库
+  自动补一列**（`ALTER TABLE … ADD COLUMN window TEXT NOT NULL DEFAULT 'monthly'`），已存在的行按定义
+  都是月度——那时只记月度。
+- **窗口的"池"金额是跨实现的事实**：OpenCode Go 的 5h/weekly/monthly 分别是 **$12 / $30 / $60**。
+  端点的周/月只有整数百分比，5h 却是金额；用「本步内花掉的金额 ÷ (池 ÷ 100)」就能把粗百分比细化到
+  小数（`history::refined_percent`）。另一个实现要显示同样的数字，就得用同样的池。
 - **`DELETE` 不会缩小文件**：只有 `PRAGMA wal_checkpoint(TRUNCATE); VACUUM;`（设置页的手动清理）才回收空间。
 
 密钥与密文格式：

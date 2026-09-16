@@ -2,6 +2,34 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Unreleased
+
+### Added (four capabilities the 1.x build had)
+
+- **An alert for a day that is costing a lot** (4.5): when the day's DeepSeek spending passes a line
+  the user sets (0 = off, and it ships off), the tray icon turns orange and says so once for that
+  day. The line sits on the settings page beside the low-balance one; the icon gains a fifth state
+  across every preset
+- **The off-peak discount changing phase is announced** (4.4), once each way, against Beijing time
+  (09:00–12:00 and 14:00–18:00 on weekdays are peak; the lunch break and the weekend are not). On by
+  default, switchable
+- **OpenCode Go's coarse windows are refined** (4.1): the endpoint gives weekly and monthly as whole
+  percents and five-hourly as money, and the pools are known ($12 / $30 / $60) — so the money spent
+  inside the current percent says where between two whole percents the truth is. The previous
+  build's headline reading
+- **MiniMax asks again when the answer was cut off** (4.2): the host drops a connection now and then
+  (`UNEXPECTED_EOF`), and a second attempt a moment later answers. Three tries, a second apart, and
+  a key the host rejects is not asked about again
+
+### Fixed
+
+- **DeepSeek's status page could not report a fault.** The address read here carried only
+  FlashDuty's own `Open API` component, so every reading said "operational". The same system's
+  `status.deepseek.com` carries DeepSeek's real components in the HTML
+- The history table gains a `window` column (older databases get it added, defaulting to `monthly`,
+  which is what every existing row is): the five-hour and weekly windows are recorded now, which is
+  what the refinement reads
+
 ## Rust v2.1.1 (2026-09-15)
 
 ### Added
