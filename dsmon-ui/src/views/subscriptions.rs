@@ -55,8 +55,8 @@ impl State {
     pub fn reload(&mut self) {
         self.history = plans()
             .map(|meta| {
-                let points =
-                    storage::subscription_usage_history(meta.key, HISTORY_DAYS).unwrap_or_default();
+                let points = storage::subscription_usage_history(meta.key, "monthly", HISTORY_DAYS)
+                    .unwrap_or_default();
                 (meta.key.to_owned(), points)
             })
             .collect();

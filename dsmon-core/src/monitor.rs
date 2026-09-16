@@ -222,8 +222,12 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
     guard.checking = false;
 
     match result {
-        Ok(outcome) => {
+        Ok(mut outcome) => {
+            // Recorded before anything is refined: the history has to hold what
+            // the endpoint actually said, or the next refinement would compare
+            // a refined figure against a refined one and drift.
             record_subscription_usage(&outcome.packages);
+            refine_coarse_windows(&mut outcome.packages);
             guard.balances = outcome.balances;
             guard.balance_errors = outcome.balance_errors;
             guard.service_status = outcome.service_status;
@@ -414,15 +418,58 @@ fn record_subscription_usage(
         let Subscription::Loaded(quota) = subscription else {
             continue;
         };
-        let Some(monthly) = quota.get("monthly") else {
+        // Every window a plan reports, not just the monthly one: the five-hour
+        // window reports money rather than percent, and that money is what
+        // refines the coarse weekly and monthly figures (`history::refined`).
+        for window in ["monthly", "weekly", "5h"] {
+            let Some(entry) = quota.get(window) else {
+                continue;
+            };
+            let (used, cap) = entry.as_recorded_usage();
+            if let Err(error) = storage::save_subscription_usage(platform, window, used, cap) {
+                let _ = storage::log_line(&format!(
+                    "usage history write failed for {platform} {window}: {error}"
+                ));
+            }
+        }
+    }
+}
+
+/// Refines OpenCode Go's coarse windows with the money its five-hour window
+/// reports.
+///
+/// It is the one plan this can be done for: it reports a five-hour window in
+/// money next to whole-percent weekly and monthly ones, and its pools are known
+/// ($30 a week, $60 a month from the previous build's experiments). A plan
+/// without that five-hour window is left exactly as the endpoint reported it.
+fn refine_coarse_windows(
+    packages: &mut std::collections::BTreeMap<String, Subscription<PackageQuota>>,
+) {
+    use crate::storage::PROVIDER_OPENCODE_GO;
+
+    let Ok(spent) = storage::subscription_usage_history(PROVIDER_OPENCODE_GO, "5h", 30) else {
+        return;
+    };
+
+    let Some(Subscription::Loaded(quota)) = packages.get_mut(PROVIDER_OPENCODE_GO) else {
+        return;
+    };
+
+    for (window, pool) in [("weekly", 30.0), ("monthly", 60.0)] {
+        let Ok(coarse) = storage::subscription_usage_history(PROVIDER_OPENCODE_GO, window, 30)
+        else {
+            continue;
+        };
+        let Some(refined) = history::refined_percent(&coarse, &spent, pool) else {
             continue;
         };
 
-        let (used, cap) = monthly.as_recorded_usage();
-        if let Err(error) = storage::save_subscription_usage(platform, used, cap) {
-            let _ = storage::log_line(&format!(
-                "usage history write failed for {platform}: {error}"
-            ));
+        if let Some(entry) = quota.get(window) {
+            let reset_in_sec = entry.reset_in_sec;
+            quota.insert(
+                window.to_owned(),
+                crate::model::QuotaWindow::from_percent(refined, reset_in_sec),
+            );
         }
     }
 }

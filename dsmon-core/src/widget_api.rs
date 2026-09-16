@@ -280,7 +280,7 @@ fn thinned(points: Vec<Point>) -> Vec<Point> {
 
 /// Per-day consumption, as the heat map draws it.
 fn activity(platform: &str) -> Vec<Day> {
-    let points = match storage::subscription_usage_history(platform, HEATMAP_DAYS) {
+    let points = match storage::subscription_usage_history(platform, "monthly", HEATMAP_DAYS) {
         Ok(points) => points,
         Err(_) => return Vec::new(),
     };

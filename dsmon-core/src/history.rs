@@ -351,6 +351,55 @@ pub fn daily_usage(points: &[SubscriptionPoint]) -> Vec<DailyUsage> {
 ///
 /// When this month's billing date has not arrived yet, the cycle began last
 /// month.
+/// Where between two whole percents a coarse window really is.
+///
+/// The endpoint reports the weekly and monthly windows as whole percents, one
+/// step at a time, and the five-hour window as money. A pool is a known amount
+/// ($12 per five hours, $30 a week, $60 a month), so one percent of it is worth
+/// a fixed sum, and the money spent since the whole percent last moved says how
+/// far into the current step the truth has travelled — which is what the
+/// previous build showed, and what this one left out.
+///
+/// Strictly causal: only money actually recorded moves the figure, and only
+/// forward (a refund does not unspend it). A stretch with nothing recorded
+/// keeps the coarse value, however much time passes, and a step is never
+/// refined past its own width — when the spending fills it, the next poll's
+/// whole percent says so.
+pub fn refined_percent(
+    coarse_points: &[SubscriptionPoint],
+    spent_points: &[SubscriptionPoint],
+    pool: f64,
+) -> Option<f64> {
+    let current = coarse_points.last()?.used;
+    if pool <= 0.0 {
+        return Some(current);
+    }
+
+    // Where the current whole percent began: the first reading that already
+    // showed it, after one that showed something else.
+    let step_start = coarse_points
+        .windows(2)
+        .rev()
+        .find(|pair| (pair[0].used - current).abs() > 0.000_001)
+        .map(|pair| pair[1].timestamp.as_str())
+        .unwrap_or(coarse_points[0].timestamp.as_str());
+
+    // The money spent since then, added up interval by interval. Timestamps
+    // are the stored `YYYY-MM-DD HH:MM:SS`, so the comparison is a string one
+    // on purpose: in that format it orders the same as time does.
+    let spent: f64 = spent_points
+        .iter()
+        .filter(|point| point.timestamp.as_str() >= step_start)
+        .fold((None::<f64>, 0.0), |(previous, total), point| {
+            let step = previous.map_or(0.0, |value| (point.used - value).max(0.0));
+            (Some(point.used), total + step)
+        })
+        .1;
+
+    let per_percent = pool / 100.0;
+    Some(current + (spent / per_percent).clamp(0.0, 1.0))
+}
+
 pub fn cycle_start(today: NaiveDate, billing_day: u8) -> NaiveDate {
     let day = u32::from(billing_day.clamp(1, crate::config::MAX_BILLING_DAY));
     match date_in_month(today.year(), today.month(), day) {
@@ -561,5 +610,62 @@ mod tests {
         );
         assert!(lines.next().unwrap().contains("\"C,N\""));
         assert!(csv.ends_with('\n'));
+    }
+
+    /// Points at the given values, one minute apart, in the stored format.
+    fn points(values: &[f64]) -> Vec<SubscriptionPoint> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, used)| SubscriptionPoint {
+                timestamp: format!("2026-09-16 10:{index:02}:00"),
+                used: *used,
+                cap: 0.0,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn spending_inside_the_current_step_refines_it() {
+        // The weekly window sits at 41% from 10:02 on; $0.15 has been spent
+        // since, and a percent of the $30 pool is $0.30 — half a percent.
+        let coarse = points(&[40.0, 40.0, 41.0, 41.0, 41.0]);
+        let spent = points(&[0.0, 1.0, 1.2, 1.35, 1.35]);
+
+        let refined = refined_percent(&coarse, &spent, 30.0).expect("a figure");
+        assert!((refined - 41.5).abs() < 0.000_001, "{refined}");
+    }
+
+    #[test]
+    fn nothing_spent_keeps_the_coarse_figure() {
+        let coarse = points(&[40.0, 41.0, 41.0]);
+        let spent = points(&[0.5, 0.5, 0.5]);
+
+        assert_eq!(refined_percent(&coarse, &spent, 30.0), Some(41.0));
+    }
+
+    #[test]
+    fn a_step_is_never_refined_past_its_own_width() {
+        // $30 spent would be a hundred percents; the next poll's whole percent
+        // is what says so, not this.
+        let coarse = points(&[40.0, 41.0, 41.0]);
+        let spent = points(&[0.0, 0.0, 30.0]);
+
+        assert_eq!(refined_percent(&coarse, &spent, 30.0), Some(42.0));
+    }
+
+    #[test]
+    fn a_month_is_refined_with_its_own_pool() {
+        // The monthly pool is $60, so a percent is $0.60.
+        let coarse = points(&[70.0, 70.0]);
+        let spent = points(&[0.0, 0.30]);
+
+        let refined = refined_percent(&coarse, &spent, 60.0).expect("a figure");
+        assert!((refined - 70.5).abs() < 0.000_001, "{refined}");
+    }
+
+    #[test]
+    fn a_window_with_no_history_has_no_figure() {
+        assert_eq!(refined_percent(&[], &[], 30.0), None);
     }
 }

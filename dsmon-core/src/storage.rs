@@ -84,13 +84,15 @@ pub fn open_db() -> Result<Connection, String> {
     .map_err(|error| error.to_string())?;
     ensure_service_status_column(&conn)?;
     ensure_platform_column(&conn)?;
+    ensure_window_column(&conn)?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS subscription_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
             provider TEXT NOT NULL,
             used REAL NOT NULL,
-            cap REAL NOT NULL
+            cap REAL NOT NULL,
+            window TEXT NOT NULL DEFAULT 'monthly'
         )",
         [],
     )
@@ -98,6 +100,14 @@ pub fn open_db() -> Result<Connection, String> {
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_subscription_history_provider_timestamp
             ON subscription_history (provider, timestamp)",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    // The window is part of what a query asks for now, so the index that
+    // answers it carries the window too.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_subscription_history_window
+            ON subscription_history (provider, window, timestamp)",
         [],
     )
     .map_err(|error| error.to_string())?;
@@ -152,6 +162,30 @@ fn ensure_service_status_column(conn: &Connection) -> Result<(), String> {
     }
     conn.execute(
         "ALTER TABLE balance_history ADD COLUMN service_status TEXT NOT NULL DEFAULT 'unknown'",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Adds the `window` column to databases created before it existed.
+///
+/// Rows already present are monthly ones: that window was the only one this
+/// build recorded, so the default says exactly what they are.
+fn ensure_window_column(conn: &Connection) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(subscription_history)")
+        .map_err(|error| error.to_string())?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?;
+    for column in columns {
+        if column.map_err(|error| error.to_string())? == "window" {
+            return Ok(());
+        }
+    }
+    conn.execute(
+        "ALTER TABLE subscription_history ADD COLUMN window TEXT NOT NULL DEFAULT 'monthly'",
         [],
     )
     .map_err(|error| error.to_string())?;
@@ -417,9 +451,14 @@ fn collect(
 }
 
 /// Appends a monthly-allowance reading taken now.
-pub fn save_subscription_usage(provider: &str, used: f64, cap: f64) -> Result<(), String> {
+pub fn save_subscription_usage(
+    provider: &str,
+    window: &str,
+    used: f64,
+    cap: f64,
+) -> Result<(), String> {
     let timestamp = time::now();
-    save_subscription_usage_at(provider, used, cap, &timestamp)
+    save_subscription_usage_at(provider, window, used, cap, &timestamp)
 }
 
 /// Appends a reading with an explicit timestamp.
@@ -429,6 +468,7 @@ pub fn save_subscription_usage(provider: &str, used: f64, cap: f64) -> Result<()
 /// idle allowance does not fill the table.
 pub fn save_subscription_usage_at(
     provider: &str,
+    window: &str,
     used: f64,
     cap: f64,
     timestamp: &str,
@@ -442,12 +482,13 @@ pub fn save_subscription_usage_at(
             "SELECT EXISTS(
                 SELECT 1 FROM subscription_history
                 WHERE provider = ?1
-                  AND timestamp >= ?2
-                  AND ABS(used - ?3) < 0.000001
-                  AND ABS(cap - ?4) < 0.000001
+                  AND window = ?2
+                  AND timestamp >= ?3
+                  AND ABS(used - ?4) < 0.000001
+                  AND ABS(cap - ?5) < 0.000001
                 LIMIT 1
             )",
-            params![provider, &cutoff, used, cap],
+            params![provider, window, &cutoff, used, cap],
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
@@ -456,8 +497,9 @@ pub fn save_subscription_usage_at(
     }
 
     conn.execute(
-        "INSERT INTO subscription_history (timestamp, provider, used, cap) VALUES (?1, ?2, ?3, ?4)",
-        params![&timestamp, provider, used, cap],
+        "INSERT INTO subscription_history (timestamp, provider, used, cap, window)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![&timestamp, provider, used, cap, window],
     )
     .map_err(|error| error.to_string())?;
     Ok(())
@@ -466,6 +508,7 @@ pub fn save_subscription_usage_at(
 /// Readings for one provider within `days`, oldest first.
 pub fn subscription_usage_history(
     provider: &str,
+    window: &str,
     days: u64,
 ) -> Result<Vec<SubscriptionPoint>, String> {
     let conn = open_db()?;
@@ -473,12 +516,12 @@ pub fn subscription_usage_history(
     let mut stmt = conn
         .prepare(
             "SELECT timestamp, used, cap FROM subscription_history
-             WHERE provider = ?1 AND timestamp >= ?2
+             WHERE provider = ?1 AND window = ?2 AND timestamp >= ?3
              ORDER BY timestamp ASC",
         )
         .map_err(|error| error.to_string())?;
     let rows = stmt
-        .query_map(params![provider, cutoff], |row| {
+        .query_map(params![provider, window, cutoff], |row| {
             Ok(SubscriptionPoint {
                 timestamp: row.get(0)?,
                 used: row.get(1)?,
