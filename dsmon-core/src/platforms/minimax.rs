@@ -16,6 +16,15 @@ const HOST_GLOBAL: &str = "https://www.minimax.io";
 const TOKEN_PATH: &str = "/v1/token_plan/remains";
 const CODING_PATH: &str = "/v1/api/openplatform/coding_plan/remains";
 
+/// How many times the host is asked before the failure is reported.
+///
+/// It drops a connection now and then — the previous build's logs are full of
+/// `UNEXPECTED_EOF` — and the next attempt a second later answers normally.
+/// Three tries cost two seconds in the worst case, against a poll interval
+/// measured in minutes.
+const ATTEMPTS: u32 = 3;
+const RETRY_PAUSE: Duration = Duration::from_secs(1);
+
 /// The window of a plan that reports its usage as what is left.
 #[derive(Debug, Default, serde::Deserialize)]
 struct ApiRemains {
@@ -53,10 +62,39 @@ pub fn fetch_quota(
     };
 
     let client = http_client(Duration::from_secs(10), http_proxy)?;
+
+    let mut last = String::new();
+    for attempt in 1..=ATTEMPTS {
+        match ask(&client, host, path, api_key) {
+            Ok(quota) => return Ok(quota),
+            Err(error) => {
+                let again = attempt < ATTEMPTS && worth_another_try(&error);
+                last = error;
+                if !again {
+                    break;
+                }
+                std::thread::sleep(RETRY_PAUSE);
+            }
+        }
+    }
+    Err(last)
+}
+
+/// One request, from the connection to the two windows.
+fn ask(
+    client: &reqwest::blocking::Client,
+    host: &str,
+    path: &str,
+    api_key: &str,
+) -> Result<PackageQuota, String> {
     let response = client
         .get(format!("{host}{path}"))
         .header("Accept", "application/json")
         .header("Authorization", format!("Bearer {}", api_key.trim()))
+        // The host is known to end a kept-alive connection without saying so,
+        // which is what the retry above is for; not reusing one is the cheaper
+        // half of the same fix.
+        .header("Connection", "close")
         .send()
         .map_err(|error| format!("MiniMax request failed: {error}"))?;
 
@@ -76,6 +114,18 @@ pub fn fetch_quota(
         .map_err(|error| format!("MiniMax JSON parse failed: {error}"))?;
 
     read_quota(&body, Local::now().timestamp())
+}
+
+/// Whether asking again could plausibly answer differently.
+///
+/// A dropped connection, a truncated body or a server-side hiccup answers
+/// differently on the second try. A key the host rejects will be rejected every
+/// time, and two seconds of waiting would only delay the message the user needs
+/// to see.
+fn worth_another_try(error: &str) -> bool {
+    ![" 401 ", " 403 ", " 404 "]
+        .iter()
+        .any(|status| error.contains(status))
 }
 
 /// Turns a response body into the two windows, or says why it cannot.
@@ -161,6 +211,26 @@ mod tests {
         });
         let quota = read_quota(&without_general, 0).expect("the body parses");
         assert_eq!(quota["5h"].usage_percent, 90.0, "the first entry is used");
+    }
+
+    #[test]
+    fn a_rejected_key_is_not_asked_about_again() {
+        assert!(worth_another_try(
+            "MiniMax request failed: connection closed before message completed"
+        ));
+        assert!(worth_another_try(
+            "MiniMax API error 500 Internal Server Error: "
+        ));
+        assert!(worth_another_try(
+            "MiniMax JSON parse failed: EOF while parsing"
+        ));
+
+        // A key the host rejects will be rejected on the second try too, and
+        // the two seconds of waiting would only delay the message.
+        assert!(!worth_another_try(
+            "MiniMax API error 401 Unauthorized: invalid api key"
+        ));
+        assert!(!worth_another_try("MiniMax API error 403 Forbidden: "));
     }
 
     #[test]

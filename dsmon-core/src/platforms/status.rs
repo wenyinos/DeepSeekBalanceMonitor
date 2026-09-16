@@ -1,10 +1,20 @@
 //! DeepSeek service health, read from the public status page.
+//!
+//! The page is served by FlashDuty either way, but the two addresses do not
+//! answer the same thing. `status.flashcat.cloud/deepseek` hands the browser an
+//! application shell and fetches the components afterwards; what its HTML holds
+//! is FlashDuty's own `Open API` component, so reading it made every reading
+//! `operational` — a status page that could never report a fault. The vendor's
+//! own address, `status.deepseek.com`, carries the components in the HTML:
+//! `DeepSeek V4.1 Flash API服务(API Service)`, `DeepSeek V4 Pro API服务(API
+//! Service)`, the chat and search services, each with its status. (Found
+//! 2026-09-15, after the older address had been reporting "none" for a while.)
 
 use std::time::Duration;
 
 use super::http_client;
 
-const STATUS_URL: &str = "https://status.flashcat.cloud/deepseek";
+const STATUS_URL: &str = "https://status.deepseek.com";
 
 /// Fetches and normalises the status of the API component.
 ///
@@ -131,6 +141,23 @@ mod tests {
 
         let escaped = html.replace("\"", "\\\"");
         assert_eq!(parse_component_status(&escaped), "minor");
+    }
+
+    /// The names the page really carries: two API components, and two more that
+    /// are not APIs — one of which (`Chatservice`) contains the letters by
+    /// accident, and one of which is a good deal worse than the APIs are.
+    #[test]
+    fn reads_the_components_the_deepseek_page_carries() {
+        let html = r#"{"components":[
+            {"name":"对话服务(Chat Service)","status":"partial_outage"},
+            {"name":"DeepSeek V4.1 Flash API服务(API Service)","status":"operational"},
+            {"name":"DeepSeek V4 Pro API服务(API Service)","status":"degraded"},
+            {"name":"搜索服务(Search Service)","status":"operational"}
+        ]}"#;
+        assert_eq!(parse_component_status(html), "minor");
+
+        let healthy = html.replace("\"degraded\"", "\"operational\"");
+        assert_eq!(parse_component_status(&healthy), "none");
     }
 
     #[test]
