@@ -42,13 +42,14 @@
 ```json
 {
   "version": 2,
-  "provider": { "name": "dsmon2", "version": "2.1.1" },
+  "provider": { "name": "dsmon2", "version": "2.1.2" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,
   "service_status": "none",
   "last_check_at": "2026-09-15 10:42:00",
   "last_check_sec": 42,
+  "today_spend": { "platform": "deepseek", "currency": "CNY", "amount": 12.5 },
   "platforms": [
     {
       "key": "deepseek", "display": "DeepSeek", "kind": "payg",
@@ -73,6 +74,7 @@
 | `service_status` | 字符串 | 服务状态指示，取值见 §7.4 |
 | `last_check_at` | 字符串｜null | 上次成功查询的时刻，**已格式化**（`%Y-%m-%d %H:%M:%S`）；客户端直接显示，不需要日期库 |
 | `last_check_sec` | 整数｜null | 距上次成功查询的秒数，供客户端判断数据新鲜度 |
+| `today_spend` | 对象｜null | 某个余额平台**今天已经花掉的金额**：`platform`（哪个平台）、`currency`、`amount`。算法是「当日第一条读数 − 最后一条」（与历史页的 `1d` 同一个滚动窗口），余额上升（充值）或当天只有一条读数时为 `null`——**没有可比的东西就不报数**，不拿 0 冒充。客户端应把它显示在**对应平台**的卡片上 |
 | `platforms[].key` | 字符串 | 平台标识，与 §2 的密钥名、§3 的 `platform` 列**同一个值** |
 | `platforms[].display` | 字符串 | 展示名（专有名词，不翻译） |
 | `platforms[].kind` | 字符串 | `payg`（余额）或 `package`（额度窗口），同 `catalog::Mode` |
@@ -162,15 +164,22 @@
 
 ```sql
 balance_history(id, platform, timestamp, currency, total, topped, granted, service_status)
-subscription_history(id, timestamp, provider, used, cap)
+subscription_history(id, timestamp, provider, used, cap, window)
 secure_settings(key PRIMARY KEY, value BLOB, updated_at)
 -- 索引：balance_history(timestamp)、balance_history(currency, timestamp)、
---       subscription_history(provider, timestamp)
+--       subscription_history(provider, timestamp)、
+--       subscription_history(provider, window, timestamp)
 ```
 
 - `timestamp` 一律 `%Y-%m-%d %H:%M:%S`（本地时间，与 1.x 一致）。
 - 同一平台 **120 秒**内的重复读数跳过（去重窗口），时间戳相同的写入视为重复。
 - `platform` / `provider` 列的值就是 §7.1 的 `key`。
+- `window` 是 `5h` / `weekly` / `monthly`：一个套餐有多个窗口，历史要分得开。**没有 `window` 列的老库
+  自动补一列**（`ALTER TABLE … ADD COLUMN window TEXT NOT NULL DEFAULT 'monthly'`），已存在的行按定义
+  都是月度——那时只记月度。
+- **窗口的"池"金额是跨实现的事实**：OpenCode Go 的 5h/weekly/monthly 分别是 **$12 / $30 / $60**。
+  端点的周/月只有整数百分比，5h 却是金额；用「本步内花掉的金额 ÷ (池 ÷ 100)」就能把粗百分比细化到
+  小数（`history::refined_percent`）。另一个实现要显示同样的数字，就得用同样的池。
 - **`DELETE` 不会缩小文件**：只有 `PRAGMA wal_checkpoint(TRUNCATE); VACUUM;`（设置页的手动清理）才回收空间。
 
 密钥与密文格式：
