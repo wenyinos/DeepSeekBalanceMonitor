@@ -9,7 +9,6 @@ on:
   push:
     branches:
       - main
-      - rust-gui
     tags:
       - "v[0-9]*"
   pull_request:
