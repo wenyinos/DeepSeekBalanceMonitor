@@ -97,7 +97,6 @@ jobs:
           name: v${{ steps.package_version.outputs.version }}
           files: ${{ steps.rmskin.outputs.asset }}
           generate_release_notes: true
-          # 1.x 与 2.x 并行维护：1.x 发布只补资产，Latest 留给 2.x。
-          # 仅在本仓库生效（两条线都在这里发布）；上游仓库保持默认，发布行为不变。
-          make_latest: "${{ github.repository == 'wenyinos/DeepSeekBalanceMonitor' && 'false' || 'true' }}"
+          # 1.x 与 2.x 并行维护：发布只补资产，Latest 留给 2.x。
+          make_latest: false
           overwrite_files: true
