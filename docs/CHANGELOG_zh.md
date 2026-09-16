@@ -21,8 +21,10 @@
 ### 修复
 
 - **DeepSeek 的服务状态此前读不到真数据**：`status.flashcat.cloud/deepseek` 的 HTML 里只有 FlashDuty
-  自己的 `Open API` 组件，状态恒为「正常」，报不出故障。改用厂商自己的 `status.deepseek.com`
-  ——同一个 FlashDuty 系统，但组件写在 HTML 里
+  自己的 `Open API` 组件，状态恒为「正常」，报不出故障。现在读厂商自己的 `status.deepseek.com`
+  ——同一个 FlashDuty 系统，但读它的 **RSS 事件流**：页面本身是 Next.js 外壳，HTML 里带的是**历史**
+  事件的组件快照（每个组件出现几十次、状态各不相同），照它取最严重会把早已解决的故障报成正在发生；
+  RSS 直接给出最新事件的状态
 - 历史表新增 `window` 列（老库自动补，已存在的行都是月度），5h 与周窗口从此也进历史——精化需要它
 - **精化的百分比现在真的显示出来**：`history::refined_percent` 把 OpenCode Go 的周/月从整数百分比
   细化到小数，而两处绘制都用 `{:.0}%` 打印，小数被就地抹掉——1.x 显示的 `70.43` 在这里一直是 `70`。

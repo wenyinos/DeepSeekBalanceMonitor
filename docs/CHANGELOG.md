@@ -28,8 +28,11 @@ All notable changes to DeepSeek Balance Monitor are documented here.
 ### Fixed
 
 - **DeepSeek's status page could not report a fault.** The address read here carried only
-  FlashDuty's own `Open API` component, so every reading said "operational". The same system's
-  `status.deepseek.com` carries DeepSeek's real components in the HTML
+  FlashDuty's own `Open API` component, so every reading said "operational". `status.deepseek.com`
+  is read now — the same FlashDuty system, and its **RSS feed**: the page is a Next.js shell whose
+  HTML carries the component snapshots of *past* events (each component appears dozens of times,
+  with a different status each time), and reading the worst of those reports a fault that was
+  resolved days ago as one happening now. The feed states the status of the newest event
 - The history table gains a `window` column (older databases get it added, defaulting to `monthly`,
   which is what every existing row is): the five-hour and weekly windows are recorded now, which is
   what the refinement reads
