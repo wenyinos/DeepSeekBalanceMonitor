@@ -244,6 +244,12 @@ fn check_for_update(
 }
 
 /// Performs one poll and publishes the result.
+///
+/// Everything that touches the database happens before the snapshot is taken:
+/// the lock is held only for the assignments. Holding it across SQLite work
+/// makes every reader wait on it — the interface's own frame, and the widget's
+/// request, which reads history to build its answer — and a busy database is
+/// allowed to take seconds before it gives up.
 fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) {
     set_checking(snapshot, true);
 
@@ -254,33 +260,35 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
     }
 
     let result = gather(config);
-    let mut guard = match snapshot.lock() {
-        Ok(guard) => guard,
-        Err(_) => return,
+    let published = result.map(|mut outcome| {
+        // Recorded before anything is refined: the history has to hold what
+        // the endpoint actually said, or the next refinement would compare
+        // a refined figure against a refined one and drift.
+        record_subscription_usage(&outcome.packages);
+        refine_coarse_windows(&mut outcome.packages);
+        let window_rates = package_rates(&outcome.packages);
+        let today_spend = today_spend();
+        (outcome, window_rates, today_spend)
+    });
+
+    let Ok(mut guard) = snapshot.lock() else {
+        return;
     };
     guard.checking = false;
+    guard.last_check = Some(Local::now());
 
-    match result {
-        Ok(mut outcome) => {
-            // Recorded before anything is refined: the history has to hold what
-            // the endpoint actually said, or the next refinement would compare
-            // a refined figure against a refined one and drift.
-            record_subscription_usage(&outcome.packages);
-            refine_coarse_windows(&mut outcome.packages);
-            guard.window_rates = package_rates(&outcome.packages);
+    match published {
+        Ok((outcome, window_rates, today_spend)) => {
             guard.balances = outcome.balances;
             guard.balance_errors = outcome.balance_errors;
             guard.service_status = outcome.service_status;
             guard.consumption_rates = outcome.consumption_rates;
             guard.packages = outcome.packages;
-            guard.today_spend = today_spend();
+            guard.window_rates = window_rates;
+            guard.today_spend = today_spend;
             guard.last_error = None;
-            guard.last_check = Some(Local::now());
         }
-        Err(error) => {
-            guard.last_error = Some(error);
-            guard.last_check = Some(Local::now());
-        }
+        Err(error) => guard.last_error = Some(error),
     }
 }
 

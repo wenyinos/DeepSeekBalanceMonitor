@@ -32,6 +32,12 @@ All notable changes to DeepSeek Balance Monitor are documented here.
 
 ### Fixed
 
+- **The interface and the widget no longer wait on the database.** A poll wrote and read its history
+  while holding the snapshot lock, so the interface's next frame — and the widget's request, whose
+  answer is built from that same history — could be made to wait on SQLite. The lock is now held only
+  for the assignments. It surfaced as a failing release build: the suite's widget test answers from the
+  shared test database, and with the tests running in parallel a five-second SQLite busy timeout
+  outlived its own three-second read timeout; the tests that touch that database take turns now too
 - **The status page's reading never reached the interface.** The feed sits behind an edge that resets
   any handshake whose *first* key exchange group is not the post-quantum hybrid `X25519MLKEM768`: a
   plain `X25519` hello is answered with a reset before the server says anything, and so is one that

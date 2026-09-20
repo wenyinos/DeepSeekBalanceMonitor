@@ -9,7 +9,7 @@
 //! needs, since the move out of the earlier build's directory skips a file that
 //! is already in place.
 
-use std::sync::Once;
+use std::sync::{MutexGuard, Once};
 
 /// Points the state and configuration directories at a scratch directory, once
 /// per test process.
@@ -40,6 +40,25 @@ pub fn state_in_a_scratch_directory() {
             let _ = std::fs::create_dir_all(&directory);
         }
     });
+}
+
+/// The lock every test that touches the database takes, for its whole body.
+///
+/// The scratch directory is one directory for the whole process, so the
+/// database in it is one database: a test that deletes and rebuilds it — the
+/// two migration tests do — races with every test that reads or writes it, and
+/// a write lock held by one test makes another wait, which is 5 seconds of
+/// SQLite busy timeout inside a request the interface answers from the same
+/// file. `cargo test` runs tests in parallel, so this is not a rare corner: it
+/// failed a release build on 2026-09-20, on the widget's socket test (a 3
+/// second read timeout against a database another test was holding) and on the
+/// migration test (a database rebuilt under it).
+///
+/// Anything a locked test spawns — the polling thread of a started monitor —
+/// runs inside that test's critical section, so it is covered too.
+pub fn database_in_turn() -> MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 #[cfg(test)]

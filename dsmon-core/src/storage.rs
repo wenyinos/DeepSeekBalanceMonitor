@@ -997,13 +997,6 @@ mod tests {
         assert!(keep_log_line("no timestamp here", cutoff));
     }
 
-    /// Opening the database works on the real path, and every test in this
-    /// process shares one scratch directory: the two below take turns.
-    fn migrating_in_turn() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(|error| error.into_inner())
-    }
-
     /// Starts from no database at all, whatever another test left behind.
     fn remove_history_database() {
         for suffix in ["", "-wal", "-shm"] {
@@ -1025,7 +1018,7 @@ mod tests {
     /// was created, so a fresh installation could not open its own database.
     #[test]
     fn opens_a_database_that_does_not_exist_yet() {
-        let _in_turn = migrating_in_turn();
+        let _in_turn = crate::test_support::database_in_turn();
         crate::test_support::state_in_a_scratch_directory();
         remove_history_database();
 
@@ -1043,7 +1036,7 @@ mod tests {
     /// exactly that race, read no key at all, and asked for one.
     #[test]
     fn two_connections_migrating_at_once_both_succeed() {
-        let _in_turn = migrating_in_turn();
+        let _in_turn = crate::test_support::database_in_turn();
         crate::test_support::state_in_a_scratch_directory();
         remove_history_database();
 

@@ -619,7 +619,10 @@ mod tests {
     /// The whole path a widget takes: bind, ask, parse the reply.
     #[test]
     fn a_request_is_answered_over_the_socket() {
-        let _guard = crate::test_support::state_in_a_scratch_directory();
+        crate::test_support::state_in_a_scratch_directory();
+        // The answer is built from the history in the shared database, so this
+        // test and the ones that rebuild it take turns.
+        let _db = crate::test_support::database_in_turn();
         let monitor = crate::monitor::Monitor::start(AppConfig::default());
         let server = start_on(monitor.handle(), 0).expect("the interface listens");
 
@@ -634,7 +637,8 @@ mod tests {
 
     #[test]
     fn the_payload_carries_the_readings_the_widget_draws() {
-        let _guard = crate::test_support::state_in_a_scratch_directory();
+        crate::test_support::state_in_a_scratch_directory();
+        let _db = crate::test_support::database_in_turn();
 
         let mut snapshot = Snapshot {
             checking: true,

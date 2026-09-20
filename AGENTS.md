@@ -56,6 +56,13 @@ Rust 与 Python 版应共同暴露的接口见 `docs/INTERFACES.md`。
   于是数据库搬来了、密钥没搬来、库里所有密钥都解不开（2026-09-15 真机踩过）。真出事了不是没救：
   真密钥仍在旧目录 `~/.local/state/deepseek-balance-monitor/.secure_settings.key`（Windows
   `%APPDATA%\DeepSeek Balance Monitor\`），拷回新目录即可。
+- **碰数据库的用例要排队**：整个测试进程共用一个 scratch 目录，也就是**同一个 SQLite 文件**，而
+  `cargo test` 并行跑用例——所以「删库重建」的迁移用例与任何读库的用例会互相踩（SQLite 的 busy
+  timeout 是 5 秒，而小工具 socket 用例的读超时只有 3 秒，于是它先放弃：`Resource temporarily
+  unavailable`）。碰库的用例开头加 `let _db = test_support::database_in_turn();` 并整段持有；用例
+  自己开出的线程（如 `Monitor` 的轮询线程）算在同一临界区里。2026-09-20 因此挂过两次发布构建。
+  另一条相关的坑：轮询**不许握着快照锁做数据库工作**（`monitor::poll_once`），否则界面的每一帧和
+  小工具的每个请求都要排队等 SQLite。
 - **egui 里不要让热区重叠**（2026-09-15 踩过两次）：① 小工具标题条整行曾是 `Sense::drag()`，
   六个按钮叠在上面，结果**按钮集体失效**——按下只要被判成拖动，`ViewportCommand::StartDrag` 就把
   指针交给窗口管理器，按钮再也收不到释放；拖动因此改到左/右/下三条 8pt 边带，标题条改
