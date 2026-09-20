@@ -3,9 +3,9 @@
   The desktop widget's own installer, built by .github/workflows/windows.yml:
 
     wix build packaging/windows/widget.wxs -arch x64 \
-      -d Version=2.1.3 -d ExePath=<absolute path to dsmon2-widget.exe> \
+      -d Version=2.1.4 -d ExePath=<absolute path to dsmon2-widget.exe> \
       -d IconPath=<absolute path to assets/app.ico> \
-      -o deepseek-balance-monitor-widget-2.1.3-windows-x64.msi
+      -o deepseek-balance-monitor-widget-2.1.4-windows-x64.msi
 
   It is a product of its own — its own UpgradeCode, its own entry under Apps &
   features — so it can be installed, upgraded and removed on its own. What it

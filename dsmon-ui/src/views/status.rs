@@ -186,6 +186,7 @@ fn connection_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, plat
     let palette = view.palette;
 
     card(ui, palette, |ui| {
+        ui.set_min_height(super::SUMMARY_CARD_HEIGHT);
         ui.label(
             RichText::new(view.text("connection_status"))
                 .size(16.0)
@@ -218,7 +219,13 @@ fn connection_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, plat
         ui.add_space(6.0);
         match error {
             Some(error) => {
-                ui.label(RichText::new(error).color(palette.destructive).size(12.0));
+                // One line, with the whole message on hover: the card is a fixed
+                // height, and a long reason would push its text out of the panel.
+                ui.add(
+                    egui::Label::new(RichText::new(error).color(palette.destructive).size(12.0))
+                        .truncate(),
+                )
+                .on_hover_text(error);
             }
             None => {
                 if let Some(checked) = snapshot.last_check {

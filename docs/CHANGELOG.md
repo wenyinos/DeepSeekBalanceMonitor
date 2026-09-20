@@ -2,6 +2,25 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.1.4 (2026-09-20)
+
+### Fixed
+
+- **A page's cards are one size.** Each card sized itself to its contents, so on the subscription page a
+  plan with three windows — OpenCode Go, Command Code, GLM — stood some sixty points taller than the
+  plan beside it, which carries two, and the row read as two columns of different heights rather than a
+  row. Every card on a page is now drawn at the page's own height: one heading plus one window per row,
+  counting the fullest plan on screen, measured from the rendered cards rather than guessed at (41
+  points of heading and 77 per window under this application's own spacing — egui's default would have
+  measured them fifteen points short per row) with a few points of slack for the host's font. It is a
+  floor, not a fixed height: a card that somehow needed more room would take it and stand out visibly,
+  where a ceiling would have quietly clipped it
+- **The connection card joins its row.** The third card on the balance page of every provider without a
+  status page — Kimi, MiniMax, StepFun, OpenRouter — never set the shared height the other two did, so
+  that row was ragged on every page except DeepSeek's, and was the shortest card in it. The reason a
+  failed read gives is now drawn as one line with the whole message on hover, as the subscription cards
+  already did: at a fixed height a long reason would otherwise push its text out of the panel
+
 ## Rust v2.1.3 (2026-09-20)
 
 ### Added

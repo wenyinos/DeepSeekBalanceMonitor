@@ -114,6 +114,17 @@ pub fn show(
                 .size(12.0),
         );
     } else {
+        // One height for every card on the page, sized by the plan that carries
+        // the most windows: a card that followed its own contents left the page
+        // ragged, and the row is easier to read when the cards line up.
+        let height = super::subscription_card_height(
+            configured
+                .iter()
+                .map(|meta| meta.windows.len())
+                .max()
+                .unwrap_or(2),
+        );
+
         // Two per row, so a growing list keeps the same rhythm.
         for chunk in configured.chunks(2) {
             ui.columns(2, |columns| {
@@ -124,6 +135,7 @@ pub fn show(
                         snapshot,
                         state,
                         meta,
+                        height,
                         &mut billing_day,
                     );
                 }
@@ -138,19 +150,23 @@ pub fn show(
 }
 
 /// One plan: its windows in a card, its chart underneath.
+///
+/// `height` is the page's one card height, set as both the floor and the
+/// ceiling so a plan with two windows keeps the same shape as one with three.
 fn plan_card(
     ui: &mut egui::Ui,
     view: &View<'_>,
     snapshot: &Snapshot,
     state: &State,
     meta: &PlatformMeta,
+    height: f32,
     billing_day: &mut Option<u8>,
-) {
+) -> egui::Rect {
     let palette = view.palette;
     let reading = snapshot.packages.get(meta.key);
 
-    card(ui, palette, |ui| {
-        ui.set_min_height(super::SUBSCRIPTION_CARD_HEIGHT);
+    let panel = card(ui, palette, |ui| {
+        ui.set_min_height(height);
         ui.label(
             RichText::new(meta.display_name)
                 .size(16.0)
@@ -209,6 +225,8 @@ fn plan_card(
             *billing_day = Some(edited);
         }
     }
+
+    panel
 }
 
 /// The used share of one window, absent when the plan does not report it.
@@ -419,6 +437,109 @@ fn usage_chart(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One plan's card, rendered off-screen with `rows` windows' worth of floor
+    /// under it, reporting the height the card came out.
+    ///
+    /// Off-screen because egui lays out on the CPU, so no window is needed, and
+    /// with the application's own style — its item spacing is eight points where
+    /// egui's default is three, which is worth a couple of points a row and made
+    /// an earlier version of these figures measure short.
+    ///
+    /// A floor of zero asks for the card's natural height: what it draws, with
+    /// nothing added.
+    fn card_height(plan: &str, rows: usize) -> f32 {
+        let context = egui::Context::default();
+        crate::fonts::install(&context);
+        let custom = BTreeMap::new();
+        crate::theme::install(&context, Default::default(), &custom);
+        crate::theme::set_mode(&context, crate::theme::ThemeMode::Dark);
+        let palette = crate::theme::Palette::new(egui::Theme::Dark, Default::default(), &custom);
+        let view = View {
+            palette: &palette,
+            lang: "zh",
+        };
+        let meta = catalog::find(plan).expect("the plan is in the catalog");
+
+        // Every window the plan declares, each with a pace line: the tallest a
+        // card can come out.
+        let mut package = PackageQuota::new();
+        let mut rates = BTreeMap::new();
+        for name in meta.windows {
+            package.insert(
+                (*name).to_owned(),
+                dsmon_core::model::QuotaWindow::from_percent(20.0, 3 * 3600),
+            );
+            rates.insert(
+                (*name).to_owned(),
+                dsmon_core::model::WindowRate {
+                    percent_per_hour: 0.2,
+                    hours_left: Some(30.0),
+                    reset_in_sec: 3 * 3600,
+                },
+            );
+        }
+
+        let mut snapshot = Snapshot::default();
+        snapshot
+            .packages
+            .insert(plan.to_owned(), Subscription::Loaded(package));
+        snapshot.window_rates.insert(plan.to_owned(), rates);
+
+        let state = State::new(1);
+        let height = crate::views::subscription_card_height(rows);
+        let mut billing_day = None;
+
+        let mut measured = 0.0;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        // Twice: egui settles its own layout on the first pass.
+        for _ in 0..2 {
+            let mut output = context.run_ui(input.clone(), |ui| {
+                measured = plan_card(ui, &view, &snapshot, &state, meta, height, &mut billing_day)
+                    .height();
+            });
+            // Nothing renders these frames, so the texture deltas go on purpose.
+            output.textures_delta.clear();
+        }
+        measured
+    }
+
+    /// The page's one card height has room for the fullest card, and every card
+    /// is drawn at it.
+    ///
+    /// The first assertion is the one that matters: a height short of what the
+    /// card draws leaves that card taller than the one beside it, which is
+    /// exactly how the page came out ragged. The second is the padding that
+    /// makes the row line up.
+    #[test]
+    fn a_card_takes_the_height_the_page_gives_it() {
+        let page = crate::views::subscription_card_height(3);
+
+        // The frame's own 12-point margins, inside and outside.
+        let natural = card_height("opencode_go", 0);
+        assert!(
+            page + 24.0 >= natural,
+            "three windows need {natural} but the page gives {}",
+            page + 24.0
+        );
+
+        assert_eq!(
+            card_height("opencode_go", 3),
+            page + 24.0,
+            "the fullest card is drawn at the page's height"
+        );
+        assert_eq!(
+            card_height("minimax_token_cn", 3),
+            page + 24.0,
+            "and a plan with two windows is padded to it"
+        );
+    }
 
     #[test]
     fn every_plan_in_the_catalog_gets_a_card_when_configured() {

@@ -42,7 +42,7 @@
 ```json
 {
   "version": 2,
-  "provider": { "name": "dsmon2", "version": "2.1.3" },
+  "provider": { "name": "dsmon2", "version": "2.1.4" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,

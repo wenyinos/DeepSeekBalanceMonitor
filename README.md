@@ -113,7 +113,7 @@ Toolchain: stable. The Linux packages are built in a Debian 12 container so the 
 glibc 2.36 floor:
 
 ```bash
-packaging/build-packages.sh 2.1.3 arm64 target/release/dsmon2 dist
+packaging/build-packages.sh 2.1.4 arm64 target/release/dsmon2 dist
 ```
 
 See [CHANGELOG.md](docs/CHANGELOG.md) for what changed in this version.
