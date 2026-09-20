@@ -15,9 +15,14 @@ both platforms.
   accounts with a balance, and plans with quota windows.
 - **History that stays on your machine.** Readings go into a local SQLite database, charted on
   the balance page and on each subscription card, and exportable to CSV. Every provider keeps
-  its own history.
+  its own history; DeepSeek's service status is charted with it, as a band of one colour per
+  status across the same readings and the share of the window that was healthy.
 - **Alerts when they are worth raising.** A low balance (once, every time, or never), a service
-  status that moved, a first run with nothing configured, a database that had to be rebuilt.
+  status that moved, a plan window whose pace would spend it before it resets, a first run with
+  nothing configured, a database that had to be rebuilt.
+- **It says when it has been superseded.** The release page is asked once a day, and a newer
+  version than the one running is marked on the settings page and announced once. The check can
+  be switched off.
 - **Out of the way.** Closing the window leaves it in the tray, and only the tray's quit entry
   ends the process. Starting with the session is a checkbox. Launching a second copy raises the
   window of the one already running instead of starting another.
@@ -108,7 +113,7 @@ Toolchain: stable. The Linux packages are built in a Debian 12 container so the 
 glibc 2.36 floor:
 
 ```bash
-packaging/build-packages.sh 2.1.2 arm64 target/release/dsmon2 dist
+packaging/build-packages.sh 2.1.3 arm64 target/release/dsmon2 dist
 ```
 
 See [CHANGELOG.md](docs/CHANGELOG.md) for what changed in this version.

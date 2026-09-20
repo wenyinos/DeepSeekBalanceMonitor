@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use chrono::{Datelike, Duration as ChronoDuration, Local, NaiveDate, NaiveDateTime};
 
-use crate::model::{ConsumptionRate, HistoryRecord, HistorySummary, SubscriptionPoint};
+use crate::model::{ConsumptionRate, HistoryRecord, HistorySummary, SubscriptionPoint, WindowRate};
 use crate::storage;
 use crate::time;
 
@@ -319,6 +319,97 @@ pub struct DailyUsage {
     pub used: f64,
 }
 
+/// One stretch of readings that shared a service status.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StatusSpan {
+    /// The status the readings reported, in the interface's vocabulary.
+    pub status: String,
+    /// How many readings the stretch covers.
+    pub readings: usize,
+}
+
+/// The service status over a run of readings, as contiguous stretches.
+///
+/// The readings are equally spaced by the poll interval, so a stretch's share
+/// of the readings is its share of the window — which is what a band drawn from
+/// these gives, and why the stretches are not measured in time.
+pub fn service_status_spans(records: &[HistoryRecord]) -> Vec<StatusSpan> {
+    let mut spans: Vec<StatusSpan> = Vec::new();
+    for record in records {
+        match spans.last_mut() {
+            Some(span) if span.status == record.service_status => span.readings += 1,
+            _ => spans.push(StatusSpan {
+                status: record.service_status.clone(),
+                readings: 1,
+            }),
+        }
+    }
+    spans
+}
+
+/// The share of the readable readings that were healthy, 0-100.
+///
+/// Readings that could not be read at all are left out of the figure: they say
+/// nothing about the vendor's service, and counting them as downtime would
+/// blame the vendor for this program's own trouble. `None` when every reading
+/// in the window was unreadable.
+pub fn availability_percent(spans: &[StatusSpan]) -> Option<f64> {
+    let healthy: usize = spans
+        .iter()
+        .filter(|span| span.status == "none")
+        .map(|span| span.readings)
+        .sum();
+    let readable: usize = spans
+        .iter()
+        .filter(|span| span.status != "unknown")
+        .map(|span| span.readings)
+        .sum();
+
+    (readable > 0).then(|| healthy as f64 / readable as f64 * 100.0)
+}
+
+/// The pace of one quota window, from the readings logged inside its cycle.
+///
+/// The cycle begins at the last drop in the readings — a window's usage falls
+/// back when it resets — or at the earliest reading there is, which is all a
+/// plan first seen mid-cycle has to offer. The average runs from there to the
+/// latest reading, so idle time counts towards it: the clock runs whether the
+/// quota is used or not, and the pace is what has to be weighed against it.
+pub fn window_rate(points: &[SubscriptionPoint], reset_in_sec: i64) -> Option<WindowRate> {
+    let latest = points.last()?;
+    let start = points
+        .windows(2)
+        .rposition(|pair| pair[1].percent() < pair[0].percent())
+        .map_or(0, |index| index + 1);
+    let first = points.get(start)?;
+    if first.timestamp == latest.timestamp {
+        return None;
+    }
+
+    let hours = (parse_timestamp(&latest.timestamp)? - parse_timestamp(&first.timestamp)?)
+        .num_seconds() as f64
+        / 3600.0;
+    if hours <= 0.0 {
+        return None;
+    }
+
+    let pace = (latest.percent() - first.percent()) / hours;
+    if pace <= 0.0 {
+        return None;
+    }
+
+    let left = (100.0 - latest.percent()).max(0.0);
+    Some(WindowRate {
+        percent_per_hour: pace,
+        hours_left: Some(left / pace),
+        reset_in_sec,
+    })
+}
+
+/// The store's own timestamp format, which orders as it reads.
+fn parse_timestamp(text: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").ok()
+}
 /// Collapses subscription readings into per-day consumption.
 ///
 /// The last reading of each day stands for that day, and the difference to the
@@ -591,6 +682,119 @@ mod tests {
         assert_eq!(usage.len(), 1, "the reset day is skipped");
         assert_eq!(usage[0].date, "2026-01-03");
         assert_eq!(usage[0].used, 4.0);
+    }
+
+    #[test]
+    fn reads_the_pace_of_the_current_cycle() {
+        // Ten points of usage in twenty-four hours, with half the window left.
+        let points = vec![
+            point("2026-01-01 00:00:00", 20.0),
+            point("2026-01-01 12:00:00", 25.0),
+            point("2026-01-02 00:00:00", 30.0),
+        ];
+        let rate = window_rate(&points, 3600).expect("a pace");
+        assert!((rate.percent_per_hour - 10.0 / 24.0).abs() < 0.0001);
+        assert!((rate.percent_per_day() - 10.0).abs() < 0.0001);
+        assert!((rate.hours_left.expect("hours left") - 168.0).abs() < 0.0001);
+        // Seventy points left at ten a day is a week of use, so an hour of
+        // window is not the clock that ends it.
+        assert!(!rate.runs_out_first());
+
+        // A month of window is: a week of use runs out long before it does.
+        let monthly = window_rate(&points, 30 * 24 * 3600).expect("a pace");
+        assert!(monthly.runs_out_first());
+    }
+
+    #[test]
+    fn a_reset_starts_the_cycle_over() {
+        // The first two readings belong to a cycle that has ended; only what
+        // followed the drop describes the pace now.
+        let points = vec![
+            point("2026-01-01 00:00:00", 80.0),
+            point("2026-01-01 12:00:00", 95.0),
+            point("2026-01-02 00:00:00", 2.0),
+            point("2026-01-02 06:00:00", 8.0),
+        ];
+        let rate = window_rate(&points, 0).expect("a pace");
+        assert!(
+            (rate.percent_per_hour - 1.0).abs() < 0.0001,
+            "6 points in 6 hours"
+        );
+        assert_eq!(rate.reset_in_sec, 0);
+        assert!(
+            !rate.runs_out_first(),
+            "a window with no stated reset cannot run out first"
+        );
+    }
+
+    #[test]
+    fn folds_a_run_of_statuses_into_stretches() {
+        let mut records = vec![
+            record("2026-01-01 10:00:00", 100.0),
+            record("2026-01-01 10:10:00", 99.0),
+            record("2026-01-01 10:20:00", 98.0),
+        ];
+        records[1].service_status = "minor".to_owned();
+        records[2].service_status = "unknown".to_owned();
+
+        let spans = service_status_spans(&records);
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].status, "ok");
+        assert_eq!(spans[0].readings, 1);
+        assert_eq!(spans[1].status, "minor");
+        assert_eq!(spans[2].status, "unknown");
+
+        // The same status twice in a row is one stretch, not two.
+        records[2].service_status = "minor".to_owned();
+        let spans = service_status_spans(&records);
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[1].readings, 2);
+    }
+
+    #[test]
+    fn availability_counts_only_readings_that_were_read() {
+        let spans = vec![
+            StatusSpan {
+                status: "none".to_owned(),
+                readings: 9,
+            },
+            StatusSpan {
+                status: "major".to_owned(),
+                readings: 1,
+            },
+            // Ten unreadable readings say nothing about the service, so they
+            // neither count as downtime nor leave the window.
+            StatusSpan {
+                status: "unknown".to_owned(),
+                readings: 10,
+            },
+        ];
+        assert_eq!(availability_percent(&spans), Some(90.0));
+
+        let all_unreadable = vec![StatusSpan {
+            status: "unknown".to_owned(),
+            readings: 4,
+        }];
+        assert_eq!(availability_percent(&all_unreadable), None);
+        assert_eq!(availability_percent(&[]), None);
+    }
+
+    #[test]
+    fn a_steady_window_has_no_pace_to_report() {
+        let points = vec![
+            point("2026-01-01 00:00:00", 40.0),
+            point("2026-01-01 12:00:00", 40.0),
+        ];
+        assert_eq!(window_rate(&points, 600), None);
+    }
+
+    #[test]
+    fn one_reading_is_not_a_pace() {
+        assert_eq!(
+            window_rate(&[point("2026-01-01 00:00:00", 10.0)], 600),
+            None
+        );
+        assert_eq!(window_rate(&[], 600), None);
     }
 
     #[test]

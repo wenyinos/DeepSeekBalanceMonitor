@@ -13,8 +13,11 @@ use std::time::Duration;
 use chrono::{DateTime, Local};
 
 use crate::config::AppConfig;
-use crate::model::{Balances, ConsumptionRate, PackageQuota};
-use crate::{demo, history, platforms, storage};
+use crate::model::{Balances, ConsumptionRate, PackageQuota, WindowRates};
+use crate::{demo, history, platforms, storage, update};
+
+/// How often the release page is asked for a newer version.
+const UPDATE_CHECK_HOURS: i64 = 24;
 
 /// Outcome of a subscription lookup.
 ///
@@ -44,6 +47,10 @@ pub struct Snapshot {
     pub consumption_rates: std::collections::BTreeMap<String, ConsumptionRate>,
     /// The package plans' quota windows, keyed by platform.
     pub packages: std::collections::BTreeMap<String, Subscription<PackageQuota>>,
+    /// How fast each plan's windows are being spent, from the logged readings.
+    pub window_rates: WindowRates,
+    /// A newer published version, when the release page named one.
+    pub newer_version: Option<String>,
     pub last_check: Option<DateTime<Local>>,
     /// Set when the last poll failed; cleared by the next success.
     pub last_error: Option<String>,
@@ -182,8 +189,10 @@ enum Scope {
 /// The polling loop: one pass at start-up, then a pass per interval or command.
 fn run(config: AppConfig, receiver: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>) {
     let mut config = config;
+    let mut update_checked: Option<DateTime<Local>> = None;
 
     poll_once(&config, &snapshot, Scope::Everything);
+    check_for_update(&config, &snapshot, &mut update_checked);
 
     loop {
         let interval = Duration::from_secs(config.interval_minutes.max(1) * 60);
@@ -201,6 +210,36 @@ fn run(config: AppConfig, receiver: Receiver<Command>, snapshot: Arc<Mutex<Snaps
             Scope::Everything => poll_once(&config, &snapshot, Scope::Everything),
             Scope::Subscriptions => poll_once(&config, &snapshot, Scope::Subscriptions),
         }
+        check_for_update(&config, &snapshot, &mut update_checked);
+    }
+}
+
+/// Asks the release page whether this build has been superseded, once a day.
+///
+/// It counts as the day's attempt whether or not it answers — a network that is
+/// down should not be asked again on every poll — and a version that is not
+/// newer clears what an earlier answer left behind.
+fn check_for_update(
+    config: &AppConfig,
+    snapshot: &Arc<Mutex<Snapshot>>,
+    last: &mut Option<DateTime<Local>>,
+) {
+    if !config.update_check_enabled {
+        return;
+    }
+    let now = Local::now();
+    if last.is_some_and(|checked| (now - checked).num_hours() < UPDATE_CHECK_HOURS) {
+        return;
+    }
+    *last = Some(now);
+
+    let Ok(Some(latest)) = update::latest_version(platforms::effective_proxy(config)) else {
+        return;
+    };
+
+    let newer = update::is_newer(&latest, crate::VERSION).then_some(latest);
+    if let Ok(mut guard) = snapshot.lock() {
+        guard.newer_version = newer;
     }
 }
 
@@ -228,6 +267,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
             // a refined figure against a refined one and drift.
             record_subscription_usage(&outcome.packages);
             refine_coarse_windows(&mut outcome.packages);
+            guard.window_rates = package_rates(&outcome.packages);
             guard.balances = outcome.balances;
             guard.balance_errors = outcome.balance_errors;
             guard.service_status = outcome.service_status;
@@ -267,10 +307,12 @@ fn today_spend() -> Option<(String, f64)> {
 fn poll_subscriptions(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>) {
     let packages = gather_packages(platforms::effective_proxy(config));
     record_subscription_usage(&packages);
+    let window_rates = package_rates(&packages);
 
     if let Ok(mut guard) = snapshot.lock() {
         guard.checking = false;
         guard.packages = packages;
+        guard.window_rates = window_rates;
         guard.last_check = Some(Local::now());
     }
 }
@@ -472,6 +514,40 @@ fn refine_coarse_windows(
             );
         }
     }
+}
+
+/// The pace of every window the plans report, read from the logged readings.
+///
+/// A single poll says what a quota is now; only the readings together say how
+/// fast it is going, which is what tells a window that will be spent before it
+/// resets from one that will not.
+fn package_rates(
+    packages: &std::collections::BTreeMap<String, Subscription<PackageQuota>>,
+) -> WindowRates {
+    /// How far back the pace is read: a monthly window keeps its whole cycle
+    /// inside this, and earlier readings describe cycles already reset.
+    const HISTORY_DAYS: u64 = 30;
+
+    let mut rates = WindowRates::new();
+    for (platform, subscription) in packages {
+        let Subscription::Loaded(quota) = subscription else {
+            continue;
+        };
+        let mut per_window = std::collections::BTreeMap::new();
+        for (window, entry) in quota {
+            let Ok(points) = storage::subscription_usage_history(platform, window, HISTORY_DAYS)
+            else {
+                continue;
+            };
+            if let Some(rate) = history::window_rate(&points, entry.reset_in_sec) {
+                per_window.insert(window.clone(), rate);
+            }
+        }
+        if !per_window.is_empty() {
+            rates.insert(platform.clone(), per_window);
+        }
+    }
+    rates
 }
 
 /// Reads every configured package plan, keeping failures beside the successes

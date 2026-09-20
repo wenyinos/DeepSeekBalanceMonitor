@@ -166,6 +166,16 @@ fn chart_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, available: f32)
             .map(|(index, record)| [index as f64, record.total])
             .collect();
 
+        // The status band sits above the chart on the same scale as the chart's
+        // readings, so a stretch of readings shows as a stretch of one colour.
+        // Only DeepSeek has a status page; every other platform records
+        // "unknown" for every reading, which a band would tell in grey as if it
+        // meant something.
+        let band = (state.platform == dsmon_core::storage::KEY_DEEPSEEK)
+            .then(|| status_band(ui, view, &state.records))
+            .flatten()
+            .unwrap_or(0.0);
+
         let line = Line::new(view.text("history_total"), PlotPoints::from(points))
             .color(palette.accent)
             .width(2.0);
@@ -173,8 +183,9 @@ fn chart_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, available: f32)
         let grid = palette.border;
         let text = palette.text_secondary;
 
-        // Fill what is left after the card chrome, so the page never scrolls.
-        let plot_height = (available - 52.0).max(140.0);
+        // Fill what is left after the card chrome and the band, so the page
+        // never scrolls.
+        let plot_height = (available - 52.0 - band).max(140.0);
         Plot::new("history-plot")
             .height(plot_height)
             .allow_drag(false)
@@ -198,6 +209,105 @@ fn chart_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, available: f32)
         // palette so the card stays flat.
         let _ = (grid, text);
     });
+}
+
+/// The service status across the readings the chart draws: one segment per
+/// stretch that shared a status, the share of readable readings that were
+/// healthy beneath it. Returns the height it took, so the chart can give it up.
+///
+/// What it adds to the single dot on the balance page is time: whether the
+/// vendor was down an hour ago, and how much of the window this program spent
+/// unable to read the page at all — a stretch in grey, which is a fault here
+/// rather than one of the vendor's.
+fn status_band(ui: &mut egui::Ui, view: &View<'_>, records: &[HistoryRecord]) -> Option<f32> {
+    let palette = view.palette;
+    let spans = dsmon_core::history::service_status_spans(records);
+    let total: usize = spans.iter().map(|span| span.readings).sum();
+    if total == 0 {
+        return None;
+    }
+
+    let height = 6.0;
+    ui.label(
+        RichText::new(view.text("service_status"))
+            .color(palette.text_secondary)
+            .size(12.0),
+    );
+    ui.add_space(3.0);
+
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::hover(),
+    );
+    let mut left = rect.left();
+    for span in &spans {
+        let width = rect.width() * span.readings as f32 / total as f32;
+        let segment =
+            egui::Rect::from_min_size(egui::pos2(left, rect.top()), egui::vec2(width, height));
+        ui.painter().rect_filled(
+            segment,
+            egui::CornerRadius::same(1),
+            super::status_color(palette, &span.status),
+        );
+        left += width;
+    }
+
+    let mut caption = dsmon_core::history::availability_percent(&spans)
+        .map(|percent| {
+            format!(
+                "{} {}%",
+                view.text("availability_label"),
+                dsmon_core::history::format_percent(percent)
+            )
+        })
+        .unwrap_or_default();
+    let unreadable: usize = spans
+        .iter()
+        .filter(|span| span.status == "unknown")
+        .map(|span| span.readings)
+        .sum();
+    if unreadable > 0 {
+        if !caption.is_empty() {
+            caption.push_str(" · ");
+        }
+        caption.push_str(&format!(
+            "{} {unreadable} {}",
+            view.text("unreadable_label"),
+            view.text("times")
+        ));
+    }
+
+    ui.add_space(4.0);
+    if !caption.is_empty() {
+        ui.label(
+            RichText::new(caption)
+                .color(palette.text_secondary)
+                .size(12.0),
+        );
+    }
+    response.on_hover_text(hover_text(view, &spans));
+
+    // What the band took: the label, the band and the caption, with the spacing
+    // between them. The chart gives this much back, so the page still fits.
+    Some(height + 43.0)
+}
+
+/// What the band's segments stand for, level by level, in the order the levels
+/// first appear.
+fn hover_text(view: &View<'_>, spans: &[dsmon_core::history::StatusSpan]) -> String {
+    let mut levels: Vec<(&str, usize)> = Vec::new();
+    for span in spans {
+        match levels.iter_mut().find(|(status, _)| *status == span.status) {
+            Some((_, count)) => *count += span.readings,
+            None => levels.push((span.status.as_str(), span.readings)),
+        }
+    }
+
+    levels
+        .into_iter()
+        .map(|(status, count)| format!("{} {count}", crate::i18n::status_text(view.lang, status)))
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 fn summary_card(ui: &mut egui::Ui, view: &View<'_>, state: &State, action: &mut Option<Action>) {

@@ -19,10 +19,12 @@ use windows as platform;
 
 use chrono::{DateTime, Local};
 
+use dsmon_core::catalog;
 use dsmon_core::config::AppConfig;
 use dsmon_core::history::format_amount;
-use dsmon_core::model::{preferred_balance, Balance, ConsumptionRate};
+use dsmon_core::model::{preferred_balance, Balance, ConsumptionRate, WindowRate};
 use dsmon_core::monitor::Snapshot;
+use dsmon_core::platforms::format_reset_seconds;
 use dsmon_core::storage;
 
 use crate::i18n::{status_text, tr};
@@ -60,6 +62,12 @@ pub struct Watch {
     /// Whether the off-peak discount was in force at the last judgement, so a
     /// phase change is noticed once and only once.
     off_peak: Option<bool>,
+    /// The plan windows already reported as running out before their reset, so
+    /// each is said once while it stays that way.
+    quota_reported: std::collections::BTreeSet<String>,
+    /// The version whose release has been announced, so one release is one
+    /// notification however long the program runs.
+    update_reported: Option<String>,
 }
 
 impl Watch {
@@ -91,6 +99,10 @@ impl Watch {
         }
         if let Some(peak) = self.peak_message(config, lang) {
             messages.push(peak);
+        }
+        messages.extend(self.quota_messages(snapshot, config, lang));
+        if let Some(update) = self.update_message(snapshot, config, lang) {
+            messages.push(update);
         }
 
         messages
@@ -165,8 +177,67 @@ impl Watch {
         })
     }
 
-    /// A day whose spending passed the line, said once for that day.
+    /// A newer release than the one running, said once.
     ///
+    /// A program installed from a package has no update channel of its own, so
+    /// this is the only word it gets about a version that has moved on — which
+    /// is worth one notification per release, and no more.
+    fn update_message(
+        &mut self,
+        snapshot: &Snapshot,
+        config: &AppConfig,
+        lang: &str,
+    ) -> Option<Message> {
+        if !config.update_check_enabled {
+            return None;
+        }
+        let latest = snapshot.newer_version.as_ref()?;
+        if self.update_reported.as_ref() == Some(latest) {
+            return None;
+        }
+        self.update_reported = Some(latest.clone());
+
+        Some(Message {
+            title: tr(lang, "update_available_title").to_owned(),
+            body: format!("v{} → v{latest}", dsmon_core::VERSION),
+        })
+    }
+
+    /// Every plan window being spent faster than its clock runs, said once.
+    ///
+    /// The memory is the set of windows currently warned about: one that stops
+    /// running out — a quieter day, a plan upgrade — is forgotten, so a later
+    /// cycle speaks again. Once per window rather than once per reading is the
+    /// point: a warning that repeats every poll is one nobody reads.
+    fn quota_messages(
+        &mut self,
+        snapshot: &Snapshot,
+        config: &AppConfig,
+        lang: &str,
+    ) -> Vec<Message> {
+        let mut warned = std::collections::BTreeSet::new();
+        let mut messages = Vec::new();
+
+        if config.quota_alert_enabled {
+            for (platform, windows) in &snapshot.window_rates {
+                for (window, rate) in windows {
+                    if !rate.runs_out_first() {
+                        continue;
+                    }
+                    let key = format!("{platform} {window}");
+                    if !self.quota_reported.contains(&key) {
+                        messages.extend(Self::quota_message(platform, window, rate, lang));
+                    }
+                    warned.insert(key);
+                }
+            }
+        }
+
+        self.quota_reported = warned;
+        messages
+    }
+
+    /// A day whose spending passed the line, said once for that day.    ///
     /// The memory is the date, so a new day speaks on its own; a day that never
     /// crosses the line clears it, in case the line was lowered since.
     fn brisk_message(
@@ -197,6 +268,30 @@ impl Watch {
                 tr(lang, "threshold"),
                 format_amount(config.brisk_threshold_yuan),
                 currency,
+            ),
+        })
+    }
+
+    /// One plan's window, said to be running out before it resets.
+    fn quota_message(
+        platform: &str,
+        window: &str,
+        rate: &WindowRate,
+        lang: &str,
+    ) -> Option<Message> {
+        let meta = catalog::find(platform)?;
+        let hours = rate.hours_left?;
+
+        Some(Message {
+            title: tr(lang, "quota_alert_title").to_owned(),
+            body: format!(
+                "{} {} · {} {} · {} {}",
+                meta.display_name,
+                tr(lang, catalog::window_label_key(window)),
+                tr(lang, "estimated_remaining"),
+                crate::views::status::format_busy_hours(hours),
+                tr(lang, "resets_in"),
+                format_reset_seconds(rate.reset_in_sec),
             ),
         })
     }
@@ -419,6 +514,155 @@ mod tests {
 
     fn config() -> AppConfig {
         AppConfig::default()
+    }
+
+    /// A healthy balance with one plan's weekly window at the given pace — the
+    /// only thing worth a notification in these tests.
+    fn plan_window(hours_left: Option<f64>, reset_in_sec: i64) -> Snapshot {
+        let mut snapshot = reading(100.0, "none");
+        snapshot.window_rates.insert(
+            "opencode_go".to_owned(),
+            [(
+                "weekly".to_owned(),
+                WindowRate {
+                    percent_per_hour: 1.0,
+                    hours_left,
+                    reset_in_sec,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        snapshot
+    }
+
+    /// The same snapshot at a later reading, so the judgement is not skipped as
+    /// one it has already passed.
+    fn minutes_later(mut snapshot: Snapshot, minutes: i64) -> Snapshot {
+        snapshot.last_check = Some(Local::now() + chrono::Duration::minutes(minutes));
+        snapshot
+    }
+
+    #[test]
+    fn a_window_spent_before_its_reset_is_said_once() {
+        let mut watch = Watch::default();
+        let snapshot = plan_window(Some(5.0), 12 * 3600);
+
+        let messages = watch.judge(&snapshot, &config(), "en");
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(messages[0].title.contains("Quota"), "{}", messages[0].title);
+        assert!(
+            messages[0].body.contains("OpenCode Go") && messages[0].body.contains("12h"),
+            "{}",
+            messages[0].body
+        );
+
+        assert!(
+            watch
+                .judge(&minutes_later(snapshot, 10), &config(), "en")
+                .is_empty(),
+            "the same window is not reported again while it stays on course"
+        );
+    }
+
+    #[test]
+    fn a_window_that_stops_running_out_can_be_reported_again() {
+        let mut watch = Watch::default();
+        assert_eq!(
+            watch
+                .judge(&plan_window(Some(5.0), 12 * 3600), &config(), "en")
+                .len(),
+            1
+        );
+
+        // A quieter day puts the window back on course: nothing to say, and
+        // the memory of the warning goes with it.
+        assert!(watch
+            .judge(
+                &minutes_later(plan_window(Some(48.0), 12 * 3600), 10),
+                &config(),
+                "en"
+            )
+            .is_empty());
+
+        // The next stretch of heavy use is news again.
+        assert_eq!(
+            watch
+                .judge(
+                    &minutes_later(plan_window(Some(5.0), 12 * 3600), 20),
+                    &config(),
+                    "en"
+                )
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn the_quota_alert_can_be_turned_off() {
+        let mut quiet = config();
+        quiet.quota_alert_enabled = false;
+        let mut watch = Watch::default();
+
+        assert!(watch
+            .judge(&plan_window(Some(5.0), 12 * 3600), &quiet, "en")
+            .is_empty());
+    }
+
+    #[test]
+    fn a_newer_release_is_announced_once_per_version() {
+        let mut watch = Watch::default();
+        let mut snapshot = reading(100.0, "none");
+        snapshot.newer_version = Some("2.1.4".to_owned());
+
+        let messages = watch.judge(&snapshot, &config(), "en");
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(
+            messages[0].title.contains("newer version"),
+            "{}",
+            messages[0].title
+        );
+        assert!(messages[0].body.contains("2.1.4"), "{}", messages[0].body);
+
+        let mut later = snapshot.clone();
+        later.last_check = Some(Local::now() + chrono::Duration::minutes(10));
+        assert!(
+            watch.judge(&later, &config(), "en").is_empty(),
+            "the same release is announced once"
+        );
+
+        // A release after that one is news again.
+        let mut next = snapshot;
+        next.newer_version = Some("2.2.0".to_owned());
+        assert_eq!(
+            watch.judge(&minutes_later(next, 20), &config(), "en").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn the_update_check_can_be_turned_off() {
+        let mut quiet = config();
+        quiet.update_check_enabled = false;
+        let mut watch = Watch::default();
+        let mut snapshot = reading(100.0, "none");
+        snapshot.newer_version = Some("2.1.4".to_owned());
+
+        assert!(watch.judge(&snapshot, &quiet, "en").is_empty());
+    }
+
+    #[test]
+    fn a_window_with_no_pace_has_nothing_to_report() {
+        let mut watch = Watch::default();
+        // Nothing is being consumed from it, so there is no figure to compare
+        // against the clock and nothing to warn about.
+        assert!(watch
+            .judge(
+                &minutes_later(plan_window(None, 12 * 3600), 1),
+                &config(),
+                "en"
+            )
+            .is_empty());
     }
 
     #[test]

@@ -75,7 +75,12 @@ impl State {
 }
 
 /// Draws the page.
-pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Action> {
+pub fn show(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    state: &mut State,
+    newer_version: Option<&str>,
+) -> Option<Action> {
     let mut action = None;
     let mut preview = false;
 
@@ -83,7 +88,7 @@ pub fn show(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) -> Option<Act
     general_card(ui, view, state, &mut preview, &mut action);
     alerts_card(ui, view, state);
     data_card(ui, view, state, &mut action);
-    about_card(ui, view, &mut action);
+    about_card(ui, view, newer_version, &mut action);
 
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -371,6 +376,16 @@ fn alerts_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
             view.text("peak_alert_label"),
         );
 
+        ui.checkbox(
+            &mut state.draft.quota_alert_enabled,
+            view.text("quota_alert_label"),
+        );
+
+        ui.checkbox(
+            &mut state.draft.update_check_enabled,
+            view.text("update_check_label"),
+        );
+
         // The line for a day that is costing a lot. Zero is off, which is how
         // it ships: only the user knows what "a lot" is for their account.
         row(ui, palette, view.text("brisk_threshold_label"), |ui| {
@@ -446,7 +461,12 @@ fn data_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State, action: &mut
     });
 }
 
-fn about_card(ui: &mut egui::Ui, view: &View<'_>, action: &mut Option<Action>) {
+fn about_card(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    newer_version: Option<&str>,
+    action: &mut Option<Action>,
+) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
@@ -469,5 +489,17 @@ fn about_card(ui: &mut egui::Ui, view: &View<'_>, action: &mut Option<Action>) {
                 }
             });
         });
+
+        // Only when the release page named one: a build that has moved on is
+        // said here as well as in a notification, since the settings page is
+        // where a user goes to look for the version.
+        if let Some(latest) = newer_version {
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(format!("{} v{latest}", view.text("update_available_label")))
+                    .color(palette.warning)
+                    .size(12.0),
+            );
+        }
     });
 }

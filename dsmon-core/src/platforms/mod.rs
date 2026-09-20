@@ -21,12 +21,32 @@ pub fn http_client(
     timeout: Duration,
     http_proxy: &str,
 ) -> Result<reqwest::blocking::Client, String> {
+    install_tls_provider();
     let mut builder = reqwest::blocking::Client::builder().timeout(timeout);
     let proxy = http_proxy.trim();
     if !proxy.is_empty() {
         builder = builder.proxy(Proxy::all(proxy).map_err(|error| error.to_string())?);
     }
     builder.build().map_err(|error| error.to_string())
+}
+
+/// Installs the TLS provider every client in this crate is built with.
+///
+/// DeepSeek's status page sits behind an edge that resets the connection of any
+/// handshake whose first key exchange group is not the post-quantum hybrid
+/// `X25519MLKEM768` — a plain `X25519` hello, and even one offering the hybrid
+/// further down the list, is answered with a reset before the server says
+/// anything. reqwest's own provider is ring, which has no post-quantum group at
+/// all, so the status page could not be read from this program and every
+/// reading came back `unknown` (found 2026-09-20). `prefer-post-quantum` puts
+/// the hybrid first, which is what browsers send and what that edge accepts.
+fn install_tls_provider() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        // Only fails if a provider was already installed, which is the same
+        // outcome this wants.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }
 
 /// The proxy to use, honouring the configuration switch.

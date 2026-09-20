@@ -704,9 +704,12 @@ impl eframe::App for App {
                     }
                     Page::Settings => {
                         egui::ScrollArea::vertical().show(ui, |ui| {
-                            if let Some(action) =
-                                views::settings::show(ui, &view, &mut self.settings)
-                            {
+                            if let Some(action) = views::settings::show(
+                                ui,
+                                &view,
+                                &mut self.settings,
+                                snapshot.newer_version.as_deref(),
+                            ) {
                                 match action {
                                     views::settings::Action::Save => self.save_settings(ui.ctx()),
                                     views::settings::Action::SaveKeys => {

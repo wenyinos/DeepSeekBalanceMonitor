@@ -54,6 +54,19 @@ impl SubscriptionPoint {
     pub fn remaining(&self) -> f64 {
         (self.cap - self.used).max(0.0)
     }
+
+    /// The reading as a share of its pool, 0-100.
+    ///
+    /// One scale for both kinds of plan: a provider that reports a share is
+    /// recorded out of a hundred, and one that reports money out of its pool,
+    /// so the two lines of history compare as percentages either way.
+    pub fn percent(&self) -> f64 {
+        if self.cap > 0.0 {
+            (self.used / self.cap * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        }
+    }
 }
 
 /// Busy-hour consumption estimate for the preferred currency.
@@ -62,6 +75,38 @@ pub struct ConsumptionRate {
     pub hourly_rate: f64,
     pub busy_hours_left: f64,
     pub currency: String,
+}
+
+/// How fast one quota window of one plan is being spent, and where that leads.
+///
+/// A window resets on a clock rather than on use, so the pace is what the cycle
+/// has actually kept — idleness included — and the two figures answer the one
+/// question a quota raises: whether the pace spends the window before the clock
+/// takes it away.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowRate {
+    /// Percentage points of the window gained per hour.
+    pub percent_per_hour: f64,
+    /// Hours until the window is spent at that pace; `None` when nothing in it
+    /// is being consumed.
+    pub hours_left: Option<f64>,
+    /// Seconds until the window resets, as the reading reported it.
+    pub reset_in_sec: i64,
+}
+
+impl WindowRate {
+    /// Percentage points the cycle gains in a day, the figure the cards show.
+    pub fn percent_per_day(&self) -> f64 {
+        self.percent_per_hour * 24.0
+    }
+
+    /// Whether the pace spends the window before it resets.
+    pub fn runs_out_first(&self) -> bool {
+        match self.hours_left {
+            Some(hours) => self.reset_in_sec > 0 && hours < self.reset_in_sec as f64 / 3600.0,
+            None => false,
+        }
+    }
 }
 
 /// One quota window of a package plan, whichever plan it belongs to.
@@ -128,6 +173,9 @@ impl QuotaWindow {
 /// A package plan's reading: one entry per window it declares, keyed by the
 /// window names the catalog lists for it.
 pub type PackageQuota = std::collections::BTreeMap<String, QuotaWindow>;
+
+/// Every plan's window paces, keyed by platform and then by window name.
+pub type WindowRates = BTreeMap<String, BTreeMap<String, WindowRate>>;
 
 #[derive(Debug, Deserialize)]
 pub struct OpenCodeGoApiResponse {

@@ -2,6 +2,46 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.1.3 (2026-09-20)
+
+### Added
+
+- **A plan's window says how fast it is going, and warns when that pace spends it before it resets.**
+  A card carried the share used and the countdown to the reset, which says where the window stands but
+  not whether it will be spent before the clock takes it back — the one question a quota raises, and
+  the only one worth interrupting anyone for. Each window now carries its pace, in percentage points a
+  day, read from the readings logged inside the current cycle: from the last reset, or from the
+  earliest reading a plan first seen mid-cycle has. Idle time counts towards it on purpose, because a
+  window resets on a clock rather than on use. A window whose pace outruns that clock says so on the
+  card, and is announced once per cycle
+- **The service status has a history now.** Every reading records DeepSeek's status,
+  and the interface only ever drew the newest one. The history page carries a band above the chart, on
+  the same scale as the readings it draws: one colour per stretch of readings that shared a status,
+  with the share of readable readings that were healthy beneath it. Readings whose status could not be
+  read are left out of that share and named on their own line — they are this program's trouble rather
+  than the vendor's, and counting them as downtime would put a fault on the vendor's account. A day
+  spent unable to read the page shows as a grey stretch, which is what the four days of it on
+  2026-09-16..20 would have looked like
+- **A newer version is announced.** The program ships as .deb/.rpm/MSI packages with no update channel
+  of its own, so a build can be separated from its fixes by a single release and stay there unnoticed.
+  That is exactly what happened to the status page: the fix was written, the installed build predated
+  it, and nothing said so — the complaint was a wrong reading, not a stale program. Once a day the
+  release page is asked for its newest version; a newer one is shown on the settings page beside the
+  version and announced once per release. The check is one request, it can be switched off, and a
+  check that fails says nothing at all
+
+### Fixed
+
+- **The status page's reading never reached the interface.** The feed sits behind an edge that resets
+  any handshake whose *first* key exchange group is not the post-quantum hybrid `X25519MLKEM768`: a
+  plain `X25519` hello is answered with a reset before the server says anything, and so is one that
+  offers the hybrid anywhere but first. rustls 0.21, which reqwest 0.11 carried, has no post-quantum
+  group at all, so every attempt died in the handshake and the interface said the status was unknown —
+  while `curl`, `wget` and `go` read the same feed without trouble. reqwest 0.12 and rustls 0.23 with
+  `prefer-post-quantum` put that group first, which is what browsers send. (Found 2026-09-20, from
+  four days of `unknown` in `balance_history`.) A failed reading is written to the log now, once per
+  change of state, rather than being visible only as `unknown`
+
 ## Rust v2.1.2 (2026-09-16)
 
 ### Added (five capabilities the 1.x build had)

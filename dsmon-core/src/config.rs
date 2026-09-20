@@ -87,6 +87,12 @@ pub struct AppConfig {
     /// Whether DeepSeek's off-peak discount starting and ending is announced.
     #[serde(default = "default_true")]
     pub peak_alert_enabled: bool,
+    /// Whether a plan's window being spent faster than its clock is announced.
+    #[serde(default = "default_true")]
+    pub quota_alert_enabled: bool,
+    /// Whether the release page is asked, once a day, for a newer version.
+    #[serde(default = "default_true")]
+    pub update_check_enabled: bool,
     #[serde(default = "default_retention_days")]
     pub retention_days: u64,
     #[serde(default)]
@@ -157,6 +163,8 @@ impl Default for AppConfig {
             api_alert_enabled: default_api_alert_enabled(),
             brisk_threshold_yuan: 0.0,
             peak_alert_enabled: true,
+            quota_alert_enabled: true,
+            update_check_enabled: true,
             retention_days: default_retention_days(),
             export_path: String::new(),
             http_proxy: String::new(),

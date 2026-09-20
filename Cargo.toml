@@ -3,7 +3,7 @@ resolver = "2"
 members = ["dsmon-core", "dsmon-ui"]
 
 [workspace.package]
-version = "2.1.2"
+version = "2.1.3"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/wenyinos/DeepSeekBalanceMonitor"
@@ -12,7 +12,15 @@ repository = "https://github.com/wenyinos/DeepSeekBalanceMonitor"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+# The provider is chosen by hand rather than by reqwest's default (ring, which
+# has no post-quantum group): see `install_tls_provider` in
+# dsmon-core/src/platforms/mod.rs for why that matters.
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls-webpki-roots-no-provider",
+] }
+rustls = { version = "0.23", features = ["prefer-post-quantum"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 ring = "0.17"
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }

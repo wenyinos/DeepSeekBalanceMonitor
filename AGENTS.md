@@ -29,6 +29,13 @@ Rust 与 Python 版应共同暴露的接口见 `docs/INTERFACES.md`。
 - **依赖 feature 会互相打架**：`ksni` 的默认 feature 会打开 `zbus/tokio`，导致 zbus 选择
   Tokio 执行器而在本进程里 panic（没有 Tokio 运行时）。workspace 里已关掉 ksni 默认 feature
   并显式选 `async-io`，勿改回去。
+- **状态页只接受「第一个密钥交换组是后量子混合组」的握手**：`status.deepseek.com` 前面的边缘节点
+  会重置第一个组不是 `X25519MLKEM768` 的握手（只报 `X25519` 被重置，把混合组排在后面也被重置，
+  服务端一言不发），而 reqwest 0.11 内置的 rustls 0.21 根本没有后量子组——服务状态因此连续四天
+  显示「未知」（2026-09-20 定位）。现在 `platforms::http_client` 自己装 aws-lc-rs provider
+  （rustls 的 `prefer-post-quantum` 把混合组排第一），reqwest 用 no-provider 特性。**这两处别改
+  回去**，也别换成系统 TLS（要求用内置 TLS）。同类现象排查手法：curl/wget/go 能通而程序
+  不通，就用 `openssl s_client -groups <组名>` 对照，能立刻看出是握手被挑还是网络不通。
 - **托盘图标是代码绘制的**（余额数字 + 状态色块），不是图片文件；`assets/app.ico` 只用于
   窗口/任务栏与 Windows exe。
 - **Windows 托盘两处易错**：① 气泡要靠编号指认图标，而 `tray-icon` 的编号是「从 1 起、

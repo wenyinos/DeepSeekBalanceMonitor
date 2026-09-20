@@ -417,8 +417,8 @@ wix build packaging/windows/widget.wxs -arch x64 \
 ## 2.0 的发布命令
 
 ```bash
-git tag -a v2.1.2 -m "v2.1.2"
-git push origin v2.1.2
+git tag -a v2.1.3 -m "v2.1.3"
+git push origin v2.1.3
 ```
 
 两个工作流各自出包，每个架构四个：

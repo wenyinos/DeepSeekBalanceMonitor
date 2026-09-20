@@ -167,6 +167,7 @@ fn plan_card(
                         palette,
                         view.text(window_label_key(name)),
                         usage_of(quota, name),
+                        pace_line(view, palette, snapshot, meta.key, name),
                     );
                 }
             }
@@ -218,7 +219,13 @@ fn usage_of(quota: &PackageQuota, name: &str) -> Option<(f64, i64)> {
 }
 
 /// One quota window: label and figures on a line, the bar right beneath.
-fn window_row(ui: &mut egui::Ui, palette: &Palette, label: &str, window: Option<(f64, i64)>) {
+fn window_row(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    label: &str,
+    window: Option<(f64, i64)>,
+    pace: Option<(String, egui::Color32)>,
+) {
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(label)
@@ -256,7 +263,43 @@ fn window_row(ui: &mut egui::Ui, palette: &Palette, label: &str, window: Option<
         (percent / 100.0) as f32,
         usage_color(palette, percent as f32),
     );
-    ui.add_space(10.0);
+    ui.add_space(6.0);
+
+    // How fast the window is going, and whether that pace outruns its clock.
+    if let Some((text, color)) = pace {
+        ui.label(RichText::new(text).color(color).size(11.0));
+        ui.add_space(6.0);
+    }
+    ui.add_space(4.0);
+}
+
+/// The pace of one window of one plan, for the line under its bar.
+///
+/// A window whose pace spends it before it resets is worth saying out loud, so
+/// it is coloured as a warning and named; one that is simply being used gets
+/// the figure and nothing else.
+fn pace_line(
+    view: &View<'_>,
+    palette: &Palette,
+    snapshot: &Snapshot,
+    platform: &str,
+    window: &str,
+) -> Option<(String, egui::Color32)> {
+    let rate = snapshot.window_rates.get(platform)?.get(window)?;
+    let pace = format!(
+        "{} {}%",
+        view.text("pace_per_day"),
+        dsmon_core::history::format_percent(rate.percent_per_day())
+    );
+
+    Some(if rate.runs_out_first() {
+        (
+            format!("{pace} · {}", view.text("quota_runs_out")),
+            palette.destructive,
+        )
+    } else {
+        (pace, palette.text_secondary)
+    })
 }
 
 /// Per-day consumption for one plan, with an optional billing-day field.

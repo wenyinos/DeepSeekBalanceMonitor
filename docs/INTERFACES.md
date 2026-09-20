@@ -42,7 +42,7 @@
 ```json
 {
   "version": 2,
-  "provider": { "name": "dsmon2", "version": "2.1.2" },
+  "provider": { "name": "dsmon2", "version": "2.1.3" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,
@@ -123,6 +123,8 @@
 | `auto_start` | 布尔 | false | — | 开机自启 |
 | `alert_mode` | 字符串 | `once` | `once` / `always` / `never` | 低余额告警频率 |
 | `api_alert_enabled` | 布尔 | true | — | 服务状态异常是否告警 |
+| `quota_alert_enabled` | 布尔 | true | — | 套餐额度「按当前速度会在重置前用完」是否告警 |
+| `update_check_enabled` | 布尔 | true | — | 每天查一次发布页，有新版本时提示 |
 | `retention_days` | 整数 | 30 | 1–3650 | 历史保留天数（裁剪与日志共用） |
 | `export_path` | 字符串 | 空 | 目录路径 | CSV 导出目录，空=家目录 |
 | `http_proxy` | 字符串 | 空 | `host:port` | 代理地址 |

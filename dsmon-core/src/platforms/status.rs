@@ -15,37 +15,56 @@
 //! wrong and the vendor is on it — rather than guessing at one of the four
 //! levels the interface knows from a feed that does not name one.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::http_client;
 
 const FEED_URL: &str = "https://status.deepseek.com/feed.rss";
 
+/// Whether the previous attempt got through, so a page that stays unreadable is
+/// logged once rather than on every poll.
+static REACHED: AtomicBool = AtomicBool::new(true);
+
 /// Fetches the status of the most recent event.
 ///
 /// Any failure yields `unknown`; the interface treats that as "no information"
-/// rather than as an outage.
+/// rather than as an outage. The failure, and the recovery from one, is written
+/// to the log: a silent `unknown` cannot be told apart from a status page that
+/// answered nothing.
 pub fn fetch(http_proxy: &str) -> String {
     let Ok(client) = http_client(Duration::from_secs(10), http_proxy) else {
         return "unknown".to_owned();
     };
     match fetch_feed(&client) {
-        Some(feed) => latest_status(&feed).to_owned(),
-        None => "unknown".to_owned(),
+        Ok(feed) => {
+            if !REACHED.swap(true, Ordering::Relaxed) {
+                let _ = crate::storage::log_line("The status page answers again.");
+            }
+            latest_status(&feed).to_owned()
+        }
+        Err(error) => {
+            if REACHED.swap(false, Ordering::Relaxed) {
+                let _ = crate::storage::log_line(&format!(
+                    "The status page could not be read ({error}); the service status reads unknown."
+                ));
+            }
+            "unknown".to_owned()
+        }
     }
 }
 
-fn fetch_feed(client: &reqwest::blocking::Client) -> Option<String> {
+fn fetch_feed(client: &reqwest::blocking::Client) -> Result<String, String> {
     client
         .get(FEED_URL)
         .header("Accept", "application/rss+xml, application/xml, */*")
         .header("User-Agent", "Mozilla/5.0")
         .send()
-        .ok()?
+        .map_err(|error| error.to_string())?
         .error_for_status()
-        .ok()?
+        .map_err(|error| error.to_string())?
         .text()
-        .ok()
+        .map_err(|error| error.to_string())
 }
 
 /// The status of the newest event, which the feed lists first.
