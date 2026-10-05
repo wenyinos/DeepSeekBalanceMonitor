@@ -160,6 +160,24 @@ pub fn open_db() -> Result<Connection, String> {
     )
     .map_err(|error| error.to_string())?;
 
+    // Rows written before the clamp rule — by earlier versions of this build,
+    // or by an implementation that persisted raw API values — are repaired
+    // once: a negative bucket is not usable balance, so each is clamped at 0
+    // and the total is re-derived from the clamped buckets (`topped -0.10 +
+    // granted 6.00` => 6.00, not the raw sum 5.90). The WHERE clause touches
+    // nothing else: platforms whose components are never negative (OpenRouter,
+    // where topped_up is the historical gross top-up, not remaining cash) are
+    // left alone.
+    conn.execute(
+        "UPDATE balance_history SET
+            total = MAX(0, topped) + MAX(0, granted),
+            topped = MAX(0, topped),
+            granted = MAX(0, granted)
+         WHERE topped < 0 OR granted < 0",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+
     mark_initialized().map_err(|error| error.to_string())?;
     Ok(conn)
 }
@@ -324,6 +342,26 @@ pub fn history_records(
         }
         None => collect(stmt.query_map(params![platform, cutoff, limit], record_from_row)),
     }
+}
+
+/// Records from a given local timestamp onward, oldest first.
+///
+/// The day figures use this with today's midnight: the earlier build summed a
+/// calendar day's drops, not a rolling twenty-four hours.
+pub fn history_records_since(
+    platform: &str,
+    since: &str,
+    limit: usize,
+) -> Result<Vec<HistoryRecord>, String> {
+    let conn = open_db()?;
+    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+    let mut stmt = conn
+        .prepare(
+            "SELECT timestamp, currency, total, topped, granted, service_status FROM balance_history \
+             WHERE platform = ?1 AND timestamp >= ?2 ORDER BY timestamp ASC LIMIT ?3",
+        )
+        .map_err(|error| error.to_string())?;
+    collect(stmt.query_map(params![platform, since, limit], record_from_row))
 }
 
 /// Currencies that appear in the last `days` of history.
@@ -541,6 +579,78 @@ pub fn subscription_usage_history(
         points.push(row.map_err(|error| error.to_string())?);
     }
     Ok(points)
+}
+
+/// Readings for one provider's window from a given local timestamp onward,
+/// oldest first.
+///
+/// The day figure for a package plan uses this with today's midnight, the
+/// same calendar-day window the balance figure uses.
+pub fn subscription_usage_since(
+    provider: &str,
+    window: &str,
+    since: &str,
+) -> Result<Vec<SubscriptionPoint>, String> {
+    let conn = open_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT timestamp, used, cap FROM subscription_history
+             WHERE provider = ?1 AND window = ?2 AND timestamp >= ?3
+             ORDER BY timestamp ASC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![provider, window, since], |row| {
+            Ok(SubscriptionPoint {
+                timestamp: row.get(0)?,
+                used: row.get(1)?,
+                cap: row.get(2)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    let mut points = Vec::new();
+    for row in rows {
+        points.push(row.map_err(|error| error.to_string())?);
+    }
+    Ok(points)
+}
+
+/// The five-hour and target readings from the same poll, joined on their
+/// timestamp: one `(five-hour used, target used)` pair per poll, oldest first.
+///
+/// The refinement compares each poll's five-hour spending against the target
+/// window's movement, so it needs both windows as they were recorded together.
+/// Only polls that carry both appear.
+pub fn subscription_usage_pairs(
+    provider: &str,
+    target: &str,
+    days: u64,
+) -> Result<Vec<(f64, f64)>, String> {
+    let conn = open_db()?;
+    let cutoff = time::format_local(Local::now() - ChronoDuration::days(days as i64));
+    let mut stmt = conn
+        .prepare(
+            "SELECT five.used, target.used FROM subscription_history five
+             JOIN subscription_history target
+               ON target.timestamp = five.timestamp
+              AND target.provider = five.provider
+              AND target.window = ?2
+             WHERE five.provider = ?1 AND five.window = '5h' AND five.timestamp >= ?3
+             ORDER BY five.timestamp ASC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![provider, target, cutoff], |row| {
+            Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
+
+    let mut pairs = Vec::new();
+    for row in rows {
+        pairs.push(row.map_err(|error| error.to_string())?);
+    }
+    Ok(pairs)
 }
 
 /// Drops subscription readings older than the retention window.
@@ -1081,5 +1191,64 @@ mod tests {
                 .expect("the thread finishes")
                 .expect("both connections migrate the same database");
         }
+    }
+
+    /// Stored rows carrying a negative bucket are repaired when the database
+    /// opens: the display must read 6.00, not the raw sum 5.90.
+    #[test]
+    fn negative_buckets_are_repaired_on_open() {
+        let _in_turn = crate::test_support::database_in_turn();
+        crate::test_support::state_in_a_scratch_directory();
+        remove_history_database();
+
+        paths::ensure_dir(&paths::state_dir()).expect("the state directory");
+        let old = Connection::open(paths::history_db_file()).expect("a database");
+        old.execute_batch(
+            "CREATE TABLE balance_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform TEXT NOT NULL DEFAULT 'deepseek',
+                timestamp TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                total REAL NOT NULL,
+                topped REAL NOT NULL,
+                granted REAL NOT NULL,
+                service_status TEXT NOT NULL DEFAULT 'unknown'
+            );
+            INSERT INTO balance_history (timestamp, currency, total, topped, granted)
+            VALUES ('2026-01-01 10:00:00', 'CNY', 5.90, -0.10, 6.00);",
+        )
+        .expect("the schema of an earlier build");
+        drop(old);
+
+        let conn = open_db().expect("the database opens");
+        let (total, topped, granted): (f64, f64, f64) = conn
+            .query_row(
+                "SELECT total, topped, granted FROM balance_history LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("the row is there");
+        assert_eq!((total, topped, granted), (6.0, 0.0, 6.0));
+    }
+
+    /// The refinement needs both windows from the same poll; a poll that
+    /// recorded only one of them is not half a comparison.
+    #[test]
+    fn pairs_join_windows_from_the_same_poll() {
+        let _in_turn = crate::test_support::database_in_turn();
+        crate::test_support::state_in_a_scratch_directory();
+        remove_history_database();
+
+        save_subscription_usage_at("opencode_go", "5h", 10.0, 100.0, "2026-01-01 10:00:00")
+            .expect("a five-hour reading");
+        save_subscription_usage_at("opencode_go", "weekly", 40.0, 100.0, "2026-01-01 10:00:00")
+            .expect("a weekly reading");
+        save_subscription_usage_at("opencode_go", "5h", 12.5, 100.0, "2026-01-01 10:10:00")
+            .expect("a five-hour reading");
+        save_subscription_usage_at("opencode_go", "weekly", 41.0, 100.0, "2026-01-01 10:11:00")
+            .expect("a weekly reading");
+
+        let pairs = subscription_usage_pairs("opencode_go", "weekly", 36500).expect("the pairs");
+        assert_eq!(pairs, vec![(10.0, 40.0)]);
     }
 }

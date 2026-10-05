@@ -13,8 +13,8 @@ use std::time::Duration;
 use chrono::{DateTime, Local};
 
 use crate::config::AppConfig;
-use crate::model::{Balances, ConsumptionRate, PackageQuota, WindowRates};
-use crate::{demo, history, platforms, storage, update};
+use crate::model::{Balances, ConsumptionRate, HistoryRecord, PackageQuota, WindowRates};
+use crate::{demo, history, platforms, storage, time, update};
 
 /// How often the release page is asked for a newer version.
 const UPDATE_CHECK_HOURS: i64 = 24;
@@ -43,6 +43,9 @@ pub struct Snapshot {
     /// Why a platform's last reading failed, keyed the same way.
     pub balance_errors: std::collections::BTreeMap<String, String>,
     pub service_status: String,
+    /// The service indicator per platform that has a status page of its own
+    /// (DeepSeek and MiniMax), keyed by the platform key.
+    pub platform_status: std::collections::BTreeMap<String, String>,
     /// Burn-rate estimates per platform.
     pub consumption_rates: std::collections::BTreeMap<String, ConsumptionRate>,
     /// The package plans' quota windows, keyed by platform.
@@ -62,6 +65,10 @@ pub struct Snapshot {
     /// is nothing to compare, which is the case for a day holding a single
     /// reading, for a balance that went up, and before the first poll.
     pub today_spend: Option<(String, f64)>,
+    /// The day's largest package-window spend: the platform and window it
+    /// belongs to, and the percentage points spent of it. `None` when no plan
+    /// recorded a rise.
+    pub package_day_spend: Option<(String, String, f64)>,
 }
 
 impl Snapshot {
@@ -76,6 +83,19 @@ impl Snapshot {
         self.today_spend
             .as_ref()
             .is_some_and(|(_, spent)| *spent >= config.brisk_threshold_yuan)
+    }
+
+    /// Whether the largest package plan's day has passed the percent line.
+    ///
+    /// A line of zero means the alert is off, and a day with no recorded
+    /// spend is never brisk.
+    pub fn package_spending_is_brisk(&self, config: &crate::config::AppConfig) -> bool {
+        if config.brisk_package_percent <= 0.0 {
+            return false;
+        }
+        self.package_day_spend
+            .as_ref()
+            .is_some_and(|(_, _, spent)| *spent >= config.brisk_package_percent)
     }
 }
 
@@ -268,7 +288,8 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
         refine_coarse_windows(&mut outcome.packages);
         let window_rates = package_rates(&outcome.packages);
         let today_spend = today_spend();
-        (outcome, window_rates, today_spend)
+        let package_day_spend = package_day_spend(&outcome.packages);
+        (outcome, window_rates, today_spend, package_day_spend)
     });
 
     let Ok(mut guard) = snapshot.lock() else {
@@ -278,37 +299,84 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
     guard.last_check = Some(Local::now());
 
     match published {
-        Ok((outcome, window_rates, today_spend)) => {
+        Ok((outcome, window_rates, today_spend, package_day_spend)) => {
             guard.balances = outcome.balances;
             guard.balance_errors = outcome.balance_errors;
             guard.service_status = outcome.service_status;
+            guard.platform_status = outcome.platform_status;
             guard.consumption_rates = outcome.consumption_rates;
             guard.packages = outcome.packages;
             guard.window_rates = window_rates;
             guard.today_spend = today_spend;
+            guard.package_day_spend = package_day_spend;
             guard.last_error = None;
         }
         Err(error) => guard.last_error = Some(error),
     }
 }
 
-/// What today has cost the DeepSeek account: the first reading of the day
-/// against the last, in the currency they share.
+/// What today has cost the DeepSeek account: the day's positive drops added
+/// up, in the currency they share.
 ///
-/// The window is the same rolling day the history page calls "1d", so this
-/// figure and that page agree. A day holding one reading has nothing to
-/// compare, and a balance that went up (a top-up) is not spending: both say
-/// nothing rather than a confident zero.
+/// The window is the calendar day, and the aggregation is the earlier
+/// build's: a drop counts, a rise (a top-up or a grant) does not — adding
+/// only the drops keeps consumption visible after a recharge, where a
+/// first-minus-last would cancel it out. A day holding one reading, and a day
+/// with no positive drop at all, say nothing rather than a confident zero.
 fn today_spend() -> Option<(String, f64)> {
-    let records = storage::history_records(storage::KEY_DEEPSEEK, 1, None, 2000).ok()?;
+    let today = format!("{} 00:00:00", Local::now().format("%Y-%m-%d"));
+    let records = storage::history_records_since(storage::KEY_DEEPSEEK, &today, 2000).ok()?;
+    spent_of_day(&records)
+}
+
+/// The day's positive drops added up, in the currency they share.
+fn spent_of_day(records: &[HistoryRecord]) -> Option<(String, f64)> {
     let first = records.first()?;
     let last = records.last()?;
     if first.currency != last.currency {
         return None;
     }
 
-    let spent = first.total - last.total;
+    let mut spent = 0.0;
+    for pair in records.windows(2) {
+        let drop = pair[0].total - pair[1].total;
+        if drop > 0.0 {
+            spent += drop;
+        }
+    }
     (spent > 0.0).then(|| (last.currency.clone(), spent))
+}
+
+/// The day's largest package-window spend: the platform and window it
+/// belongs to, and the percentage points spent of it.
+///
+/// Each plan is read through its main window ([`crate::model::main_window`]) —
+/// the window the earlier build's day figure used by default.
+fn package_day_spend(
+    packages: &std::collections::BTreeMap<String, Subscription<PackageQuota>>,
+) -> Option<(String, String, f64)> {
+    let today = format!("{} 00:00:00", Local::now().format("%Y-%m-%d"));
+    let mut best: Option<(String, String, f64)> = None;
+
+    for (platform, subscription) in packages {
+        let Subscription::Loaded(quota) = subscription else {
+            continue;
+        };
+        let Some(window) = crate::model::main_window(quota) else {
+            continue;
+        };
+        let Ok(points) = storage::subscription_usage_since(platform, window, &today) else {
+            continue;
+        };
+        let spent = history::window_day_spend(&points);
+        let better = best
+            .as_ref()
+            .map_or(true, |(_, _, current)| spent > *current);
+        if spent > 0.0 && better {
+            best = Some((platform.clone(), window.to_owned(), spent));
+        }
+    }
+    best
 }
 
 /// Refreshes the package plans' quotas alone.
@@ -336,6 +404,7 @@ struct Outcome {
     balances: std::collections::BTreeMap<String, Balances>,
     balance_errors: std::collections::BTreeMap<String, String>,
     service_status: String,
+    platform_status: std::collections::BTreeMap<String, String>,
     consumption_rates: std::collections::BTreeMap<String, ConsumptionRate>,
     packages: std::collections::BTreeMap<String, Subscription<PackageQuota>>,
 }
@@ -358,6 +427,17 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
     }
 
     let service_status = platforms::status::fetch(proxy);
+
+    // DeepSeek and MiniMax are the two providers with a status page of their
+    // own; the indicator is kept per platform so each page shows its own.
+    let mut platform_status = std::collections::BTreeMap::new();
+    platform_status.insert(storage::KEY_DEEPSEEK.to_owned(), service_status.clone());
+    if minimax_configured() {
+        let status = platforms::minimax::fetch_status(proxy);
+        for meta in crate::catalog::implemented().filter(|meta| meta.key.starts_with("minimax_")) {
+            platform_status.insert(meta.key.to_owned(), status.clone());
+        }
+    }
 
     // Every provider keeps its own history; only DeepSeek has a status page, so
     // the others record the health as unknown.
@@ -391,9 +471,18 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
         balances,
         balance_errors,
         service_status,
+        platform_status,
         consumption_rates,
         packages: gather_packages(proxy),
     })
+}
+
+/// Whether any MiniMax plan holds a key: its status page is only fetched when
+/// there is a plan for it to say something about.
+fn minimax_configured() -> bool {
+    crate::catalog::implemented()
+        .filter(|meta| meta.key.starts_with("minimax_"))
+        .any(|meta| matches!(storage::read_secret(meta.key), Ok(Some(_))))
 }
 
 /// Reads every configured balance provider, keeping failures beside the
@@ -449,6 +538,7 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
         balances: [("deepseek".to_owned(), balances)].into_iter().collect(),
         balance_errors: Default::default(),
         service_status: "none".to_owned(),
+        platform_status: Default::default(),
         consumption_rates: consumption_rate
             .map(|rate| [("deepseek".to_owned(), rate)].into_iter().collect())
             .unwrap_or_default(),
@@ -468,15 +558,19 @@ fn record_subscription_usage(
         let Subscription::Loaded(quota) = subscription else {
             continue;
         };
-        // Every window a plan reports, not just the monthly one: the five-hour
-        // window reports money rather than percent, and that money is what
-        // refines the coarse weekly and monthly figures (`history::refined`).
+        // Every window a plan reports, not just the monthly one: the
+        // five-hour window is what refines the coarse weekly and monthly
+        // figures ([`history::refined_percent`]), and that join is on the
+        // timestamp, so the whole batch shares one.
+        let timestamp = time::now();
         for window in ["monthly", "weekly", "5h"] {
             let Some(entry) = quota.get(window) else {
                 continue;
             };
             let (used, cap) = entry.as_recorded_usage();
-            if let Err(error) = storage::save_subscription_usage(platform, window, used, cap) {
+            if let Err(error) =
+                storage::save_subscription_usage_at(platform, window, used, cap, &timestamp)
+            {
                 let _ = storage::log_line(&format!(
                     "usage history write failed for {platform} {window}: {error}"
                 ));
@@ -489,28 +583,33 @@ fn record_subscription_usage(
 /// reports.
 ///
 /// It is the one plan this can be done for: it reports a five-hour window in
-/// money next to whole-percent weekly and monthly ones, and its pools are known
-/// ($30 a week, $60 a month from the previous build's experiments). A plan
-/// without that five-hour window is left exactly as the endpoint reported it.
+/// percents of a known pool next to whole-percent weekly and monthly windows
+/// whose pools are known too — $12 per five hours, $30 a week, $60 a month
+/// from the earlier build's measurements. A plan without that five-hour
+/// window is left exactly as the endpoint reported it.
 fn refine_coarse_windows(
     packages: &mut std::collections::BTreeMap<String, Subscription<PackageQuota>>,
 ) {
     use crate::storage::PROVIDER_OPENCODE_GO;
 
-    let Ok(spent) = storage::subscription_usage_history(PROVIDER_OPENCODE_GO, "5h", 30) else {
-        return;
-    };
+    /// The warm-up window: the model re-establishes its estimate well before
+    /// the latest point it answers for.
+    const HISTORY_DAYS: u64 = 90;
+    /// The five-hour pool, in dollars, that converts its percent readings
+    /// into money.
+    const FIVE_HOUR_POOL: f64 = 12.0;
 
     let Some(Subscription::Loaded(quota)) = packages.get_mut(PROVIDER_OPENCODE_GO) else {
         return;
     };
 
     for (window, pool) in [("weekly", 30.0), ("monthly", 60.0)] {
-        let Ok(coarse) = storage::subscription_usage_history(PROVIDER_OPENCODE_GO, window, 30)
+        let Ok(readings) =
+            storage::subscription_usage_pairs(PROVIDER_OPENCODE_GO, window, HISTORY_DAYS)
         else {
             continue;
         };
-        let Some(refined) = history::refined_percent(&coarse, &spent, pool) else {
+        let Some(refined) = history::refined_percent(&readings, FIVE_HOUR_POOL, pool) else {
             continue;
         };
 

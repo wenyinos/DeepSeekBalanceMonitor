@@ -237,37 +237,58 @@ impl Watch {
         messages
     }
 
-    /// A day whose spending passed the line, said once for that day.    ///
-    /// The memory is the date, so a new day speaks on its own; a day that never
-    /// crosses the line clears it, in case the line was lowered since.
+    /// A day whose spending passed a line, said once for that day.
+    ///
+    /// The memory is the date, so a new day speaks on its own; a day that
+    /// never crosses a line clears it, in case the line was lowered since.
+    /// The balance figure speaks first; a package plan's day is judged too.
     fn brisk_message(
         &mut self,
         snapshot: &Snapshot,
         config: &AppConfig,
         lang: &str,
     ) -> Option<Message> {
-        if !snapshot.spending_is_brisk(config) {
+        let balance_brisk = snapshot.spending_is_brisk(config);
+        let package_brisk = snapshot.package_spending_is_brisk(config);
+        if !balance_brisk && !package_brisk {
             self.brisk_reported_on = None;
             return None;
         }
 
-        let (currency, spent) = snapshot.today_spend.as_ref()?;
         let today = Local::now().date_naive();
         if self.brisk_reported_on == Some(today) {
             return None;
         }
         self.brisk_reported_on = Some(today);
 
+        if balance_brisk {
+            let (currency, spent) = snapshot.today_spend.as_ref()?;
+            return Some(Message {
+                title: tr(lang, "brisk_title").to_owned(),
+                body: format!(
+                    "{} {} {}, {} {} {}",
+                    tr(lang, "brisk_body"),
+                    format_amount(*spent),
+                    currency,
+                    tr(lang, "threshold"),
+                    format_amount(config.brisk_threshold_yuan),
+                    currency,
+                ),
+            });
+        }
+
+        let (platform, window, spent) = snapshot.package_day_spend.as_ref()?;
+        let meta = catalog::find(platform)?;
         Some(Message {
             title: tr(lang, "brisk_title").to_owned(),
             body: format!(
-                "{} {} {}, {} {} {}",
+                "{} {}% · {} {}, {} {}%",
                 tr(lang, "brisk_body"),
                 format_amount(*spent),
-                currency,
+                meta.display_name,
+                tr(lang, catalog::window_label_key(window)),
                 tr(lang, "threshold"),
-                format_amount(config.brisk_threshold_yuan),
-                currency,
+                format_amount(config.brisk_package_percent),
             ),
         })
     }

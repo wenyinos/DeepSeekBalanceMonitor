@@ -20,8 +20,8 @@ use dsmon_core::catalog::{self, Mode, PlatformMeta};
 use dsmon_core::config::AppConfig;
 use dsmon_core::history::format_amount;
 use dsmon_core::icon::{self, IconTheme, State};
-use dsmon_core::model::preferred_balance;
-use dsmon_core::monitor::Snapshot;
+use dsmon_core::model::{main_window, preferred_balance};
+use dsmon_core::monitor::{Snapshot, Subscription};
 
 use crate::i18n::tr;
 
@@ -125,18 +125,33 @@ fn reading(snapshot: &Snapshot) -> Option<(PlatformMeta, String, f64)> {
 /// Low balance first, then a degraded service, then a day that is costing a
 /// lot — the order the previous build used.
 fn state_of(snapshot: &Snapshot, config: &AppConfig, total: f64) -> State {
-    if total < config.threshold_yuan {
+    if total < config.threshold_yuan || package_plan_is_low(snapshot, config) {
         State::Low
     } else if matches!(
         snapshot.service_status.as_str(),
         "maintenance" | "minor" | "major" | "critical"
     ) {
         State::Degraded
-    } else if snapshot.spending_is_brisk(config) {
+    } else if snapshot.spending_is_brisk(config) || snapshot.package_spending_is_brisk(config) {
         State::Brisk
     } else {
         State::Ok
     }
+}
+
+/// Whether any configured plan's main window sits below the package line —
+/// the ratio test the earlier build ran for its icon. Each plan is judged on
+/// its own: there is no "preferred plan" here, so one plan running low is
+/// enough to say so.
+fn package_plan_is_low(snapshot: &Snapshot, config: &AppConfig) -> bool {
+    snapshot.packages.values().any(|subscription| {
+        let Subscription::Loaded(quota) = subscription else {
+            return false;
+        };
+        main_window(quota)
+            .and_then(|window| quota.get(window))
+            .is_some_and(|entry| entry.percent_remaining < config.threshold_package_percent)
+    })
 }
 
 /// Handle to the tray icon: draws it, and hands what the user picked to the
@@ -242,6 +257,50 @@ mod tests {
         let mut snapshot = Snapshot::default();
         snapshot.balances.insert("deepseek".to_owned(), balances);
         snapshot
+    }
+
+    /// A plan whose main window ran below the package line decides the icon,
+    /// even when the balance is healthy.
+    #[test]
+    fn a_plan_below_the_package_line_turns_the_icon_low() {
+        let mut snapshot = snapshot_with(100.0);
+        let mut quota = dsmon_core::model::PackageQuota::new();
+        quota.insert(
+            "monthly".to_owned(),
+            dsmon_core::model::QuotaWindow::from_percent(95.0, 0),
+        );
+        snapshot
+            .packages
+            .insert("opencode_go".to_owned(), Subscription::Loaded(quota));
+
+        let config = AppConfig::default();
+        assert_eq!(state_of(&snapshot, &config, 100.0), State::Low);
+    }
+
+    #[test]
+    fn a_plan_above_the_package_line_keeps_the_icon_ok() {
+        let mut snapshot = snapshot_with(100.0);
+        let mut quota = dsmon_core::model::PackageQuota::new();
+        quota.insert(
+            "monthly".to_owned(),
+            dsmon_core::model::QuotaWindow::from_percent(80.0, 0),
+        );
+        snapshot
+            .packages
+            .insert("opencode_go".to_owned(), Subscription::Loaded(quota));
+
+        let config = AppConfig::default();
+        assert_eq!(state_of(&snapshot, &config, 100.0), State::Ok);
+    }
+
+    #[test]
+    fn a_brisk_package_day_turns_the_icon_brisk() {
+        let mut snapshot = snapshot_with(100.0);
+        snapshot.package_day_spend = Some(("command_code".to_owned(), "monthly".to_owned(), 12.0));
+
+        let mut config = AppConfig::default();
+        config.brisk_package_percent = 10.0;
+        assert_eq!(state_of(&snapshot, &config, 100.0), State::Brisk);
     }
 
     #[test]

@@ -121,12 +121,18 @@ pub fn consumption_rate_with_fallback(
     consumption_rate(platform, fallback_hours, interval_minutes)
 }
 
-/// Estimates the burn rate from `topped_up` readings.
+/// Estimates the burn rate from `total` readings.
 ///
 /// Three rules keep idle periods out of the average:
 /// 1. a top-up starts a new interval;
 /// 2. a gap longer than the busy threshold slices the interval;
 /// 3. a flat run longer than the threshold is discarded.
+///
+/// The rate is read from `total` (total_balance = topped_up + granted), NOT
+/// from `topped`: consumption can be drawn from the granted bucket, so a
+/// topped-only series stays flat — or negative — while the real usable
+/// balance drops, and the rate then reads zero. A granted arrival is an
+/// increase and gets sliced as a top-up, same as a recharge.
 pub fn consumption_rate_from_records(
     records: &[HistoryRecord],
     interval_minutes: u64,
@@ -141,7 +147,7 @@ pub fn consumption_rate_from_records(
         .map(|record| {
             let timestamp = NaiveDateTime::parse_from_str(&record.timestamp, "%Y-%m-%d %H:%M:%S")
                 .map_err(|error| error.to_string())?;
-            Ok((timestamp, record.topped))
+            Ok((timestamp, record.total))
         })
         .collect::<Result<Vec<_>, String>>()?;
 
@@ -280,6 +286,15 @@ pub fn consumption_rate_from_records(
     }
 
     // Weighted average of the per-interval hourly rates.
+    //
+    // Minimum length for a rate sample: half the poll interval, never under a
+    // minute. Shorter intervals come from extra or manual checks, not from a
+    // real measurement span — extrapolating a small balance delta over
+    // seconds yields an absurd hourly rate, and when such an interval is the
+    // only one carrying a drop it owns the whole weighted average. (The old
+    // floor was 0.01 h — 36 seconds — which let a single 46-second interval
+    // with a 0.08 drop report 6.26/h by itself.)
+    let min_sample_hours = (60.0_f64).max(0.5 * interval_minutes as f64 * 60.0) / 3600.0;
     let mut total_weight = 0.0;
     let mut weighted_sum = 0.0;
     for (start_value, start_time, end_value, end_time) in intervals {
@@ -287,7 +302,7 @@ pub fn consumption_rate_from_records(
             continue;
         }
         let delta_hours = (end_time - start_time).num_seconds() as f64 / 3600.0;
-        if delta_hours < 0.01 {
+        if delta_hours < min_sample_hours {
             continue;
         }
         let hourly_rate = (start_value - end_value) / delta_hours;
@@ -303,7 +318,10 @@ pub fn consumption_rate_from_records(
         return Ok(None);
     }
 
-    let remaining = parsed.last().expect("records is not empty").1;
+    // Clamp the remaining-quota base at 0: a non-positive balance (account in
+    // arrears, e.g. before a grant arrives) would otherwise yield a negative
+    // "hours left" — meaningless as a figure.
+    let remaining = parsed.last().expect("records is not empty").1.max(0.0);
     Ok(Some(ConsumptionRate {
         hourly_rate: average_hourly,
         busy_hours_left: remaining / average_hourly,
@@ -438,6 +456,21 @@ pub fn daily_usage(points: &[SubscriptionPoint]) -> Vec<DailyUsage> {
     usage
 }
 
+/// What one day has spent of a quota window: the day's positive rises added
+/// up, in percentage points — the package counterpart of the balance day
+/// figure, aggregated the same way. A drop (a renewal) never subtracts; the
+/// points handed in are already the day's own readings.
+pub fn window_day_spend(points: &[SubscriptionPoint]) -> f64 {
+    let mut spent = 0.0;
+    for pair in points.windows(2) {
+        let rise = pair[1].percent() - pair[0].percent();
+        if rise > 0.0 {
+            spent += rise;
+        }
+    }
+    spent
+}
+
 /// Start of the billing cycle containing `today`.
 ///
 /// When this month's billing date has not arrived yet, the cycle began last
@@ -456,53 +489,65 @@ pub fn format_percent(value: f64) -> String {
     }
 }
 
-/// Where between two whole percents a coarse window really is.
+/// Where between two whole percents a coarse window really is, refined by the
+/// money the five-hour window spent — the model the earlier build settled on
+/// after measuring it.
 ///
-/// The endpoint reports the weekly and monthly windows as whole percents, one
-/// step at a time, and the five-hour window as money. A pool is a known amount
-/// ($12 per five hours, $30 a week, $60 a month), so one percent of it is worth
-/// a fixed sum, and the money spent since the whole percent last moved says how
-/// far into the current step the truth has travelled — which is what the
-/// previous build showed, and what this one left out.
+/// The endpoint reports the weekly and monthly windows as whole percents that
+/// are ROUNDED (the true usage lies within obs±0.5), and the five-hour window
+/// as percents of its own pool. The pools are known — $12 per five hours, $30
+/// a week, $60 a month — so the money the five-hour window burned between two
+/// polls is a fixed share of the target window, and it places the estimate
+/// inside the band the rounded observation allows. The band is trimmed by
+/// 0.06 so a display that keeps one or two decimals never rounds across a
+/// half boundary.
 ///
-/// Strictly causal: only money actually recorded moves the figure, and only
-/// forward (a refund does not unspend it). A stretch with nothing recorded
-/// keeps the coarse value, however much time passes, and a step is never
-/// refined past its own width — when the spending fills it, the next poll's
-/// whole percent says so.
-pub fn refined_percent(
-    coarse_points: &[SubscriptionPoint],
-    spent_points: &[SubscriptionPoint],
-    pool: f64,
-) -> Option<f64> {
-    let current = coarse_points.last()?.used;
-    if pool <= 0.0 {
-        return Some(current);
+/// `readings` are `(five-hour used, target used)` pairs, one per poll,
+/// oldest first. Strictly causal: only real spending moves the estimate, only
+/// forward, and a window reset (the target reading drops) re-anchors it at
+/// the rounded observation.
+pub fn refined_percent(readings: &[(f64, f64)], five_pool: f64, target_pool: f64) -> Option<f64> {
+    /// Keeps a refined value off the exact half boundary.
+    const DISPLAY_MARGIN: f64 = 0.06;
+
+    let first = readings.first()?;
+    if target_pool <= 0.0 {
+        return Some(first.1);
     }
 
-    // Where the current whole percent began: the first reading that already
-    // showed it, after one that showed something else.
-    let step_start = coarse_points
-        .windows(2)
-        .rev()
-        .find(|pair| (pair[0].used - current).abs() > 0.000_001)
-        .map(|pair| pair[1].timestamp.as_str())
-        .unwrap_or(coarse_points[0].timestamp.as_str());
+    // The continuous usage estimate. Each point moves only inside its own
+    // observation's band, which is what keeps every refined figure consistent
+    // with the rounded integer the endpoint reported.
+    let mut estimate = first.1;
+    for pair in readings.windows(2) {
+        let (five_before, obs_before) = pair[0];
+        let (five_now, obs) = pair[1];
 
-    // The money spent since then, added up interval by interval. Timestamps
-    // are the stored `YYYY-MM-DD HH:MM:SS`, so the comparison is a string one
-    // on purpose: in that format it orders the same as time does.
-    let spent: f64 = spent_points
-        .iter()
-        .filter(|point| point.timestamp.as_str() >= step_start)
-        .fold((None::<f64>, 0.0), |(previous, total), point| {
-            let step = previous.map_or(0.0, |value| (point.used - value).max(0.0));
-            (Some(point.used), total + step)
-        })
-        .1;
+        if obs < obs_before {
+            // A reset: the window fell back to a new cycle, so re-anchor at
+            // the rounded observation.
+            estimate = obs;
+            continue;
+        }
 
-    let per_percent = pool / 100.0;
-    Some(current + (spent / per_percent).clamp(0.0, 1.0))
+        // Only real five-hour spend in this interval advances the estimate —
+        // never smear a rate over every row, which overshoots the observed
+        // total. The known pool ratio converts points to money exactly.
+        if five_now > five_before && five_pool > 0.0 {
+            let spent = (five_now - five_before) / 100.0 * five_pool;
+            estimate += spent * 100.0 / target_pool;
+        }
+        // Round semantics: the estimate stays inside (obs-0.5, obs+0.5). The
+        // lower bound rescues it when the coarse observation stepped up (the
+        // endpoint saw a new rounded integer, so usage must be inside its
+        // band); the upper bound keeps the line from claiming more
+        // consumption than the observed integer allows.
+        estimate = estimate.clamp(obs - 0.5 + DISPLAY_MARGIN, obs + 0.5 - DISPLAY_MARGIN);
+    }
+
+    // Two decimals, the format the interface shows.
+    let remaining = ((100.0 - estimate).clamp(0.0, 100.0) * 100.0).round() / 100.0;
+    Some(100.0 - remaining)
 }
 
 pub fn cycle_start(today: NaiveDate, billing_day: u8) -> NaiveDate {
@@ -579,6 +624,15 @@ mod tests {
         }
     }
 
+    /// A record whose total differs from its topped bucket, for the cases
+    /// where the granted balance moves.
+    fn record_of(timestamp: &str, total: f64, topped: f64) -> HistoryRecord {
+        HistoryRecord {
+            total,
+            ..record(timestamp, topped)
+        }
+    }
+
     #[test]
     fn summarises_each_currency() {
         let records = vec![
@@ -628,6 +682,63 @@ mod tests {
             rate.hourly_rate
         );
         assert!(rate.busy_hours_left > 0.0);
+    }
+
+    /// The rate must be read from `total`: consumption drawn from the granted
+    /// bucket leaves a topped-only series flat, and the rate would read zero.
+    #[test]
+    fn the_rate_reads_total_so_granted_balance_counts() {
+        // Topped sits at 10 all along; the granted bucket is drawn down by
+        // 0.6 an hour.
+        let records: Vec<HistoryRecord> = (0..7)
+            .map(|step| {
+                let minutes = step * 10;
+                let timestamp =
+                    format!("2026-01-01 {:02}:{:02}:00", 10 + minutes / 60, minutes % 60);
+                record_of(&timestamp, 16.0 - step as f64 * 0.6, 10.0)
+            })
+            .collect();
+
+        let rate = consumption_rate_from_records(&records, 10)
+            .unwrap()
+            .expect("a rate is produced");
+        assert!(
+            (rate.hourly_rate - 3.6).abs() < 0.5,
+            "expected about 3.6/hour from total, got {}",
+            rate.hourly_rate
+        );
+        assert!(rate.busy_hours_left > 0.0);
+    }
+
+    /// A non-positive balance is treated as spent: "hours left" must not go
+    /// negative.
+    #[test]
+    fn a_non_positive_balance_yields_no_hours_left() {
+        let records = vec![
+            record_of("2026-01-01 10:00:00", -0.10, -0.10),
+            record_of("2026-01-01 10:10:00", -0.23, -0.23),
+        ];
+
+        let rate = consumption_rate_from_records(&records, 10)
+            .unwrap()
+            .expect("a rate is produced");
+        assert_eq!(rate.busy_hours_left, 0.0);
+    }
+
+    /// A top-up, then a manual re-check 46 seconds later: the drop is real
+    /// but the span is not a measurement, and extrapolated it reads 6.26/h by
+    /// itself. It must not be sampled.
+    #[test]
+    fn a_short_interval_alone_yields_no_rate() {
+        let records = vec![
+            record("2026-01-01 10:00:00", 10.0),
+            record("2026-01-01 10:10:00", 10.5),
+            record("2026-01-01 10:10:46", 10.42),
+        ];
+
+        assert!(consumption_rate_from_records(&records, 10)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -682,6 +793,25 @@ mod tests {
         assert_eq!(usage.len(), 1, "the reset day is skipped");
         assert_eq!(usage[0].date, "2026-01-03");
         assert_eq!(usage[0].used, 4.0);
+    }
+
+    #[test]
+    fn a_day_of_window_spend_adds_the_rises() {
+        let points = vec![
+            point("2026-01-01 00:10:00", 20.0),
+            point("2026-01-01 08:00:00", 24.0),
+            // A renewal: the drop is not negative spend.
+            point("2026-01-01 16:00:00", 21.0),
+            point("2026-01-01 20:00:00", 22.5),
+        ];
+
+        assert!((window_day_spend(&points) - 5.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn one_reading_has_no_window_spend() {
+        assert_eq!(window_day_spend(&[]), 0.0);
+        assert_eq!(window_day_spend(&[point("2026-01-01 10:00:00", 10.0)]), 0.0);
     }
 
     #[test]
@@ -830,16 +960,16 @@ mod tests {
         assert!(csv.ends_with('\n'));
     }
 
-    /// Points at the given values, one minute apart, in the stored format.
-    fn points(values: &[f64]) -> Vec<SubscriptionPoint> {
-        values
-            .iter()
-            .enumerate()
-            .map(|(index, used)| SubscriptionPoint {
-                timestamp: format!("2026-09-16 10:{index:02}:00"),
-                used: *used,
-                cap: 0.0,
-            })
+    /// One poll's `(five-hour used, target used)` reading.
+    fn reading(five_hour: f64, target: f64) -> (f64, f64) {
+        (five_hour, target)
+    }
+
+    /// Refines every prefix of the series — what the running model sees at
+    /// each point — and returns the figures.
+    fn refined_prefixes(readings: &[(f64, f64)], five_pool: f64, target_pool: f64) -> Vec<f64> {
+        (1..=readings.len())
+            .map(|end| refined_percent(&readings[..end], five_pool, target_pool).expect("a figure"))
             .collect()
     }
 
@@ -855,46 +985,95 @@ mod tests {
     }
 
     #[test]
-    fn spending_inside_the_current_step_refines_it() {
-        // The weekly window sits at 41% from 10:02 on; $0.15 has been spent
-        // since, and a percent of the $30 pool is $0.30 — half a percent.
-        let coarse = points(&[40.0, 40.0, 41.0, 41.0, 41.0]);
-        let spent = points(&[0.0, 1.0, 1.2, 1.35, 1.35]);
-
-        let refined = refined_percent(&coarse, &spent, 30.0).expect("a figure");
-        assert!((refined - 41.5).abs() < 0.000_001, "{refined}");
+    fn a_window_with_no_history_has_no_figure() {
+        assert_eq!(refined_percent(&[], 12.0, 30.0), None);
     }
 
     #[test]
-    fn nothing_spent_keeps_the_coarse_figure() {
-        let coarse = points(&[40.0, 41.0, 41.0]);
-        let spent = points(&[0.5, 0.5, 0.5]);
+    fn nothing_spent_keeps_the_observation() {
+        let readings = [
+            reading(30.0, 41.0),
+            reading(30.0, 41.0),
+            reading(30.0, 41.0),
+        ];
 
-        assert_eq!(refined_percent(&coarse, &spent, 30.0), Some(41.0));
+        assert_eq!(refined_percent(&readings, 12.0, 30.0), Some(41.0));
     }
 
     #[test]
-    fn a_step_is_never_refined_past_its_own_width() {
-        // $30 spent would be a hundred percents; the next poll's whole percent
-        // is what says so, not this.
-        let coarse = points(&[40.0, 41.0, 41.0]);
-        let spent = points(&[0.0, 0.0, 30.0]);
+    fn spending_inside_the_band_refines_it() {
+        // The weekly window sits at 41; the five-hour window reports in
+        // percents of its $12 pool, and 2.5 points of it are $0.30 — a whole
+        // point of the $30 weekly pool. The rounded observation only allows
+        // half a point, so the estimate stops at 41.44.
+        let readings = [reading(30.0, 41.0), reading(32.5, 41.0)];
 
-        assert_eq!(refined_percent(&coarse, &spent, 30.0), Some(42.0));
+        let refined = refined_percent(&readings, 12.0, 30.0).expect("a figure");
+        assert!((refined - 41.44).abs() < 0.000_001, "{refined}");
+    }
+
+    #[test]
+    fn a_step_is_never_refined_past_its_band() {
+        // $30 spent would be a hundred points; the rounded observation caps
+        // the estimate at 41.44 regardless.
+        let readings = [reading(0.0, 41.0), reading(100.0, 41.0)];
+
+        let refined = refined_percent(&readings, 12.0, 30.0).expect("a figure");
+        assert!((refined - 41.44).abs() < 0.000_001, "{refined}");
     }
 
     #[test]
     fn a_month_is_refined_with_its_own_pool() {
-        // The monthly pool is $60, so a percent is $0.60.
-        let coarse = points(&[70.0, 70.0]);
-        let spent = points(&[0.0, 0.30]);
+        // The monthly pool is $60, so the same $0.30 is half a point — past
+        // the band's edge, so it stops at 70.44.
+        let readings = [reading(0.0, 70.0), reading(2.5, 70.0)];
 
-        let refined = refined_percent(&coarse, &spent, 60.0).expect("a figure");
-        assert!((refined - 70.5).abs() < 0.000_001, "{refined}");
+        let refined = refined_percent(&readings, 12.0, 60.0).expect("a figure");
+        assert!((refined - 70.44).abs() < 0.000_001, "{refined}");
     }
 
     #[test]
-    fn a_window_with_no_history_has_no_figure() {
-        assert_eq!(refined_percent(&[], &[], 30.0), None);
+    fn a_reset_re_anchors_the_estimate() {
+        // The target drops: a new cycle starts at the rounded observation.
+        let readings = [reading(0.0, 80.0), reading(10.0, 2.0), reading(12.5, 2.0)];
+
+        let refined = refined_percent(&readings, 12.0, 30.0).expect("a figure");
+        assert!((refined - 2.44).abs() < 0.000_001, "{refined}");
+    }
+
+    #[test]
+    fn a_five_hour_reset_steps_the_estimate_up() {
+        // The five-hour window reset (its reading fell), so nothing was
+        // spent; the observation stepped up, and the band's lower bound
+        // rescues the estimate.
+        let readings = [reading(43.0, 34.0), reading(5.0, 35.0)];
+
+        let refined = refined_percent(&readings, 12.0, 30.0).expect("a figure");
+        assert!((refined - 34.56).abs() < 0.000_001, "{refined}");
+    }
+
+    /// The regression the model was measured for: with spend in between and a
+    /// five-hour reset boundary, every refined point stays within half a point
+    /// of its own rounded observation.
+    #[test]
+    fn every_point_stays_inside_the_round_band() {
+        let readings = [
+            reading(30.0, 33.0),
+            reading(32.0, 33.0),
+            reading(35.0, 34.0),
+            reading(41.0, 34.0),
+            reading(43.0, 34.0),
+            reading(5.0, 35.0),
+            reading(10.0, 36.0),
+        ];
+
+        for (index, refined) in refined_prefixes(&readings, 12.0, 60.0).iter().enumerate() {
+            let obs = readings[index].1;
+            assert!(
+                (refined - obs).abs() <= 0.5,
+                "prefix {}: refined {refined} vs observation {obs}",
+                index + 1
+            );
+        }
     }
 }

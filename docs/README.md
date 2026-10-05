@@ -1,7 +1,7 @@
 # 文档索引
 
 本目录放文档。仓库根目录只保留约定俗成的几份：`README.md` / `README_zh.md`（面向使用者）、
-`AGENTS.md`（agent 易踩坑的高信号事实）、`CLAUDE.md`（项目权威细节）、`CONTRIBUTING.md`。
+`AGENTS.md`（agent 易踩坑的高信号事实与协作要求）、`CONTRIBUTING.md`。
 
 | 文档 | 内容 | 什么时候看 |
 |---|---|---|

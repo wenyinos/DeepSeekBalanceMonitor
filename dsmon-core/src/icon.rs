@@ -212,22 +212,36 @@ fn draw_label(buffer: &mut [u8], size: u32, label: &str, foreground: [u8; 3]) {
         return;
     };
 
-    let scale = PxScale::from(label_scale(label, size));
+    // The figure is drawn as large as it fits: the tighter of a width and a
+    // height budget decides the size, so a short label fills the icon and a
+    // long one stays inside it. The width budget leaves room for the bold
+    // offsets below; the height one keeps the digits clear of the rounded
+    // edge. Font metrics scale linearly, so one measurement per budget is
+    // exact.
+    let width_budget = size as f32 * 0.90;
+    let height_budget = size as f32 * 0.78;
+    let probe = PxScale::from(size as f32 * 0.6);
+    let (probe_width, probe_ascent, probe_descent) = measure(&font, probe, label);
+    let factor = (width_budget / probe_width.max(1e-6))
+        .min(height_budget / (probe_ascent - probe_descent).max(1e-6));
+    let scale = PxScale::from(probe.x * factor);
+    let (width, ascent, descent) = measure(&font, scale, label);
     let scaled = font.as_scaled(scale);
 
-    let mut width = 0.0f32;
-    let mut previous = None;
-    for character in label.chars() {
-        let glyph_id = scaled.glyph_id(character);
-        width += scaled.kern(previous.unwrap_or(glyph_id), glyph_id);
-        width += scaled.h_advance(glyph_id);
-        previous = Some(glyph_id);
-    }
-
     let origin_x = (size as f32 - width) / 2.0;
-    let ascent = scaled.ascent();
-    let descent = scaled.descent();
     let origin_y = (size as f32 - (ascent - descent)) / 2.0 + ascent;
+
+    // The face ships one weight, and at tray size the regular one reads
+    // thin; laying every coverage pass down at a few small offsets thickens
+    // the strokes the way a bold cut would, without a second font file.
+    let bold = (size as f32 * 0.025).clamp(0.4, 1.5);
+    let passes = [
+        (0.0, 0.0),
+        (bold, 0.0),
+        (-bold, 0.0),
+        (0.0, bold),
+        (0.0, -bold),
+    ];
 
     let mut pen_x = origin_x;
     let mut previous = None;
@@ -236,43 +250,53 @@ fn draw_label(buffer: &mut [u8], size: u32, label: &str, foreground: [u8; 3]) {
         if let Some(previous_id) = previous {
             pen_x += scaled.kern(previous_id, glyph_id);
         }
-        let glyph = glyph_id.with_scale_and_position(scale, ab_glyph::point(pen_x, origin_y));
-        pen_x += scaled.h_advance(glyph_id);
+        let advance = scaled.h_advance(glyph_id);
         previous = Some(glyph_id);
 
-        let Some(outlined) = font.outline_glyph(glyph) else {
-            continue;
-        };
-        let bounds = outlined.px_bounds();
-        outlined.draw(|x, y, coverage| {
-            let px = bounds.min.x as i32 + x as i32;
-            let py = bounds.min.y as i32 + y as i32;
-            if px < 0 || py < 0 || px >= size as i32 || py >= size as i32 {
-                return;
-            }
-            let index = ((py as u32 * size + px as u32) * 4) as usize;
-            if buffer[index + 3] == 0 {
-                return;
-            }
-            let alpha = coverage.clamp(0.0, 1.0);
-            for channel in 0..3 {
-                let base = buffer[index + channel] as f32;
-                let top = foreground[channel] as f32;
-                buffer[index + channel] = (base + (top - base) * alpha).round() as u8;
-            }
-        });
+        for (offset_x, offset_y) in passes {
+            let glyph = glyph_id.with_scale_and_position(
+                scale,
+                ab_glyph::point(pen_x + offset_x, origin_y + offset_y),
+            );
+            let Some(outlined) = font.outline_glyph(glyph) else {
+                continue;
+            };
+            let bounds = outlined.px_bounds();
+            outlined.draw(|x, y, coverage| {
+                let px = bounds.min.x as i32 + x as i32;
+                let py = bounds.min.y as i32 + y as i32;
+                if px < 0 || py < 0 || px >= size as i32 || py >= size as i32 {
+                    return;
+                }
+                let index = ((py as u32 * size + px as u32) * 4) as usize;
+                if buffer[index + 3] == 0 {
+                    return;
+                }
+                let alpha = coverage.clamp(0.0, 1.0);
+                for channel in 0..3 {
+                    let base = buffer[index + channel] as f32;
+                    let top = foreground[channel] as f32;
+                    buffer[index + channel] = (base + (top - base) * alpha).round() as u8;
+                }
+            });
+        }
+
+        pen_x += advance;
     }
 }
 
-/// Picks a font size that keeps the figure inside the icon.
-fn label_scale(label: &str, size: u32) -> f32 {
-    let size = size as f32;
-    match label.chars().count() {
-        0 | 1 => size * 0.62,
-        2 => size * 0.54,
-        3 => size * 0.40,
-        _ => size * 0.30,
+/// The label's width and vertical extent at the given scale, in pixels.
+fn measure(font: &FontRef<'_>, scale: PxScale, label: &str) -> (f32, f32, f32) {
+    let scaled = font.as_scaled(scale);
+    let mut width = 0.0f32;
+    let mut previous = None;
+    for character in label.chars() {
+        let glyph_id = scaled.glyph_id(character);
+        width += scaled.kern(previous.unwrap_or(glyph_id), glyph_id);
+        width += scaled.h_advance(glyph_id);
+        previous = Some(glyph_id);
     }
+    (width, scaled.ascent(), scaled.descent())
 }
 
 /// Which reading the icon reflects.
@@ -512,6 +536,101 @@ mod tests {
         assert_eq!(icon.rgba[3], 0);
         let centre = ((16 * 32 + 16) * 4) as usize;
         assert_eq!(icon.rgba[centre + 3], 255);
+    }
+
+    /// The tray figure must read at a glance: it is drawn big enough to fill
+    /// the icon and thick enough to survive the host scaling it down.
+    #[test]
+    fn the_figure_fills_the_icon_and_reads_bold() {
+        let fill = [0x3c, 0x69, 0x66];
+        let icon = render(&IconSpec {
+            label: "12.3",
+            background: fill,
+            foreground: readable_on(fill),
+            size: 64,
+        });
+
+        let mut ink = 0usize;
+        let (mut min_x, mut max_x) = (64u32, 0u32);
+        for y in 0..64 {
+            for x in 0..64 {
+                let index = ((y * 64 + x) * 4) as usize;
+                // Transparent pixels are outside the rounded square; the
+                // figure lives on the painted fill.
+                if icon.rgba[index + 3] == 0 {
+                    continue;
+                }
+                let pixel = [icon.rgba[index], icon.rgba[index + 1], icon.rgba[index + 2]];
+                let distance: i32 = (0..3)
+                    .map(|channel| (pixel[channel] as i32 - fill[channel] as i32).abs())
+                    .sum();
+                if distance > 90 {
+                    ink += 1;
+                    min_x = min_x.min(x);
+                    max_x = max_x.max(x);
+                }
+            }
+        }
+        // Four characters at the new face: far past what the old scale
+        // covered, and thick enough to survive the host's downscaling.
+        assert!(ink > 600, "the figure leaves only {ink} pixels of ink");
+        assert!(
+            max_x - min_x > 45,
+            "the figure spans {} columns",
+            max_x - min_x
+        );
+    }
+
+    /// Every figure the formatter produces renders inside the canvas, at the
+    /// sizes a tray asks for — the label is drawn as large as it fits, and
+    /// "as large as it fits" must still fit.
+    #[test]
+    fn every_figure_stays_inside_the_icon() {
+        let fill = [0x3c, 0x69, 0x66];
+        for size in [16u32, 32, 64, 128] {
+            for label in ["9", "8.5", "12", "88", "OK", "--", "12.3"] {
+                let icon = render(&IconSpec {
+                    label,
+                    background: fill,
+                    foreground: readable_on(fill),
+                    size,
+                });
+
+                let mut ink = 0usize;
+                let (mut min_x, mut max_x) = (size, 0u32);
+                let (mut min_y, mut max_y) = (size, 0u32);
+                for y in 0..size {
+                    for x in 0..size {
+                        let index = ((y * size + x) * 4) as usize;
+                        if icon.rgba[index + 3] == 0 {
+                            continue;
+                        }
+                        let distance: i32 = (0..3)
+                            .map(|channel| {
+                                (icon.rgba[index + channel] as i32 - fill[channel] as i32).abs()
+                            })
+                            .sum();
+                        if distance > 90 {
+                            ink += 1;
+                            min_x = min_x.min(x);
+                            max_x = max_x.max(x);
+                            min_y = min_y.min(y);
+                            max_y = max_y.max(y);
+                        }
+                    }
+                }
+
+                assert!(ink > 0, "{label:?} at {size} draws something");
+                assert!(
+                    min_x >= 1 && max_x < size - 1,
+                    "{label:?} at {size} stays inside horizontally ({min_x}..{max_x})"
+                );
+                assert!(
+                    min_y >= 1 && max_y < size - 1,
+                    "{label:?} at {size} stays inside vertically ({min_y}..{max_y})"
+                );
+            }
+        }
     }
 }
 

@@ -31,6 +31,8 @@ pub const WIDGET_SIZES: [&str; 2] = ["compact", "standard"];
 pub const MIN_INTERVAL_MINUTES: u64 = 1;
 pub const MAX_INTERVAL_MINUTES: u64 = 1440;
 pub const MAX_THRESHOLD_YUAN: f64 = 10_000.0;
+/// Ceiling for the percent-based alert lines (a share cannot exceed 100).
+pub const MAX_LINE_PERCENT: f64 = 100.0;
 pub const MIN_RETENTION_DAYS: u64 = 1;
 pub const MAX_RETENTION_DAYS: u64 = 3650;
 /// Billing days are capped at 28 so every month has the date.
@@ -71,6 +73,10 @@ pub struct AppConfig {
     pub interval_minutes: u64,
     #[serde(default = "default_threshold")]
     pub threshold_yuan: f64,
+    /// The line for a package plan's remaining share, in percent: below it
+    /// the icon turns low. Ten, as the earlier build had it.
+    #[serde(default = "default_threshold_package_percent")]
+    pub threshold_package_percent: f64,
     #[serde(default = "default_ui_language")]
     pub ui_language: String,
     #[serde(default)]
@@ -84,8 +90,13 @@ pub struct AppConfig {
     /// a figure each user has to pick for themselves.
     #[serde(default)]
     pub brisk_threshold_yuan: f64,
+    /// The package counterpart: percentage points of a plan's window spent in
+    /// one day. Zero turns it off, which is how it ships.
+    #[serde(default)]
+    pub brisk_package_percent: f64,
     /// Whether DeepSeek's off-peak discount starting and ending is announced.
-    #[serde(default = "default_true")]
+    /// Ships off, as the earlier build had it.
+    #[serde(default)]
     pub peak_alert_enabled: bool,
     /// Whether a plan's window being spent faster than its clock is announced.
     #[serde(default = "default_true")]
@@ -157,12 +168,14 @@ impl Default for AppConfig {
         Self {
             interval_minutes: default_interval(),
             threshold_yuan: default_threshold(),
+            threshold_package_percent: default_threshold_package_percent(),
             ui_language: default_ui_language(),
             auto_start: false,
             alert_mode: default_alert_mode(),
             api_alert_enabled: default_api_alert_enabled(),
             brisk_threshold_yuan: 0.0,
-            peak_alert_enabled: true,
+            brisk_package_percent: 0.0,
+            peak_alert_enabled: false,
             quota_alert_enabled: true,
             update_check_enabled: true,
             retention_days: default_retention_days(),
@@ -195,6 +208,10 @@ fn default_interval() -> u64 {
 
 fn default_threshold() -> f64 {
     1.0
+}
+
+fn default_threshold_package_percent() -> f64 {
+    10.0
 }
 
 fn default_ui_language() -> String {
@@ -307,6 +324,16 @@ impl AppConfig {
             self.brisk_threshold_yuan = 0.0;
         }
         self.brisk_threshold_yuan = self.brisk_threshold_yuan.min(MAX_THRESHOLD_YUAN);
+
+        if !self.threshold_package_percent.is_finite() || self.threshold_package_percent < 0.0 {
+            self.threshold_package_percent = 0.0;
+        }
+        self.threshold_package_percent = self.threshold_package_percent.min(MAX_LINE_PERCENT);
+
+        if !self.brisk_package_percent.is_finite() || self.brisk_package_percent < 0.0 {
+            self.brisk_package_percent = 0.0;
+        }
+        self.brisk_package_percent = self.brisk_package_percent.min(MAX_LINE_PERCENT);
         self.retention_days = self
             .retention_days
             .clamp(MIN_RETENTION_DAYS, MAX_RETENTION_DAYS);
@@ -366,6 +393,8 @@ mod tests {
         assert_eq!(config.interval_minutes, 10);
         assert_eq!(config.ui_theme, "system");
         assert!(config.widget_always_on_top);
+        assert_eq!(config.threshold_package_percent, 10.0);
+        assert_eq!(config.brisk_package_percent, 0.0);
     }
 
     #[test]

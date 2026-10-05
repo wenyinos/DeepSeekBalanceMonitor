@@ -1,7 +1,7 @@
 //! Settings page: credentials, general options, alerts and data handling.
 
 use dsmon_core::config::{
-    AppConfig, ALERT_MODES, LANGUAGES, MAX_INTERVAL_MINUTES, MAX_RETENTION_DAYS,
+    AppConfig, ALERT_MODES, LANGUAGES, MAX_INTERVAL_MINUTES, MAX_LINE_PERCENT, MAX_RETENTION_DAYS,
     MAX_THRESHOLD_YUAN, MIN_INTERVAL_MINUTES, MIN_RETENTION_DAYS,
 };
 use egui::RichText;
@@ -356,6 +356,14 @@ fn alerts_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
             );
         });
 
+        row(ui, palette, view.text("threshold_package_label"), |ui| {
+            ui.add(
+                egui::DragValue::new(&mut state.draft.threshold_package_percent)
+                    .range(0.0..=MAX_LINE_PERCENT)
+                    .speed(1.0),
+            );
+        });
+
         row(ui, palette, view.text("alert_mode_label"), |ui| {
             egui::ComboBox::from_id_salt("alert-mode")
                 .selected_text(&state.draft.alert_mode)
@@ -393,6 +401,15 @@ fn alerts_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
                 egui::DragValue::new(&mut state.draft.brisk_threshold_yuan)
                     .range(0.0..=MAX_THRESHOLD_YUAN)
                     .speed(0.1),
+            );
+        });
+
+        // The package counterpart, in percentage points of a plan's window.
+        row(ui, palette, view.text("brisk_package_label"), |ui| {
+            ui.add(
+                egui::DragValue::new(&mut state.draft.brisk_package_percent)
+                    .range(0.0..=MAX_LINE_PERCENT)
+                    .speed(1.0),
             );
         });
     });

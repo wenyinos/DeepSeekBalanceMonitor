@@ -8,9 +8,9 @@ use dsmon_core::widget_api::{Day, Platform, Spend};
 use egui::{Color32, CornerRadius, FontId, RichText};
 
 use crate::fonts::DIGITS_FAMILY;
-use crate::i18n::tr;
+use crate::i18n::{status_text, tr};
 use crate::theme::Palette;
-use crate::views::{progress_line, usage_color};
+use crate::views::{progress_line, status_color, status_dot, usage_color};
 
 use super::charts;
 
@@ -194,6 +194,13 @@ pub fn balance_card(
             }
         });
 
+        // The platform's own status page rides under the figures it belongs
+        // to; providers without one show nothing here.
+        if let Some(status) = &platform.service_status {
+            ui.add_space(2.0);
+            status_line(ui, look, status);
+        }
+
         // `widget_show_trend` is what this setting is for: a panel that wants
         // only the figures can drop the curve without giving up the card.
         if look.show_trend {
@@ -273,6 +280,12 @@ pub fn subscription(ui: &mut egui::Ui, look: &Look<'_>, platform: &Platform) {
                     .size(9.5)
                     .color(look.palette.text_secondary),
             );
+        }
+
+        // The plan's own status page, where it has one (MiniMax).
+        if let Some(status) = &platform.service_status {
+            ui.add_space(2.0);
+            status_line(ui, look, status);
         }
     });
 }
@@ -607,4 +620,18 @@ fn format_amount(value: f64) -> String {
 /// "12d 3h", the way the status page writes the estimate.
 fn format_busy_hours(hours: f64) -> String {
     crate::views::status::format_busy_hours(hours)
+}
+
+/// The platform's own status page, as one line: a dot in the health colour and
+/// the indicator word — what the status page draws in its third card, in the
+/// compact form the panel has room for.
+fn status_line(ui: &mut egui::Ui, look: &Look<'_>, status: &str) {
+    ui.horizontal(|ui| {
+        status_dot(ui, status_color(look.palette, status));
+        ui.label(
+            RichText::new(status_text(look.lang, status))
+                .size(10.5)
+                .color(look.palette.text_primary),
+        );
+    });
 }

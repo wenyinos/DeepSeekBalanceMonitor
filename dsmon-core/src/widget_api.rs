@@ -114,6 +114,9 @@ pub struct Platform {
     pub balances: Vec<BalanceEntry>,
     pub rate: Option<Rate>,
     pub windows: Vec<Window>,
+    /// The platform's own status-page indicator, when it has a status page
+    /// (DeepSeek and MiniMax); absent for providers without one.
+    pub service_status: Option<String>,
     pub series: Vec<Point>,
     pub daily: Vec<Day>,
 }
@@ -221,6 +224,9 @@ fn platform(
         key: meta.key.to_owned(),
         display: meta.display_name.to_owned(),
         kind: meta.mode.as_config().to_owned(),
+        // Only the providers with a status page of their own carry one; the
+        // status line is drawn from it (or not at all).
+        service_status: snapshot.platform_status.get(meta.key).cloned(),
         ..Platform::default()
     };
 
@@ -675,5 +681,55 @@ mod tests {
         // No key is stored in this scratch directory, so the widget is told
         // about no platform at all — the same rule the sidebar follows.
         assert!(payload.platforms.is_empty());
+    }
+
+    /// The platform's own status page rides along with its readings: the
+    /// widget draws the status line from it.
+    #[test]
+    fn a_configured_platform_carries_its_status_page_indicator() {
+        crate::test_support::state_in_a_scratch_directory();
+        let _db = crate::test_support::database_in_turn();
+
+        crate::storage::store_secret("deepseek", "sk-test").expect("a stored key");
+
+        let mut snapshot = Snapshot {
+            service_status: "major".to_owned(),
+            ..Snapshot::default()
+        };
+        snapshot
+            .platform_status
+            .insert("deepseek".to_owned(), "major".to_owned());
+
+        let payload = payload(&snapshot, &AppConfig::default(), 7);
+        let platform = payload
+            .platforms
+            .iter()
+            .find(|platform| platform.key == "deepseek")
+            .expect("the configured platform");
+        assert_eq!(platform.service_status.as_deref(), Some("major"));
+
+        // The scratch database is shared with every other test in this
+        // process, so the key goes away again before the lock is released.
+        crate::storage::delete_secret("deepseek").expect("the key is removed");
+    }
+
+    /// Providers without a status page carry nothing, so their cards draw no
+    /// status line.
+    #[test]
+    fn a_platform_without_a_status_page_carries_none() {
+        crate::test_support::state_in_a_scratch_directory();
+        let _db = crate::test_support::database_in_turn();
+
+        crate::storage::store_secret("kimi_token_cn", "sk-test").expect("a stored key");
+
+        let payload = payload(&Snapshot::default(), &AppConfig::default(), 7);
+        let platform = payload
+            .platforms
+            .iter()
+            .find(|platform| platform.key == "kimi_token_cn")
+            .expect("the configured platform");
+        assert_eq!(platform.service_status, None);
+
+        crate::storage::delete_secret("kimi_token_cn").expect("the key is removed");
     }
 }

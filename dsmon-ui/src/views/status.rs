@@ -41,6 +41,8 @@ pub fn show(
 
         if platform == dsmon_core::storage::KEY_DEEPSEEK {
             health_card(&mut columns[2], view, snapshot);
+        } else if let Some(status) = snapshot.platform_status.get(platform) {
+            service_card(&mut columns[2], view, status);
         } else {
             connection_card(&mut columns[2], view, snapshot, platform);
         }
@@ -175,6 +177,31 @@ fn balance_card(
             ui.add_space(2.0);
             ui.label(RichText::new(error).color(palette.destructive).size(12.0));
         }
+    });
+}
+
+/// A plan's own status page (MiniMax), drawn the way DeepSeek's health card
+/// is, without the rate figures that belong to the balance account.
+fn service_card(ui: &mut egui::Ui, view: &View<'_>, status: &str) {
+    let palette = view.palette;
+
+    card(ui, palette, |ui| {
+        ui.set_min_height(super::SUMMARY_CARD_HEIGHT);
+        ui.label(
+            RichText::new(view.text("service_status"))
+                .size(16.0)
+                .color(palette.text_primary)
+                .strong(),
+        );
+        ui.add_space(8.0);
+
+        ui.horizontal(|ui| {
+            status_dot(ui, status_color(palette, status));
+            ui.label(
+                RichText::new(crate::i18n::status_text(view.lang, status))
+                    .color(palette.text_primary),
+            );
+        });
     });
 }
 

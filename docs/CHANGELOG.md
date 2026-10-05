@@ -2,6 +2,58 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.2.0 (2026-10-05)
+
+This release fixes two long-standing silent errors (the statistics and the negative buckets), makes
+the service status able to report a real outage, fills in the package-side low and daily alerts the
+1.x line had, and makes the tray figures larger and bolder.
+
+### Fixed
+
+- **The burn rate and the estimate read `total`**: they read `topped` before — an account spending
+  from its granted balance keeps that column flat, so the rate read zero and the estimate went
+  negative. The granted balance now counts, and the base is clamped at 0. The shortest rate sample is
+  derived from the poll interval (`max(60 s, half a cycle)`): a 46-second manual re-check used to own
+  the whole weighted average and report 6.26/h by itself
+- **A negative bucket is not a negative balance**: each DeepSeek bucket is clamped at 0 and the total
+  is re-derived (`topped -0.10 + granted 6.00` reads **6.00**, not 5.90); rows stored with a negative
+  bucket are repaired once when the database opens (only `topped<0 OR granted<0` is touched, so
+  OpenRouter's cumulative top-up column is left alone)
+- **The DeepSeek status page redone**: it read FlashDuty's own page, whose only possible answers were
+  "operational" and "unknown". It now tries two hosts (the canonical domain, then FlashDuty's backend),
+  decodes the Next.js RSC chunks, reads only the API components, and maps the vocabulary of the shared
+  contract — **major, critical and maintenance are reachable now**, and a page it cannot identify
+  reads unknown rather than a silent "fine"
+- **OpenCode Go's coarse windows refined the way 1.x measured them**: integer percents are read with
+  round semantics (the estimate stays inside obs±0.5, trimmed by 0.06), advanced by real five-hour
+  spend over the known pool ratio ($12/$30/$60), re-anchored at resets, strictly causal, warmed up
+  over 90 days. The history records all three windows under one timestamp per poll, and the refinement
+  joins on it
+- **Today's spending adds up the day's drops**: calendar-day window; a top-up or a grant no longer
+  cancels what the day has already cost
+- **The tray figure is larger and bolder**: the size now fits the icon's budget (a four-character
+  figure is about 40% wider) and is drawn in a few small offsets to stand in for the bold the face
+  does not ship
+
+### Added
+
+- **MiniMax's status page**: the LLM components of `status.minimax.io`, read as 1.x did, shown in the
+  status page's third card (providers without a page keep showing "connection")
+- **A package low line**: `threshold_package_percent` (default 10) — any plan whose main window falls
+  below it turns the icon low (no notification, the same as 1.x)
+- **A package daily line**: `brisk_package_percent` (default 0 = off) — a plan whose day crosses it
+  turns the icon brisk and is announced once a day
+- **The widget's status line**: the payload carries `platforms[].service_status` (only for providers
+  with a status page), and the balance and subscription cards draw it — the same indicator the
+  application shows
+
+### Changed
+
+- **The off-peak alert ships off** (as 1.x had it; this build defaulted it on)
+- `AGENTS.md` gains a behavior-parity section (application ↔ widget): any change to figures, status
+  or alert semantics must be evaluated on both sides — payload and both renderings; `CLAUDE.md` is
+  gone (its content lives in `docs/`)
+
 ## Rust v2.1.4 (2026-09-20)
 
 ### Fixed

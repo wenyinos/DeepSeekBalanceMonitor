@@ -1,7 +1,7 @@
 # AGENTS.md
 
-跨平台 DeepSeek 余额监控（2.0，纯 Rust）。**权威项目细节见 `CLAUDE.md`**（架构、存储格式、
-平台集成矩阵、打包），本文件只列 agent 容易踩坑的高信号事实。
+跨平台 DeepSeek 余额监控（2.0，纯 Rust）。**权威项目细节都在 `docs/`**（架构、存储格式、
+平台集成矩阵、打包），本文件只列 agent 容易踩坑的高信号事实与协作要求。
 
 设计文档都在 `docs/`（索引见 `docs/README.md`）：1.x 与 2.0 的差异见 `docs/GAPS.md`，
 Rust 与 Python 版应共同暴露的接口见 `docs/INTERFACES.md`。
@@ -15,6 +15,15 @@ Rust 与 Python 版应共同暴露的接口见 `docs/INTERFACES.md`。
   `deepseek-balance-monitor.exe` 重名**，两个版本要能并存。
 - 开发时启动界面：`cargo run -p dsmon-ui --example preview`（不走平台入口）。
 - 两个入口都是十几行，只调用 `dsmon_ui::run()`；界面代码在仓库里只有一份。
+
+## 行为同步（主程序 ↔ 小工具）
+
+主程序 `dsmon2` 与桌面小工具 `dsmon2-widget` 是同一产品的两面。**任何行为、口径、状态或告警语义的改动，两处都要同步评估**——小工具不自己算数，只经回环载荷（`widget_api.rs`）读主程序的数据。
+
+- 值或口径变了（速率、余额钳制、窗口精化、今日消耗、单日线……）：先检查它是否进了载荷（`widget_api::payload`），没有就加字段；再看小工具渲染（`dsmon-ui/src/widget/`）是否该跟着变，没有就补。
+- 载荷是**契约**：字段变化同步更新 `docs/INTERFACES.md` §1.3 与 `docs/WIDGET.md`；两端共用同一份文案（`i18n.rs`）。
+- 有状态页的平台（DeepSeek / MiniMax）在载荷里带 `platforms[].service_status`，小工具画状态行；新增状态页平台时一并接入。
+- 通知与托盘图标行为只属于主程序（契约 §8「只有主程序发」），小工具不重复；但面板上的对应展示（今日消耗、窗口百分比等）必须一致。
 
 ## 关键陷阱
 

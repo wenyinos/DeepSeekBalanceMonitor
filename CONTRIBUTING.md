@@ -1,7 +1,7 @@
 # Contributing
 
 > 本文档描述 v2.0.2 的 Python-Windows 运行时架构与各端约定，供贡献者快速建立基线。
-> 权威细节（配置/密钥存储/多平台矩阵/忙时算法）见 `CLAUDE.md`；agent 高信号事实见 `AGENTS.md`。
+> 权威细节（配置/密钥存储/多平台矩阵/忙时算法）见 `docs/`（索引 `docs/README.md`）；agent 高信号事实见 `AGENTS.md`。
 > 同一功能存在 Python 与 Rust 双实现，修改 API 客户端 / 忙时速率算法 / 告警逻辑时必须同步检查两端。
 
 ## 项目状态

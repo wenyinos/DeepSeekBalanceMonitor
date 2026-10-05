@@ -128,6 +128,78 @@ fn worth_another_try(error: &str) -> bool {
         .any(|status| error.contains(status))
 }
 
+const STATUS_URL: &str = "https://status.minimax.io/";
+
+/// The plan's own status page, read the way the earlier build read it: the
+/// state word of the LLM components on the front page.
+///
+/// A page that answers nothing, or answers something this build cannot
+/// recognize, yields `unknown`. (The earlier build answered `none` for such a
+/// page — the same silent "healthy" its DeepSeek page once reported, which
+/// the 1.x line fixed; the rule here is the fixed one.)
+pub fn fetch_status(http_proxy: &str) -> String {
+    let Ok(client) = http_client(Duration::from_secs(5), http_proxy) else {
+        return "unknown".to_owned();
+    };
+    let fetched = client
+        .get(STATUS_URL)
+        .header("Accept", "text/html,*/*")
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .send()
+        .and_then(|response| response.error_for_status())
+        .and_then(|response| response.text());
+    match fetched {
+        Ok(html) => parse_status_page(&html),
+        Err(error) => {
+            let _ = crate::storage::log_line(&format!(
+                "The MiniMax status page could not be read ({error}); the status reads unknown."
+            ));
+            "unknown".to_owned()
+        }
+    }
+}
+
+/// Maps the LLM components' state word to the interface's indicator, folding
+/// the vocabulary the earlier build's regex captured. Note that "major
+/// outage" reads `major` there, not `critical` — the branch order decided
+/// that, and the behavior is kept.
+fn parse_status_page(html: &str) -> String {
+    let lower = html
+        .split('\n')
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+
+    if let Some(anchor) = lower.find("large language models") {
+        let rest = &lower[anchor..];
+        // The word that answers is the first one to appear after the anchor,
+        // the way the earlier build's non-greedy regex matched.
+        let mut earliest: Option<(usize, &str)> = None;
+        for (word, indicator) in [
+            ("operational", "none"),
+            ("degraded", "minor"),
+            ("partial outage", "major"),
+            ("major outage", "major"),
+            ("under maintenance", "maintenance"),
+        ] {
+            if let Some(at) = rest.find(word) {
+                if earliest.map_or(true, |(position, _)| at < position) {
+                    earliest = Some((at, indicator));
+                }
+            }
+        }
+        if let Some((_, indicator)) = earliest {
+            return indicator.to_owned();
+        }
+    }
+
+    if lower.contains("all systems operational") {
+        return "none".to_owned();
+    }
+
+    "unknown".to_owned()
+}
+
 /// Turns a response body into the two windows, or says why it cannot.
 fn read_quota(body: &serde_json::Value, now: i64) -> Result<PackageQuota, String> {
     // The two plans answer with the list in different places.
@@ -271,5 +343,40 @@ mod tests {
         let quota = read_quota(&body, 0).unwrap();
         assert_eq!(quota["5h"].usage_percent, 100.0, "105 used clamps to 100");
         assert_eq!(quota["weekly"].usage_percent, 0.0, "-30 used clamps to 0");
+    }
+
+    #[test]
+    fn reads_the_llm_status_word() {
+        let page = |word: &str| format!("<html>Large Language Models <span>{word}</span></html>");
+        assert_eq!(parse_status_page(&page("Operational")), "none");
+        assert_eq!(parse_status_page(&page("Degraded")), "minor");
+        assert_eq!(parse_status_page(&page("Partial Outage")), "major");
+        // The earlier build folded "major outage" into major, not critical.
+        assert_eq!(parse_status_page(&page("Major Outage")), "major");
+        assert_eq!(parse_status_page(&page("Under Maintenance")), "maintenance");
+    }
+
+    #[test]
+    fn a_healthy_page_says_so() {
+        assert_eq!(
+            parse_status_page("<html><body>All Systems Operational</body></html>"),
+            "none"
+        );
+    }
+
+    /// A page this build cannot read says unknown — never a silent "healthy".
+    #[test]
+    fn an_unreadable_page_is_unknown() {
+        assert_eq!(parse_status_page(""), "unknown");
+        assert_eq!(parse_status_page("<html>nothing here</html>"), "unknown");
+    }
+
+    /// The word nearest the anchor answers, the way the non-greedy regex did.
+    #[test]
+    fn the_first_word_after_the_anchor_wins() {
+        assert_eq!(
+            parse_status_page("Large Language Models Degraded ... Major Outage"),
+            "minor"
+        );
     }
 }

@@ -174,6 +174,15 @@ impl QuotaWindow {
 /// window names the catalog lists for it.
 pub type PackageQuota = std::collections::BTreeMap<String, QuotaWindow>;
 
+/// The window a plan is read through when one figure must stand for it:
+/// monthly first, then weekly, then the five-hour one — the priority the
+/// earlier build used for its day figures and its icon test.
+pub fn main_window(quota: &PackageQuota) -> Option<&'static str> {
+    ["monthly", "weekly", "5h"]
+        .into_iter()
+        .find(|window| quota.contains_key(*window))
+}
+
 /// Every plan's window paces, keyed by platform and then by window name.
 pub type WindowRates = BTreeMap<String, BTreeMap<String, WindowRate>>;
 

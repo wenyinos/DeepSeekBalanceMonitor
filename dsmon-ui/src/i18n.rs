@@ -49,6 +49,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "trend_needs_data") => "Not enough readings yet; the chart fills in as the app runs.",
             ("en", "interval_label") => "Check interval (minutes, 1-1440):",
             ("en", "threshold_label") => "Low balance threshold:",
+            ("en", "threshold_package_label") => "Subscription remaining alert line (%):",
             ("en", "language_label") => "Language:",
             ("en", "auto_start") => "Auto-start on boot",
             ("en", "auto_start_failed") => "Could not change the start-up entry:",
@@ -207,6 +208,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "brisk_title") => "⚠ Spending is brisk today",
             ("en", "brisk_body") => "Spent today",
             ("en", "brisk_threshold_label") => "Daily spending alert line (0 = off)",
+            ("en", "brisk_package_label") => "Subscription daily spending line (%, 0 = off)",
             ("en", "brisk_threshold_hint") => "0",
             ("en", "pace_per_day") => "Daily pace",
             ("en", "availability_label") => "Available",
@@ -263,6 +265,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "trend_needs_data") => "读数不足，程序运行一段时间后自动绘制。",
             (_, "interval_label") => "查询间隔（分钟，1-1440）：",
             (_, "threshold_label") => "余额预警线：",
+            (_, "threshold_package_label") => "套餐剩余提醒线（%）：",
             (_, "language_label") => "语言 / Language:",
             (_, "auto_start") => "开机自动启动",
             (_, "auto_start_failed") => "无法修改开机启动项：",
@@ -397,6 +400,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "brisk_title") => "⚠ 今日消耗偏快",
             (_, "brisk_body") => "今日已消耗",
             (_, "brisk_threshold_label") => "单日消耗提醒线值（0 = 关闭）",
+            (_, "brisk_package_label") => "套餐单日消耗提醒线（%，0 = 关闭）",
             (_, "brisk_threshold_hint") => "0",
             (_, "pace_per_day") => "每天消耗",
             (_, "availability_label") => "可用率",
@@ -496,7 +500,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 141] = [
+    const USED_KEYS: [&str; 143] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -580,6 +584,7 @@ mod tests {
         "theme_mono",
         "threshold",
         "threshold_label",
+        "threshold_package_label",
         "topped_up",
         "trend_needs_data",
         "unset_keys",
@@ -593,6 +598,7 @@ mod tests {
         "widget_offline_stale",
         "widget_offline_title",
         "brisk_body",
+        "brisk_package_label",
         "off_peak_body",
         "off_peak_title",
         "peak_alert_label",
