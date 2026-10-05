@@ -90,6 +90,7 @@ fn ask(
     let response = client
         .get(format!("{host}{path}"))
         .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", api_key.trim()))
         // The host is known to end a kept-alive connection without saying so,
         // which is what the retry above is for; not reusing one is the cheaper
@@ -202,6 +203,28 @@ fn parse_status_page(html: &str) -> String {
 
 /// Turns a response body into the two windows, or says why it cannot.
 fn read_quota(body: &serde_json::Value, now: i64) -> Result<PackageQuota, String> {
+    // The endpoint answers failures in-band: a `base_resp` status that is not
+    // zero carries the reason — a rejected key, a session it wants, a quota it
+    // will not show. Without this check such a body only reports "no usage
+    // windows", which sends the user looking in the wrong place.
+    let status_code = body
+        .get("base_resp")
+        .and_then(|resp| resp.get("status_code"))
+        .and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+        })
+        .unwrap_or(0);
+    if status_code != 0 {
+        let message = body
+            .get("base_resp")
+            .and_then(|resp| resp.get("status_msg"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("no reason given");
+        return Err(format!("MiniMax API error {status_code}: {message}"));
+    }
+
     // The two plans answer with the list in different places.
     let remains = body
         .get("data")
@@ -378,5 +401,34 @@ mod tests {
             parse_status_page("Large Language Models Degraded ... Major Outage"),
             "minor"
         );
+    }
+
+    /// A body carrying an in-band failure must report its reason — that is the
+    /// message the user needs, not "no usage windows".
+    #[test]
+    fn an_in_band_failure_reports_its_reason() {
+        let refused = serde_json::json!({
+            "base_resp": {
+                "status_code": 1004,
+                "status_msg": "login fail: Please carry the API secret key",
+            }
+        });
+        let error = read_quota(&refused, 0).expect_err("a failure is an error");
+        assert!(error.contains("1004"), "{error}");
+        assert!(error.contains("login fail"), "{error}");
+
+        // A string code reads the same way, and code zero still reads windows.
+        let refused = serde_json::json!({
+            "base_resp": { "status_code": "1004", "status_msg": "cookie is missing" }
+        });
+        let error = read_quota(&refused, 0).expect_err("a failure is an error");
+        assert!(error.contains("cookie is missing"), "{error}");
+
+        let ok = serde_json::json!({
+            "base_resp": { "status_code": 0 },
+            "model_remains": [{ "model_name": "general",
+                "current_interval_remaining_percent": 10.0 }]
+        });
+        assert!(read_quota(&ok, 0).is_ok());
     }
 }
