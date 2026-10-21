@@ -339,7 +339,9 @@ pub fn activity_card(
             for plan in &plans {
                 let selected = chosen == Some(plan.account_id.as_str());
                 let label = title(plan);
-                let response = tab(ui, look, first_word(label), selected);
+                // The account's name, not the platform's: two keys of one
+                // platform have to be told apart here.
+                let response = tab(ui, look, label, selected);
                 if response.clicked() {
                     action = Some(Action::ShowActivity(Some(plan.account_id.clone())));
                 }
@@ -362,13 +364,6 @@ pub fn activity_card(
     });
 
     action
-}
-
-/// The first word of a platform's name: enough for a tab, where "Command Code"
-/// and "GLM Coding Plan" would push each other off the line. The full name is
-/// in the tooltip.
-fn first_word(display: &str) -> &str {
-    display.split_whitespace().next().unwrap_or(display)
 }
 
 /// One of the activity card's tabs. The chosen one is filled, so which grid is
