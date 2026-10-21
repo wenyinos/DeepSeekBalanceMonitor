@@ -415,9 +415,14 @@ impl Widget {
                     position: Some(position),
                     size: Some(size),
                 };
-                self.config.widget_pos = Some(position);
-                self.config.widget_window_size = Some(size);
-                let _ = self.config.save();
+                // The file, not this process's copy: the application may have
+                // added an account or changed a setting since it was last read,
+                // and writing the old copy would take that change back out.
+                let mut config = AppConfig::load();
+                config.widget_pos = Some(position);
+                config.widget_window_size = Some(size);
+                let _ = config.save();
+                self.config = config;
             }
             _ => self.settling = Some((Instant::now(), position, size)),
         }
