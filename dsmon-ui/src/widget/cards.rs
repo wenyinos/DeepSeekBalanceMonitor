@@ -40,6 +40,16 @@ pub struct Look<'a> {
     pub show_trend: bool,
 }
 
+/// What an account's card is called: its own name, which is what tells two
+/// keys of the same provider apart.
+fn title(platform: &Platform) -> &str {
+    if platform.account_name.is_empty() {
+        &platform.display
+    } else {
+        &platform.account_name
+    }
+}
+
 /// Surface of a card, on top of the panel.
 pub fn card(ui: &mut egui::Ui, look: &Look<'_>, contents: impl FnOnce(&mut egui::Ui)) {
     let tint = if look.palette.dark {
@@ -82,7 +92,7 @@ pub fn balance_card(
     card(ui, look, |ui| {
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(&platform.display)
+                RichText::new(title(platform))
                     .size(13.0)
                     .strong()
                     .color(look.palette.text_primary),
@@ -215,7 +225,7 @@ pub fn balance_card(
 pub fn subscription(ui: &mut egui::Ui, look: &Look<'_>, platform: &Platform) {
     card(ui, look, |ui| {
         ui.label(
-            RichText::new(&platform.display)
+            RichText::new(title(platform))
                 .size(13.0)
                 .strong()
                 .color(look.palette.text_primary),
@@ -310,7 +320,7 @@ pub fn activity_card(
         .collect();
     // A subscription that is no longer configured falls back to all of them,
     // rather than leaving the card looking empty and blaming nobody.
-    let chosen = chosen.filter(|key| plans.iter().any(|plan| plan.key == *key));
+    let chosen = chosen.filter(|key| plans.iter().any(|plan| plan.account_id == *key));
 
     card(ui, look, |ui| {
         ui.horizontal_wrapped(|ui| {
@@ -327,14 +337,15 @@ pub fn activity_card(
                 action = Some(Action::ShowActivity(None));
             }
             for plan in &plans {
-                let selected = chosen == Some(plan.key.as_str());
-                let response = tab(ui, look, first_word(&plan.display), selected);
+                let selected = chosen == Some(plan.account_id.as_str());
+                let label = title(plan);
+                let response = tab(ui, look, first_word(label), selected);
                 if response.clicked() {
-                    action = Some(Action::ShowActivity(Some(plan.key.clone())));
+                    action = Some(Action::ShowActivity(Some(plan.account_id.clone())));
                 }
                 // The full name is one hover away, since the tab cannot hold it
                 // and several plans have to share one line.
-                response.on_hover_text(&plan.display);
+                response.on_hover_text(label);
             }
         });
         ui.add_space(6.0);
@@ -342,7 +353,7 @@ pub fn activity_card(
         let days = match chosen {
             Some(key) => plans
                 .iter()
-                .find(|plan| plan.key == key)
+                .find(|plan| plan.account_id == key)
                 .map(|plan| plan.daily.clone())
                 .unwrap_or_default(),
             None => merged_days(platforms),

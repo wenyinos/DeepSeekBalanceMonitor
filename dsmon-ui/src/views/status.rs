@@ -28,25 +28,83 @@ pub fn show(
     snapshot: &Snapshot,
     history: &mut history::State,
     platform: &str,
+    accounts: &[dsmon_core::config::AccountConfig],
 ) -> Option<Action> {
     let mut refresh = false;
     let mut history_action = None;
 
-    // Balance, trend summary and health share the top row, for every provider.
-    // The third card differs: DeepSeek has a public status page, the others
-    // report whether their last read went through.
-    ui.columns(3, |columns| {
-        balance_card(&mut columns[0], view, snapshot, platform, &mut refresh);
-        history_action = history::show_summary(&mut columns[1], view, history);
+    // Every account of the platform keeps its own card: two keys of the same
+    // provider are two balances, not one.
+    let of_platform: Vec<&dsmon_core::config::AccountConfig> = accounts
+        .iter()
+        .filter(|account| account.platform == platform && account.enabled)
+        .filter(|account| matches!(dsmon_core::storage::read_secret(&account.id), Ok(Some(_))))
+        .collect();
+    if !of_platform
+        .iter()
+        .any(|account| account.id == history.account)
+    {
+        history.account = of_platform
+            .first()
+            .map(|account| account.id.clone())
+            .unwrap_or_default();
+    }
+
+    for chunk in of_platform.chunks(2) {
+        ui.columns(2, |columns| {
+            for (slot, account) in chunk.iter().enumerate() {
+                balance_card(&mut columns[slot], view, snapshot, account, &mut refresh);
+            }
+        });
+        ui.add_space(8.0);
+    }
+
+    // The trend summary and the provider's health sit together below the
+    // balances. The health card differs: DeepSeek has a public status page,
+    // the others report whether their last read went through.
+    ui.columns(2, |columns| {
+        history_action = history::show_summary(&mut columns[0], view, history);
 
         if platform == dsmon_core::storage::KEY_DEEPSEEK {
-            health_card(&mut columns[2], view, snapshot);
+            health_card(&mut columns[1], view, snapshot);
         } else if let Some(status) = snapshot.platform_status.get(platform) {
-            service_card(&mut columns[2], view, status);
+            service_card(&mut columns[1], view, status);
         } else {
-            connection_card(&mut columns[2], view, snapshot, platform);
+            let ids: Vec<&str> = of_platform
+                .iter()
+                .map(|account| account.id.as_str())
+                .collect();
+            connection_card(&mut columns[1], view, snapshot, &ids);
         }
     });
+
+    // Which account the chart follows, when the platform has more than one.
+    if of_platform.len() > 1 {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(view.text("account_label")).color(view.palette.text_secondary));
+            let before = history.account.clone();
+            let current = of_platform
+                .iter()
+                .find(|account| account.id == history.account)
+                .map(|account| account.label())
+                .unwrap_or_default();
+            egui::ComboBox::from_id_salt("history-account")
+                .selected_text(current)
+                .show_ui(ui, |ui| {
+                    for account in &of_platform {
+                        ui.selectable_value(
+                            &mut history.account,
+                            account.id.clone(),
+                            account.label(),
+                        );
+                    }
+                });
+            if history.account != before {
+                history_action = Some(history::Action::Reload);
+            }
+        });
+        ui.add_space(4.0);
+    }
 
     // The filter row and the chart keep the full width below.
     if let Some(action) = history::show_chart(ui, view, history) {
@@ -66,7 +124,7 @@ fn balance_card(
     ui: &mut egui::Ui,
     view: &View<'_>,
     snapshot: &Snapshot,
-    platform: &str,
+    account: &dsmon_core::config::AccountConfig,
     refresh: &mut bool,
 ) {
     let palette = view.palette;
@@ -75,11 +133,8 @@ fn balance_card(
         ui.set_min_height(super::SUMMARY_CARD_HEIGHT);
 
         ui.horizontal(|ui| {
-            let title = dsmon_core::catalog::find(platform)
-                .map(|meta| format!("{} {}", meta.display_name, view.text("balance_word")))
-                .unwrap_or_default();
             ui.label(
-                RichText::new(title)
+                RichText::new(account.label())
                     .size(16.0)
                     .color(palette.text_primary)
                     .strong(),
@@ -101,7 +156,7 @@ fn balance_card(
         // Every line is drawn whether or not a reading has arrived yet, with
         // placeholders standing in for the figures. The card therefore keeps the
         // same height and nothing shifts when data lands.
-        let balances = snapshot.balances.get(platform);
+        let balances = snapshot.balances.get(&account.id);
         let preferred = balances.and_then(preferred_balance);
         let amount = preferred
             .map(|(_, balance)| dsmon_core::history::format_amount(balance.total_balance))
@@ -165,14 +220,15 @@ fn balance_card(
 
         // Show why there is no figure: this platform's own failure, or the whole
         // poll's, which is the case when the key could not even be read.
-        let failure = snapshot
-            .balance_errors
-            .get(platform)
-            .or(if snapshot.balances.is_empty() {
-                snapshot.last_error.as_ref()
-            } else {
-                None
-            });
+        let failure =
+            snapshot
+                .balance_errors
+                .get(&account.id)
+                .or(if snapshot.balances.is_empty() {
+                    snapshot.last_error.as_ref()
+                } else {
+                    None
+                });
         if let Some(error) = failure {
             ui.add_space(2.0);
             ui.label(RichText::new(error).color(palette.destructive).size(12.0));
@@ -209,7 +265,7 @@ fn service_card(ui: &mut egui::Ui, view: &View<'_>, status: &str) {
 ///
 /// Derived rather than fetched: every platform reports success or failure anyway,
 /// and only DeepSeek publishes a status page of its own.
-fn connection_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, platform: &str) {
+fn connection_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, accounts: &[&str]) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
@@ -222,7 +278,9 @@ fn connection_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, plat
         );
         ui.add_space(8.0);
 
-        let error = snapshot.balance_errors.get(platform);
+        let error = accounts
+            .iter()
+            .find_map(|account| snapshot.balance_errors.get(*account));
 
         ui.horizontal(|ui| {
             status_dot(

@@ -14,11 +14,11 @@ use crate::model::{Balances, HistoryRecord, SubscriptionPoint};
 use crate::paths;
 use crate::time;
 
-/// The six parameters, in order: platform, currency, cutoff, total, topped,
+/// The six parameters, in order: account id, currency, cutoff, total, topped,
 /// granted.
 const DEDUP_SQL: &str = "SELECT EXISTS(
     SELECT 1 FROM balance_history
-    WHERE platform = ?1
+    WHERE account_id = ?1
       AND currency = ?2
       AND timestamp >= ?3
       AND ABS(total - ?4) < 0.000001
@@ -75,6 +75,7 @@ pub fn open_db() -> Result<Connection, String> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS balance_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id TEXT NOT NULL DEFAULT '',
             platform TEXT NOT NULL DEFAULT 'deepseek',
             timestamp TEXT NOT NULL,
             currency TEXT NOT NULL,
@@ -99,6 +100,7 @@ pub fn open_db() -> Result<Connection, String> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS subscription_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id TEXT NOT NULL DEFAULT '',
             timestamp TEXT NOT NULL,
             provider TEXT NOT NULL,
             used REAL NOT NULL,
@@ -145,9 +147,52 @@ pub fn open_db() -> Result<Connection, String> {
         "window TEXT NOT NULL DEFAULT 'monthly'",
     )?;
 
+    // The account column is what separates two keys of the same platform. A
+    // database from before accounts keeps its rows: the platform key was the
+    // only account then, and is the first account's id now.
+    if !column_exists(&conn, "balance_history", "account_id")?
+        || !column_exists(&conn, "subscription_history", "account_id")?
+    {
+        backup_before_accounts(&conn);
+    }
+    add_column_if_missing(
+        &conn,
+        "balance_history",
+        "account_id",
+        "account_id TEXT NOT NULL DEFAULT ''",
+    )?;
+    add_column_if_missing(
+        &conn,
+        "subscription_history",
+        "account_id",
+        "account_id TEXT NOT NULL DEFAULT ''",
+    )?;
+    conn.execute(
+        "UPDATE balance_history SET account_id = platform WHERE account_id = ''",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    conn.execute(
+        "UPDATE subscription_history SET account_id = provider WHERE account_id = ''",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_balance_history_account_timestamp
+            ON balance_history (account_id, timestamp)",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_subscription_history_provider_timestamp
             ON subscription_history (provider, timestamp)",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_subscription_history_account_window
+            ON subscription_history (account_id, window, timestamp)",
         [],
     )
     .map_err(|error| error.to_string())?;
@@ -196,23 +241,44 @@ fn add_column_if_missing(
     column: &str,
     definition: &str,
 ) -> Result<(), String> {
-    {
-        let mut stmt = conn
-            .prepare(&format!("PRAGMA table_info({table})"))
-            .map_err(|error| error.to_string())?;
-        let columns = stmt
-            .query_map([], |row| row.get::<_, String>(1))
-            .map_err(|error| error.to_string())?;
-        for existing in columns {
-            if existing.map_err(|error| error.to_string())? == column {
-                return Ok(());
-            }
-        }
+    if column_exists(conn, table, column)? {
+        return Ok(());
     }
     match conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {definition}"), []) {
         Ok(_) => Ok(()),
         Err(error) if error.to_string().contains("duplicate column name") => Ok(()),
         Err(error) => Err(error.to_string()),
+    }
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|error| error.to_string())?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?;
+    for existing in columns {
+        if existing.map_err(|error| error.to_string())? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// One copy of the database from before the account column was added.
+///
+/// The migration only adds columns and fills them, so this is a belt to the
+/// braces: `VACUUM INTO` writes a consistent copy without disturbing the live
+/// one, and a failed copy is logged rather than stopping the start.
+fn backup_before_accounts(conn: &Connection) {
+    let path = paths::state_dir().join("dsmon.db.before-accounts");
+    let _ = std::fs::remove_file(&path);
+    let escaped = path.display().to_string().replace('\'', "''");
+    if let Err(error) = conn.execute_batch(&format!("VACUUM INTO '{escaped}'")) {
+        let _ = log_line(&format!(
+            "The pre-account backup could not be written: {error}"
+        ));
     }
 }
 
@@ -240,6 +306,7 @@ fn mark_initialized() -> std::io::Result<()> {
 
 /// Appends the current balances, skipping readings identical to a recent one.
 pub fn save_balance_history(
+    account_id: &str,
     platform: &str,
     balances: &Balances,
     service_status: &str,
@@ -254,7 +321,7 @@ pub fn save_balance_history(
             .query_row(
                 DEDUP_SQL,
                 params![
-                    platform,
+                    account_id,
                     currency.as_str(),
                     &dedup_cutoff,
                     balance.total_balance,
@@ -269,9 +336,10 @@ pub fn save_balance_history(
         }
 
         tx.execute(
-            "INSERT INTO balance_history (platform, timestamp, currency, total, topped, granted, service_status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO balance_history (account_id, platform, timestamp, currency, total, topped, granted, service_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
+                account_id,
                 platform,
                 &timestamp,
                 currency.as_str(),
@@ -289,7 +357,7 @@ pub fn save_balance_history(
 
 /// The most recent `limit` records within `days`, oldest first.
 pub fn recent_balance_history(
-    platform: &str,
+    account_id: &str,
     days: u64,
     limit: usize,
 ) -> Result<Vec<HistoryRecord>, String> {
@@ -301,18 +369,18 @@ pub fn recent_balance_history(
             "SELECT timestamp, currency, total, topped, granted, service_status FROM (
                 SELECT timestamp, currency, total, topped, granted, service_status
                 FROM balance_history
-                WHERE platform = ?1 AND timestamp >= ?2
+                WHERE account_id = ?1 AND timestamp >= ?2
                 ORDER BY timestamp DESC
                 LIMIT ?3
              ) ORDER BY timestamp ASC",
         )
         .map_err(|error| error.to_string())?;
-    collect(stmt.query_map(params![platform, cutoff, limit], record_from_row))
+    collect(stmt.query_map(params![account_id, cutoff, limit], record_from_row))
 }
 
 /// Records within `days`, optionally filtered to one currency, oldest first.
 pub fn history_records(
-    platform: &str,
+    account_id: &str,
     days: u64,
     currency: Option<&str>,
     limit: usize,
@@ -325,22 +393,23 @@ pub fn history_records(
         Some(_) => conn
             .prepare(
                 "SELECT timestamp, currency, total, topped, granted, service_status FROM balance_history \
-                 WHERE platform = ?1 AND timestamp >= ?2 AND currency = ?3 ORDER BY timestamp ASC LIMIT ?4",
+                 WHERE account_id = ?1 AND timestamp >= ?2 AND currency = ?3 ORDER BY timestamp ASC LIMIT ?4",
             )
             .map_err(|error| error.to_string())?,
         None => conn
             .prepare(
                 "SELECT timestamp, currency, total, topped, granted, service_status FROM balance_history \
-                 WHERE platform = ?1 AND timestamp >= ?2 ORDER BY timestamp ASC LIMIT ?3",
+                 WHERE account_id = ?1 AND timestamp >= ?2 ORDER BY timestamp ASC LIMIT ?3",
             )
             .map_err(|error| error.to_string())?,
     };
 
     match currency {
-        Some(currency) => {
-            collect(stmt.query_map(params![platform, cutoff, currency, limit], record_from_row))
-        }
-        None => collect(stmt.query_map(params![platform, cutoff, limit], record_from_row)),
+        Some(currency) => collect(stmt.query_map(
+            params![account_id, cutoff, currency, limit],
+            record_from_row,
+        )),
+        None => collect(stmt.query_map(params![account_id, cutoff, limit], record_from_row)),
     }
 }
 
@@ -349,7 +418,7 @@ pub fn history_records(
 /// The day figures use this with today's midnight: the earlier build summed a
 /// calendar day's drops, not a rolling twenty-four hours.
 pub fn history_records_since(
-    platform: &str,
+    account_id: &str,
     since: &str,
     limit: usize,
 ) -> Result<Vec<HistoryRecord>, String> {
@@ -358,23 +427,23 @@ pub fn history_records_since(
     let mut stmt = conn
         .prepare(
             "SELECT timestamp, currency, total, topped, granted, service_status FROM balance_history \
-             WHERE platform = ?1 AND timestamp >= ?2 ORDER BY timestamp ASC LIMIT ?3",
+             WHERE account_id = ?1 AND timestamp >= ?2 ORDER BY timestamp ASC LIMIT ?3",
         )
         .map_err(|error| error.to_string())?;
-    collect(stmt.query_map(params![platform, since, limit], record_from_row))
+    collect(stmt.query_map(params![account_id, since, limit], record_from_row))
 }
 
 /// Currencies that appear in the last `days` of history.
-pub fn history_currencies(platform: &str, days: u64) -> Result<Vec<String>, String> {
+pub fn history_currencies(account_id: &str, days: u64) -> Result<Vec<String>, String> {
     let conn = open_db()?;
     let cutoff = time::format_local(Local::now() - ChronoDuration::days(days as i64));
     let mut stmt = conn
         .prepare(
-            "SELECT DISTINCT currency FROM balance_history WHERE platform = ?1 AND timestamp >= ?2 ORDER BY currency",
+            "SELECT DISTINCT currency FROM balance_history WHERE account_id = ?1 AND timestamp >= ?2 ORDER BY currency",
         )
         .map_err(|error| error.to_string())?;
     let rows = stmt
-        .query_map(params![platform, cutoff], |row| row.get::<_, String>(0))
+        .query_map(params![account_id, cutoff], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?;
     let mut currencies = Vec::new();
     for row in rows {
@@ -496,13 +565,14 @@ fn collect(
 
 /// Appends a monthly-allowance reading taken now.
 pub fn save_subscription_usage(
+    account_id: &str,
     provider: &str,
     window: &str,
     used: f64,
     cap: f64,
 ) -> Result<(), String> {
     let timestamp = time::now();
-    save_subscription_usage_at(provider, window, used, cap, &timestamp)
+    save_subscription_usage_at(account_id, provider, window, used, cap, &timestamp)
 }
 
 /// Appends a reading with an explicit timestamp.
@@ -511,6 +581,7 @@ pub fn save_subscription_usage(
 /// the past. Identical readings inside the dedup window are still skipped, so an
 /// idle allowance does not fill the table.
 pub fn save_subscription_usage_at(
+    account_id: &str,
     provider: &str,
     window: &str,
     used: f64,
@@ -525,14 +596,15 @@ pub fn save_subscription_usage_at(
         .query_row(
             "SELECT EXISTS(
                 SELECT 1 FROM subscription_history
-                WHERE provider = ?1
-                  AND window = ?2
-                  AND timestamp >= ?3
-                  AND ABS(used - ?4) < 0.000001
-                  AND ABS(cap - ?5) < 0.000001
+                WHERE account_id = ?1
+                  AND provider = ?2
+                  AND window = ?3
+                  AND timestamp >= ?4
+                  AND ABS(used - ?5) < 0.000001
+                  AND ABS(cap - ?6) < 0.000001
                 LIMIT 1
             )",
-            params![provider, window, &cutoff, used, cap],
+            params![account_id, provider, window, &cutoff, used, cap],
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
@@ -541,9 +613,9 @@ pub fn save_subscription_usage_at(
     }
 
     conn.execute(
-        "INSERT INTO subscription_history (timestamp, provider, used, cap, window)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![&timestamp, provider, used, cap, window],
+        "INSERT INTO subscription_history (account_id, timestamp, provider, used, cap, window)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![account_id, &timestamp, provider, used, cap, window],
     )
     .map_err(|error| error.to_string())?;
     Ok(())
@@ -551,6 +623,7 @@ pub fn save_subscription_usage_at(
 
 /// Readings for one provider within `days`, oldest first.
 pub fn subscription_usage_history(
+    account_id: &str,
     provider: &str,
     window: &str,
     days: u64,
@@ -560,12 +633,12 @@ pub fn subscription_usage_history(
     let mut stmt = conn
         .prepare(
             "SELECT timestamp, used, cap FROM subscription_history
-             WHERE provider = ?1 AND window = ?2 AND timestamp >= ?3
+             WHERE account_id = ?1 AND provider = ?2 AND window = ?3 AND timestamp >= ?4
              ORDER BY timestamp ASC",
         )
         .map_err(|error| error.to_string())?;
     let rows = stmt
-        .query_map(params![provider, window, cutoff], |row| {
+        .query_map(params![account_id, provider, window, cutoff], |row| {
             Ok(SubscriptionPoint {
                 timestamp: row.get(0)?,
                 used: row.get(1)?,
@@ -587,6 +660,7 @@ pub fn subscription_usage_history(
 /// The day figure for a package plan uses this with today's midnight, the
 /// same calendar-day window the balance figure uses.
 pub fn subscription_usage_since(
+    account_id: &str,
     provider: &str,
     window: &str,
     since: &str,
@@ -595,12 +669,12 @@ pub fn subscription_usage_since(
     let mut stmt = conn
         .prepare(
             "SELECT timestamp, used, cap FROM subscription_history
-             WHERE provider = ?1 AND window = ?2 AND timestamp >= ?3
+             WHERE account_id = ?1 AND provider = ?2 AND window = ?3 AND timestamp >= ?4
              ORDER BY timestamp ASC",
         )
         .map_err(|error| error.to_string())?;
     let rows = stmt
-        .query_map(params![provider, window, since], |row| {
+        .query_map(params![account_id, provider, window, since], |row| {
             Ok(SubscriptionPoint {
                 timestamp: row.get(0)?,
                 used: row.get(1)?,
@@ -623,6 +697,7 @@ pub fn subscription_usage_since(
 /// window's movement, so it needs both windows as they were recorded together.
 /// Only polls that carry both appear.
 pub fn subscription_usage_pairs(
+    account_id: &str,
     provider: &str,
     target: &str,
     days: u64,
@@ -634,14 +709,16 @@ pub fn subscription_usage_pairs(
             "SELECT five.used, target.used FROM subscription_history five
              JOIN subscription_history target
                ON target.timestamp = five.timestamp
+              AND target.account_id = five.account_id
               AND target.provider = five.provider
-              AND target.window = ?2
-             WHERE five.provider = ?1 AND five.window = '5h' AND five.timestamp >= ?3
+              AND target.window = ?3
+             WHERE five.account_id = ?1 AND five.provider = ?2
+               AND five.window = '5h' AND five.timestamp >= ?4
              ORDER BY five.timestamp ASC",
         )
         .map_err(|error| error.to_string())?;
     let rows = stmt
-        .query_map(params![provider, target, cutoff], |row| {
+        .query_map(params![account_id, provider, target, cutoff], |row| {
             Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?))
         })
         .map_err(|error| error.to_string())?;
@@ -793,6 +870,14 @@ pub fn import_from_legacy() -> Result<ImportSummary, String> {
                 .map_err(|error| error.to_string())?;
             summary.history_records += inserted;
         }
+        // Imported rows land before they know an account; the platform they
+        // were written under is the first account's id.
+        target
+            .execute(
+                "UPDATE balance_history SET account_id = platform WHERE account_id = ''",
+                [],
+            )
+            .map_err(|error| error.to_string())?;
     }
 
     let _ = log_line(&format!(
@@ -999,6 +1084,7 @@ mod tests {
         conn.execute_batch(
             "CREATE TABLE balance_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id TEXT NOT NULL DEFAULT '',
                 platform TEXT NOT NULL DEFAULT 'deepseek',
                 timestamp TEXT NOT NULL,
                 currency TEXT NOT NULL,
@@ -1020,8 +1106,8 @@ mod tests {
         assert_eq!(found, 0, "an empty table holds no duplicate");
 
         conn.execute(
-            "INSERT INTO balance_history (platform, timestamp, currency, total, topped, granted, service_status)
-             VALUES ('deepseek', '2026-01-01 00:00:00', 'CNY', 1.0, 2.0, 3.0, 'unknown')",
+            "INSERT INTO balance_history (account_id, platform, timestamp, currency, total, topped, granted, service_status)
+             VALUES ('deepseek', 'deepseek', '2026-01-01 00:00:00', 'CNY', 1.0, 2.0, 3.0, 'unknown')",
             [],
         )
         .expect("row inserts");
@@ -1139,6 +1225,51 @@ mod tests {
         );
     }
 
+    /// A database written before accounts keeps its rows: the platform key it
+    /// was written under is the first account's id, and the migration adds the
+    /// column, fills it, and leaves a copy from before the change.
+    #[test]
+    fn an_old_database_keeps_its_rows_under_the_account_column() {
+        let _in_turn = crate::test_support::database_in_turn();
+        crate::test_support::state_in_a_scratch_directory();
+        remove_history_database();
+        paths::ensure_dir(&paths::state_dir()).expect("the state directory is made");
+
+        let path = paths::history_db_file();
+        let old = Connection::open(&path).expect("an old database is made");
+        old.execute_batch(
+            "CREATE TABLE balance_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform TEXT NOT NULL DEFAULT 'deepseek',
+                timestamp TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                total REAL NOT NULL,
+                topped REAL NOT NULL,
+                granted REAL NOT NULL,
+                service_status TEXT NOT NULL DEFAULT 'unknown'
+            );
+            INSERT INTO balance_history (platform, timestamp, currency, total, topped, granted)
+                VALUES ('deepseek', '2026-01-01 00:00:00', 'CNY', 1.0, 1.0, 0.0);",
+        )
+        .expect("the old schema and row are written");
+        drop(old);
+
+        let conn = open_db().expect("the old database opens");
+        assert!(has_column(&conn, "balance_history", "account_id"));
+        let account: String = conn
+            .query_row(
+                "SELECT account_id FROM balance_history LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the row is there");
+        assert_eq!(account, "deepseek", "the platform key is the first account");
+        assert!(
+            paths::state_dir().join("dsmon.db.before-accounts").exists(),
+            "a copy from before the migration is kept"
+        );
+    }
+
     /// The look-then-alter is two statements, so two connections can both find
     /// the column missing and both add it. Being told it is already there is
     /// the state the loser of that race wanted, not a failure: on the first
@@ -1239,16 +1370,45 @@ mod tests {
         crate::test_support::state_in_a_scratch_directory();
         remove_history_database();
 
-        save_subscription_usage_at("opencode_go", "5h", 10.0, 100.0, "2026-01-01 10:00:00")
-            .expect("a five-hour reading");
-        save_subscription_usage_at("opencode_go", "weekly", 40.0, 100.0, "2026-01-01 10:00:00")
-            .expect("a weekly reading");
-        save_subscription_usage_at("opencode_go", "5h", 12.5, 100.0, "2026-01-01 10:10:00")
-            .expect("a five-hour reading");
-        save_subscription_usage_at("opencode_go", "weekly", 41.0, 100.0, "2026-01-01 10:11:00")
-            .expect("a weekly reading");
+        save_subscription_usage_at(
+            "opencode_go",
+            "opencode_go",
+            "5h",
+            10.0,
+            100.0,
+            "2026-01-01 10:00:00",
+        )
+        .expect("a five-hour reading");
+        save_subscription_usage_at(
+            "opencode_go",
+            "opencode_go",
+            "weekly",
+            40.0,
+            100.0,
+            "2026-01-01 10:00:00",
+        )
+        .expect("a weekly reading");
+        save_subscription_usage_at(
+            "opencode_go",
+            "opencode_go",
+            "5h",
+            12.5,
+            100.0,
+            "2026-01-01 10:10:00",
+        )
+        .expect("a five-hour reading");
+        save_subscription_usage_at(
+            "opencode_go",
+            "opencode_go",
+            "weekly",
+            41.0,
+            100.0,
+            "2026-01-01 10:11:00",
+        )
+        .expect("a weekly reading");
 
-        let pairs = subscription_usage_pairs("opencode_go", "weekly", 36500).expect("the pairs");
+        let pairs = subscription_usage_pairs("opencode_go", "opencode_go", "weekly", 36500)
+            .expect("the pairs");
         assert_eq!(pairs, vec![(10.0, 40.0)]);
     }
 }

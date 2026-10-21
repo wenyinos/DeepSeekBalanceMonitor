@@ -67,6 +67,35 @@ pub fn widget_opacity_level(value: f32) -> f32 {
         .unwrap_or(MAX_WIDGET_OPACITY)
 }
 
+/// One API key's account. The `id` is also the name its secret is stored under
+/// in `secure_settings`; the first account for a platform keeps the platform
+/// key itself, which is what older single-key builds stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccountConfig {
+    pub id: String,
+    pub platform: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Overrides the plan-wide billing day when the provider needs one.
+    #[serde(default)]
+    pub billing_day: Option<u8>,
+}
+
+impl AccountConfig {
+    /// What the account is called in the interface.
+    pub fn label(&self) -> String {
+        if self.name.trim().is_empty() {
+            crate::catalog::find(&self.platform)
+                .map(|meta| meta.display_name.to_owned())
+                .unwrap_or_else(|| self.platform.clone())
+        } else {
+            self.name.clone()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default = "default_interval")]
@@ -81,6 +110,10 @@ pub struct AppConfig {
     pub ui_language: String,
     #[serde(default)]
     pub auto_start: bool,
+    /// One entry per API key. Empty in configurations written before accounts
+    /// existed; `accounts::ensure` fills it from the stored keys on first start.
+    #[serde(default)]
+    pub accounts: Vec<AccountConfig>,
     #[serde(default = "default_alert_mode")]
     pub alert_mode: String,
     #[serde(default = "default_api_alert_enabled")]
@@ -171,6 +204,7 @@ impl Default for AppConfig {
             threshold_package_percent: default_threshold_package_percent(),
             ui_language: default_ui_language(),
             auto_start: false,
+            accounts: Vec::new(),
             alert_mode: default_alert_mode(),
             api_alert_enabled: default_api_alert_enabled(),
             brisk_threshold_yuan: 0.0,

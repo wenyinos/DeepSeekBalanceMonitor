@@ -130,7 +130,15 @@ impl App {
             ));
         }
 
-        let config = AppConfig::load();
+        let mut config = AppConfig::load();
+        // A configuration written before accounts existed has none; the stored
+        // platform keys become one account each.
+        if dsmon_core::accounts::ensure(&mut config) {
+            if let Err(error) = config.save() {
+                let _ =
+                    storage::log_line(&format!("The account list could not be written: {error}"));
+            }
+        }
         apply_theme(&cc.egui_ctx, &config);
 
         // Starting with the session is a setting the system is told about, and
@@ -177,7 +185,7 @@ impl App {
             }
         };
 
-        let configured = configured_platforms();
+        let configured = configured_platforms(&config);
         let mut settings = views::settings::State::new(config.clone(), configured.clone());
         if let Err(error) = &start_up {
             settings.notice = Some(format!(
@@ -212,12 +220,25 @@ impl App {
         }
 
         let billing_day = config.billing_day_command_code;
+        let first_platform = config
+            .accounts
+            .first()
+            .map(|account| account.platform.clone())
+            .unwrap_or_else(|| dsmon_core::storage::KEY_DEEPSEEK.to_owned());
+        let first_account = config
+            .accounts
+            .first()
+            .map(|account| account.id.clone())
+            .unwrap_or_else(|| dsmon_core::storage::KEY_DEEPSEEK.to_owned());
+        let mut history = views::history::State::default();
+        history.platform = first_platform.clone();
+        history.account = first_account;
         let mut app = Self {
-            page: Page::Balance(dsmon_core::storage::KEY_DEEPSEEK.to_owned()),
+            page: Page::Balance(first_platform),
             config,
             monitor,
             _widget_api: widget_api,
-            history: views::history::State::default(),
+            history,
             subscriptions: views::subscriptions::State::new(billing_day),
             settings,
             configured,
@@ -232,7 +253,7 @@ impl App {
             quitting: false,
         };
         app.reload_history();
-        app.subscriptions.reload();
+        app.subscriptions.reload(&app.config.accounts);
         app.announce_start_up();
         app
     }
@@ -244,13 +265,24 @@ impl App {
             Page::Balance(key) => key.clone(),
             _ => dsmon_core::storage::KEY_DEEPSEEK.to_owned(),
         };
+        let accounts = dsmon_core::accounts::of_platform(&self.config, &self.history.platform);
+        let accounts: Vec<_> = accounts.collect();
+        if !accounts
+            .iter()
+            .any(|account| account.id == self.history.account)
+        {
+            self.history.account = accounts
+                .first()
+                .map(|account| account.id.clone())
+                .unwrap_or_default();
+        }
 
         let days = self.history.days;
         let currency = self.history.currency.clone();
         self.history.currencies =
-            storage::history_currencies(&self.history.platform, days).unwrap_or_default();
+            storage::history_currencies(&self.history.account, days).unwrap_or_default();
         self.history.records =
-            storage::history_records(&self.history.platform, days, currency.as_deref(), 5000)
+            storage::history_records(&self.history.account, days, currency.as_deref(), 5000)
                 .unwrap_or_default();
     }
 
@@ -279,9 +311,17 @@ impl App {
         }
     }
 
-    /// Saves the keys entered in the credentials card, in place.
+    /// Saves the keys and the account list from the credentials card.
     fn save_keys(&mut self) {
+        let previous = self.config.accounts.clone();
         if !self.store_keys() {
+            return;
+        }
+        self.forget_removed_accounts(&previous);
+
+        self.config.accounts = self.settings.draft.accounts.clone();
+        if let Err(error) = self.config.save() {
+            self.settings.notice = Some(error);
             return;
         }
 
@@ -289,29 +329,50 @@ impl App {
             value.clear();
         }
         self.settings.pending_clear = false;
-        self.settings.configured = configured_platforms();
+        self.settings.configured = configured_platforms(&self.config);
         self.configured = self.settings.configured.clone();
 
         let lang = self.config.ui_language.clone();
         self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
+        self.subscriptions.reload(&self.config.accounts);
+        self.reload_history();
         self.monitor.refresh();
+    }
+
+    /// Deletes the secrets of accounts that are no longer in the list.
+    fn forget_removed_accounts(&self, previous: &[dsmon_core::config::AccountConfig]) {
+        for account in previous {
+            if !self
+                .settings
+                .draft
+                .accounts
+                .iter()
+                .any(|kept| kept.id == account.id)
+            {
+                let _ = storage::delete_secret(&account.id);
+            }
+        }
     }
 
     /// Persists the settings draft, including any newly entered keys.
     fn save_settings(&mut self, ctx: &egui::Context) {
+        let previous = self.config.accounts.clone();
         let draft = self.settings.draft.clone();
-        if let Err(error) = draft.save() {
-            self.settings.notice = Some(error);
-            return;
-        }
 
         if !self.store_keys() {
+            return;
+        }
+        self.forget_removed_accounts(&previous);
+        if let Err(error) = draft.save() {
+            self.settings.notice = Some(error);
             return;
         }
 
         let language_changed = self.config.ui_language != draft.ui_language;
         let auto_start_changed = self.config.auto_start != draft.auto_start;
         self.config = draft;
+        self.configured = configured_platforms(&self.config);
+        self.settings.configured = self.configured.clone();
         if auto_start_changed {
             self.apply_auto_start();
         }
@@ -320,8 +381,22 @@ impl App {
         if language_changed {
             self.tray.set_language(&lang);
         }
+        // A page whose platform lost its last account would draw nothing.
+        if let Page::Balance(platform) = &self.page {
+            if !self.configured.contains(platform) {
+                self.page = Page::Balance(
+                    self.config
+                        .accounts
+                        .first()
+                        .map(|account| account.platform.clone())
+                        .unwrap_or_else(|| dsmon_core::storage::KEY_DEEPSEEK.to_owned()),
+                );
+            }
+        }
         self.settings.reset(self.config.clone());
         self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
+        self.subscriptions.reload(&self.config.accounts);
+        self.reload_history();
         self.monitor.refresh();
     }
 
@@ -343,6 +418,7 @@ impl App {
                     let lang = self.config.ui_language.clone();
                     crate::notify::send(crate::notify::balance_message(
                         &self.monitor.snapshot(),
+                        &self.config,
                         &lang,
                     ));
                 }
@@ -479,7 +555,7 @@ impl App {
         );
 
         self.reload_history();
-        self.subscriptions.reload();
+        self.subscriptions.reload(&self.config.accounts);
     }
 
     /// Copies the earlier build's data in, without touching its database.
@@ -509,9 +585,18 @@ impl App {
             Err(error) => error,
         });
 
-        // Show what arrived straight away.
+        // Show what arrived straight away. The imported keys are still named
+        // after their platforms, which is exactly what the first account of
+        // each platform uses as its id.
+        if dsmon_core::accounts::ensure(&mut self.config) {
+            let _ = self.config.save();
+        }
+        self.configured = configured_platforms(&self.config);
+        self.settings.configured = self.configured.clone();
+        self.settings.draft.accounts = self.config.accounts.clone();
+
         self.reload_history();
-        self.subscriptions.reload();
+        self.subscriptions.reload(&self.config.accounts);
         self.monitor.refresh();
     }
 
@@ -636,7 +721,7 @@ impl eframe::App for App {
                         let is_subscriptions = page == Page::Subscriptions;
                         self.page = page;
                         if is_subscriptions {
-                            self.subscriptions.reload();
+                            self.subscriptions.reload(&self.config.accounts);
                         }
                     }
                 }
@@ -670,9 +755,14 @@ impl eframe::App for App {
                 // other pages scroll when their content grows.
                 match &self.page {
                     Page::Balance(platform) => {
-                        if let Some(action) =
-                            views::status::show(ui, &view, &snapshot, &mut self.history, platform)
-                        {
+                        if let Some(action) = views::status::show(
+                            ui,
+                            &view,
+                            &snapshot,
+                            &mut self.history,
+                            platform,
+                            &self.config.accounts,
+                        ) {
                             match action {
                                 views::status::Action::Refresh => self.monitor.refresh(),
                                 views::status::Action::ReloadHistory => self.reload_history(),
@@ -687,12 +777,19 @@ impl eframe::App for App {
                                 &view,
                                 &snapshot,
                                 &mut self.subscriptions,
-                                &self.configured,
+                                &self.config.accounts,
                             ) {
                                 match action {
-                                    views::subscriptions::Action::BillingDay(day) => {
+                                    views::subscriptions::Action::BillingDay(account, day) => {
+                                        if let Some(entry) = self
+                                            .config
+                                            .accounts
+                                            .iter_mut()
+                                            .find(|entry| entry.id == account)
+                                        {
+                                            entry.billing_day = Some(day);
+                                        }
                                         self.subscriptions.billing_day = day;
-                                        self.config.billing_day_command_code = day;
                                         let _ = self.config.save();
                                     }
                                     views::subscriptions::Action::Refresh => {
@@ -793,12 +890,14 @@ fn nav_item(ui: &mut egui::Ui, palette: &Palette, label: &str, selected: bool) -
     response
 }
 
-/// Platforms that already hold a key, for the settings page to group by.
-fn configured_platforms() -> std::collections::BTreeSet<String> {
-    dsmon_core::catalog::PLATFORMS
+/// Platforms with at least one account that holds a key.
+fn configured_platforms(config: &AppConfig) -> std::collections::BTreeSet<String> {
+    config
+        .accounts
         .iter()
-        .filter(|meta| matches!(storage::read_secret(meta.key), Ok(Some(_))))
-        .map(|meta| meta.key.to_owned())
+        .filter(|account| account.enabled)
+        .filter(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
+        .map(|account| account.platform.clone())
         .collect()
 }
 

@@ -16,7 +16,7 @@ use windows as platform;
 
 use std::sync::{Arc, Mutex};
 
-use dsmon_core::catalog::{self, Mode, PlatformMeta};
+use dsmon_core::catalog::Mode;
 use dsmon_core::config::AppConfig;
 use dsmon_core::history::format_amount;
 use dsmon_core::icon::{self, IconTheme, State};
@@ -88,13 +88,13 @@ pub fn status(snapshot: &Snapshot, config: &AppConfig, lang: &str) -> Status {
         };
     }
 
-    match reading(snapshot) {
-        Some((meta, currency, total)) => Status {
+    match reading(snapshot, config) {
+        Some((name, currency, total)) => Status {
             label: icon::icon_label(total),
             state: state_of(snapshot, config, total),
             tooltip: format!(
                 "{} {}: {} {}",
-                meta.display_name,
+                name,
                 tr(lang, "balance_word"),
                 format_amount(total),
                 currency
@@ -108,17 +108,21 @@ pub fn status(snapshot: &Snapshot, config: &AppConfig, lang: &str) -> Status {
     }
 }
 
-/// The reading the icon stands for: DeepSeek when it is configured, otherwise
-/// the first other balance provider that answered.
-fn reading(snapshot: &Snapshot) -> Option<(PlatformMeta, String, f64)> {
-    catalog::implemented()
-        .filter(|meta| meta.mode == Mode::Payg)
-        .find_map(|meta| {
+/// The reading the icon stands for: the first enabled balance account that
+/// answered, in configuration order.
+fn reading(snapshot: &Snapshot, config: &AppConfig) -> Option<(String, String, f64)> {
+    dsmon_core::accounts::enabled(config)
+        .filter(|account| {
+            dsmon_core::catalog::find(&account.platform).is_some_and(|meta| meta.mode == Mode::Payg)
+        })
+        .find_map(|account| {
             snapshot
                 .balances
-                .get(meta.key)
+                .get(&account.id)
                 .and_then(preferred_balance)
-                .map(|(currency, balance)| (*meta, currency.clone(), balance.total_balance))
+                .map(|(currency, balance)| {
+                    (account.label(), currency.clone(), balance.total_balance)
+                })
         })
 }
 
@@ -259,6 +263,25 @@ mod tests {
         snapshot
     }
 
+    fn config() -> AppConfig {
+        let mut config = AppConfig::default();
+        config.accounts.push(dsmon_core::config::AccountConfig {
+            id: "deepseek".to_owned(),
+            platform: "deepseek".to_owned(),
+            name: "DeepSeek".to_owned(),
+            enabled: true,
+            billing_day: None,
+        });
+        config.accounts.push(dsmon_core::config::AccountConfig {
+            id: "openrouter".to_owned(),
+            platform: "openrouter".to_owned(),
+            name: "OpenRouter".to_owned(),
+            enabled: true,
+            billing_day: None,
+        });
+        config
+    }
+
     /// A plan whose main window ran below the package line decides the icon,
     /// even when the balance is healthy.
     #[test]
@@ -273,7 +296,7 @@ mod tests {
             .packages
             .insert("opencode_go".to_owned(), Subscription::Loaded(quota));
 
-        let config = AppConfig::default();
+        let config = config();
         assert_eq!(state_of(&snapshot, &config, 100.0), State::Low);
     }
 
@@ -289,23 +312,25 @@ mod tests {
             .packages
             .insert("opencode_go".to_owned(), Subscription::Loaded(quota));
 
-        let config = AppConfig::default();
+        let config = config();
         assert_eq!(state_of(&snapshot, &config, 100.0), State::Ok);
     }
 
     #[test]
     fn a_brisk_package_day_turns_the_icon_brisk() {
         let mut snapshot = snapshot_with(100.0);
-        snapshot.package_day_spend = Some(("command_code".to_owned(), "monthly".to_owned(), 12.0));
+        snapshot
+            .package_day_spend
+            .insert("command_code".to_owned(), ("monthly".to_owned(), 12.0));
 
-        let mut config = AppConfig::default();
+        let mut config = config();
         config.brisk_package_percent = 10.0;
         assert_eq!(state_of(&snapshot, &config, 100.0), State::Brisk);
     }
 
     #[test]
     fn the_icon_carries_the_balance_figure() {
-        let config = AppConfig::default();
+        let config = config();
         let reported = status(&snapshot_with(12.4), &config, "zh");
         assert_eq!(reported.label, "12");
         assert_eq!(reported.state, State::Ok);
@@ -323,7 +348,7 @@ mod tests {
 
     #[test]
     fn a_running_poll_and_a_failure_replace_the_figure() {
-        let config = AppConfig::default();
+        let config = config();
 
         let mut checking = snapshot_with(12.4);
         checking.checking = true;
@@ -350,7 +375,7 @@ mod tests {
         );
         snapshot.balances.insert("openrouter".to_owned(), balances);
 
-        let reported = status(&snapshot, &AppConfig::default(), "zh");
+        let reported = status(&snapshot, &config(), "zh");
         assert_eq!(
             reported.label, "7.0",
             "below ten the figure keeps a decimal"
@@ -366,14 +391,14 @@ mod tests {
     fn a_degraded_service_colours_the_icon_without_changing_the_figure() {
         let mut snapshot = snapshot_with(12.4);
         snapshot.service_status = "major".to_owned();
-        let reported = status(&snapshot, &AppConfig::default(), "zh");
+        let reported = status(&snapshot, &config(), "zh");
         assert_eq!(reported.label, "12");
         assert_eq!(reported.state, State::Degraded);
     }
 
     #[test]
     fn an_empty_snapshot_says_it_is_still_working() {
-        let reported = status(&Snapshot::default(), &AppConfig::default(), "en");
+        let reported = status(&Snapshot::default(), &config(), "en");
         assert_eq!(reported.label, "...");
         assert_eq!(reported.state, State::NoData);
         assert_eq!(reported.tooltip, "Checking...");

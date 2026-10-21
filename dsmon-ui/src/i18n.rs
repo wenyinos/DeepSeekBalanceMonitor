@@ -25,6 +25,9 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "group_appearance") => "Icon Appearance",
             ("en", "api_key_label") => "DeepSeek API Key:",
             ("en", "save_keys") => "Save keys",
+            ("en", "add_account") => "Add account",
+            ("en", "account_name") => "Name",
+            ("en", "account_label") => "Account",
             ("en", "payg_accounts") => "Balance accounts",
             ("en", "package_accounts") => "Subscription accounts",
             ("en", "balance_word") => "balance",
@@ -243,6 +246,9 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "group_appearance") => "图标外观",
             (_, "api_key_label") => "DeepSeek API Key:",
             (_, "save_keys") => "保存密钥",
+            (_, "add_account") => "添加账户",
+            (_, "account_name") => "名称",
+            (_, "account_label") => "账户",
             (_, "payg_accounts") => "余额账户",
             (_, "package_accounts") => "订阅账户",
             (_, "balance_word") => "余额",
@@ -500,7 +506,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 143] = [
+    const USED_KEYS: [&str; 146] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -572,6 +578,9 @@ mod tests {
         "retention_label",
         "save",
         "save_keys",
+        "add_account",
+        "account_name",
+        "account_label",
         "service_status",
         "settings_tab",
         "subscription_tab",

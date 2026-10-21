@@ -27,6 +27,9 @@ pub enum Action {
 pub struct State {
     /// Which platform's history is on screen.
     pub platform: String,
+    /// Which account's history is on screen. The application keeps it pointed
+    /// at an account of the platform on the page.
+    pub account: String,
     pub days: u64,
     pub currency: Option<String>,
     pub records: Vec<HistoryRecord>,
@@ -39,6 +42,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             platform: dsmon_core::storage::KEY_DEEPSEEK.to_owned(),
+            account: dsmon_core::storage::KEY_DEEPSEEK.to_owned(),
             days: 7,
             currency: None,
             records: Vec::new(),

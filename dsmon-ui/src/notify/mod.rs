@@ -49,8 +49,8 @@ pub fn send(message: Message) {
 /// What the last reading left behind, so the next one can tell what changed.
 #[derive(Debug, Default, Clone)]
 pub struct Watch {
-    /// Set while a low balance has been reported and has stayed low.
-    low_balance_reported: bool,
+    /// The accounts whose low balance has been reported and has stayed low.
+    low_balance_reported: std::collections::BTreeSet<String>,
     /// The service status of the previous reading.
     service_status: Option<String>,
     /// The reading the last judgement was passed on, so redrawing the window
@@ -219,14 +219,14 @@ impl Watch {
         let mut messages = Vec::new();
 
         if config.quota_alert_enabled {
-            for (platform, windows) in &snapshot.window_rates {
+            for (account, windows) in &snapshot.window_rates {
                 for (window, rate) in windows {
                     if !rate.runs_out_first() {
                         continue;
                     }
-                    let key = format!("{platform} {window}");
+                    let key = format!("{account} {window}");
                     if !self.quota_reported.contains(&key) {
-                        messages.extend(Self::quota_message(platform, window, rate, lang));
+                        messages.extend(Self::quota_message(config, account, window, rate, lang));
                     }
                     warned.insert(key);
                 }
@@ -262,11 +262,16 @@ impl Watch {
         self.brisk_reported_on = Some(today);
 
         if balance_brisk {
-            let (currency, spent) = snapshot.today_spend.as_ref()?;
+            let (account, (currency, spent)) =
+                snapshot.today_spend.iter().find(|(id, (_, spent))| {
+                    dsmon_core::accounts::platform(config, id) == Some(storage::KEY_DEEPSEEK)
+                        && *spent >= config.brisk_threshold_yuan
+                })?;
             return Some(Message {
                 title: tr(lang, "brisk_title").to_owned(),
                 body: format!(
-                    "{} {} {}, {} {} {}",
+                    "{} · {} {} {}, {} {} {}",
+                    dsmon_core::accounts::label(config, account),
                     tr(lang, "brisk_body"),
                     format_amount(*spent),
                     currency,
@@ -277,12 +282,17 @@ impl Watch {
             });
         }
 
-        let (platform, window, spent) = snapshot.package_day_spend.as_ref()?;
+        let (account, (window, spent)) = snapshot
+            .package_day_spend
+            .iter()
+            .find(|(_, (_, spent))| *spent >= config.brisk_package_percent)?;
+        let platform = dsmon_core::accounts::platform(config, account)?;
         let meta = catalog::find(platform)?;
         Some(Message {
             title: tr(lang, "brisk_title").to_owned(),
             body: format!(
-                "{} {}% · {} {}, {} {}%",
+                "{} · {} {}% · {} {}, {} {}%",
+                dsmon_core::accounts::label(config, account),
                 tr(lang, "brisk_body"),
                 format_amount(*spent),
                 meta.display_name,
@@ -295,18 +305,21 @@ impl Watch {
 
     /// One plan's window, said to be running out before it resets.
     fn quota_message(
-        platform: &str,
+        config: &AppConfig,
+        account: &str,
         window: &str,
         rate: &WindowRate,
         lang: &str,
     ) -> Option<Message> {
+        let platform = dsmon_core::accounts::platform(config, account)?;
         let meta = catalog::find(platform)?;
         let hours = rate.hours_left?;
 
         Some(Message {
             title: tr(lang, "quota_alert_title").to_owned(),
             body: format!(
-                "{} {} · {} {} · {} {}",
+                "{} · {} {} · {} {} · {} {}",
+                dsmon_core::accounts::label(config, account),
                 meta.display_name,
                 tr(lang, catalog::window_label_key(window)),
                 tr(lang, "estimated_remaining"),
@@ -319,40 +332,49 @@ impl Watch {
 
     /// A balance under the alert line, as often as the alert mode asks for.
     ///
-    /// The line is the one setting that exists, and it is the DeepSeek account
-    /// it was written for, so that is the reading it is compared against.
+    /// Each account is judged on its own: two keys of the same provider are
+    /// two balances, and one being low says nothing about the other.
     fn low_balance_message(
         &mut self,
         snapshot: &Snapshot,
         config: &AppConfig,
         lang: &str,
     ) -> Option<Message> {
-        let (currency, balance) = preferred_balance(snapshot.balances.get(storage::KEY_DEEPSEEK)?)?;
+        let low: Vec<(String, String, f64)> = dsmon_core::accounts::enabled(config)
+            .filter(|account| account.platform == storage::KEY_DEEPSEEK)
+            .filter_map(|account| {
+                let (currency, balance) = snapshot
+                    .balances
+                    .get(&account.id)
+                    .and_then(preferred_balance)?;
+                (balance.total_balance < config.threshold_yuan)
+                    .then(|| (account.id.clone(), currency.clone(), balance.total_balance))
+            })
+            .collect();
 
-        if balance.total_balance >= config.threshold_yuan {
-            self.low_balance_reported = false;
+        if low.is_empty() {
+            self.low_balance_reported.clear();
             return None;
         }
+        self.low_balance_reported
+            .retain(|account| low.iter().any(|(id, _, _)| id == account));
 
-        let report = match config.alert_mode.as_str() {
-            "never" => false,
-            "always" => true,
-            _ if self.low_balance_reported => false,
-            _ => {
-                self.low_balance_reported = true;
-                true
-            }
+        let (account, currency, total) = match config.alert_mode.as_str() {
+            "never" => return None,
+            "always" => low.first()?,
+            _ => low
+                .iter()
+                .find(|(id, _, _)| !self.low_balance_reported.contains(id))?,
         };
-        if !report {
-            return None;
-        }
+        self.low_balance_reported.insert(account.clone());
 
         Some(Message {
             title: tr(lang, "low_balance_title").to_owned(),
             body: format!(
-                "{} {} {}, {} {} {}",
+                "{} · {} {} {}, {} {} {}",
+                dsmon_core::accounts::label(config, account),
                 tr(lang, "low_balance_body"),
-                format_amount(balance.total_balance),
+                format_amount(*total),
                 currency,
                 tr(lang, "threshold"),
                 format_amount(config.threshold_yuan),
@@ -365,17 +387,24 @@ impl Watch {
 /// The summary the previous build raised when the tray icon was clicked: what
 /// the balance is, how fast it is going, how the service is and how old the
 /// reading is.
-pub fn balance_message(snapshot: &Snapshot, lang: &str) -> Message {
+pub fn balance_message(snapshot: &Snapshot, config: &AppConfig, lang: &str) -> Message {
     let separator = if lang == "en" { ": " } else { "：" };
     let mut lines = Vec::new();
 
-    if let Some((currency, balance)) = snapshot
-        .balances
-        .get(storage::KEY_DEEPSEEK)
-        .and_then(preferred_balance)
-    {
-        lines.push(format!("💰 {}", balance_line(lang, currency, balance)));
-        if let Some(rate) = snapshot.consumption_rates.get(storage::KEY_DEEPSEEK) {
+    for account in dsmon_core::accounts::enabled(config) {
+        let Some((currency, balance)) = snapshot
+            .balances
+            .get(&account.id)
+            .and_then(preferred_balance)
+        else {
+            continue;
+        };
+        lines.push(format!(
+            "💰 {} · {}",
+            dsmon_core::accounts::label(config, &account.id),
+            balance_line(lang, currency, balance)
+        ));
+        if let Some(rate) = snapshot.consumption_rates.get(&account.id) {
             lines.push(format!("📊 {}", rate_line(lang, rate)));
         }
     }
@@ -534,7 +563,22 @@ mod tests {
     }
 
     fn config() -> AppConfig {
-        AppConfig::default()
+        let mut config = AppConfig::default();
+        config.accounts.push(dsmon_core::config::AccountConfig {
+            id: storage::KEY_DEEPSEEK.to_owned(),
+            platform: storage::KEY_DEEPSEEK.to_owned(),
+            name: "DeepSeek".to_owned(),
+            enabled: true,
+            billing_day: None,
+        });
+        config.accounts.push(dsmon_core::config::AccountConfig {
+            id: "opencode_go".to_owned(),
+            platform: "opencode_go".to_owned(),
+            name: "OpenCode Go".to_owned(),
+            enabled: true,
+            billing_day: None,
+        });
+        config
     }
 
     /// A healthy balance with one plan's weekly window at the given pace — the
@@ -833,12 +877,12 @@ mod tests {
         );
         snapshot.last_check = Some(Local::now() - chrono::Duration::minutes(3));
 
-        let message = balance_message(&snapshot, "zh");
+        let message = balance_message(&snapshot, &config(), "zh");
         assert_eq!(message.title, "DeepSeek 余额：");
         assert!(
             message
                 .body
-                .contains("💰 12.50 CNY（充值 10.00，赠送 2.50）"),
+                .contains("💰 DeepSeek · 12.50 CNY（充值 10.00，赠送 2.50）"),
             "{}",
             message.body
         );
@@ -866,7 +910,7 @@ mod tests {
         let mut snapshot = reading(0.0, "unknown");
         snapshot.last_error = Some("boom".to_owned());
 
-        let message = balance_message(&snapshot, "en");
+        let message = balance_message(&snapshot, &config(), "en");
         assert!(
             message.body.contains("🕐 Query error: boom"),
             "{}",
@@ -903,12 +947,12 @@ mod tests {
 
     #[test]
     fn a_brisk_day_is_reported_once() {
-        let mut config = AppConfig::default();
+        let mut config = config();
         config.brisk_threshold_yuan = 5.0;
-        let snapshot = Snapshot {
-            today_spend: Some(("CNY".to_owned(), 9.0)),
-            ..Snapshot::default()
-        };
+        let mut snapshot = Snapshot::default();
+        snapshot
+            .today_spend
+            .insert("deepseek".to_owned(), ("CNY".to_owned(), 9.0));
 
         let mut watch = Watch::default();
         assert!(
@@ -922,10 +966,10 @@ mod tests {
 
         // A day that never crossed the line clears the memory, so a line
         // lowered afterwards can still speak.
-        let quiet = Snapshot {
-            today_spend: Some(("CNY".to_owned(), 1.0)),
-            ..Snapshot::default()
-        };
+        let mut quiet = Snapshot::default();
+        quiet
+            .today_spend
+            .insert("deepseek".to_owned(), ("CNY".to_owned(), 1.0));
         assert!(watch.brisk_message(&quiet, &config, "en").is_none());
         assert!(
             watch.brisk_message(&snapshot, &config, "en").is_some(),

@@ -38,17 +38,17 @@ pub enum Subscription<T> {
 /// Everything the interface needs to draw one frame.
 #[derive(Debug, Clone, Default)]
 pub struct Snapshot {
-    /// Readings per platform key, for the balance providers.
+    /// Readings per account id, for the balance providers.
     pub balances: std::collections::BTreeMap<String, Balances>,
-    /// Why a platform's last reading failed, keyed the same way.
+    /// Why an account's last reading failed, keyed the same way.
     pub balance_errors: std::collections::BTreeMap<String, String>,
     pub service_status: String,
     /// The service indicator per platform that has a status page of its own
     /// (DeepSeek and MiniMax), keyed by the platform key.
     pub platform_status: std::collections::BTreeMap<String, String>,
-    /// Burn-rate estimates per platform.
+    /// Burn-rate estimates per account.
     pub consumption_rates: std::collections::BTreeMap<String, ConsumptionRate>,
-    /// The package plans' quota windows, keyed by platform.
+    /// The package plans' quota windows, keyed by account id.
     pub packages: std::collections::BTreeMap<String, Subscription<PackageQuota>>,
     /// How fast each plan's windows are being spent, from the logged readings.
     pub window_rates: WindowRates,
@@ -61,14 +61,14 @@ pub struct Snapshot {
     pub checking: bool,
     /// Whether the configured key selects the demo data set.
     pub demo: bool,
-    /// What DeepSeek has cost today, and in which currency — `None` when there
-    /// is nothing to compare, which is the case for a day holding a single
-    /// reading, for a balance that went up, and before the first poll.
-    pub today_spend: Option<(String, f64)>,
-    /// The day's largest package-window spend: the platform and window it
-    /// belongs to, and the percentage points spent of it. `None` when no plan
-    /// recorded a rise.
-    pub package_day_spend: Option<(String, String, f64)>,
+    /// What each balance account has cost today, keyed by account id: the
+    /// currency and the amount. An account with nothing to compare — a day
+    /// holding one reading, a balance that went up, or before the first poll —
+    /// is absent rather than zero.
+    pub today_spend: std::collections::BTreeMap<String, (String, f64)>,
+    /// The day's largest package-window spend per account: account id to
+    /// (window, percentage points spent). Absent when no plan recorded a rise.
+    pub package_day_spend: std::collections::BTreeMap<String, (String, f64)>,
 }
 
 impl Snapshot {
@@ -80,9 +80,10 @@ impl Snapshot {
         if config.brisk_threshold_yuan <= 0.0 {
             return false;
         }
-        self.today_spend
-            .as_ref()
-            .is_some_and(|(_, spent)| *spent >= config.brisk_threshold_yuan)
+        self.today_spend.iter().any(|(account, (_, spent))| {
+            crate::accounts::platform(config, account) == Some(storage::KEY_DEEPSEEK)
+                && *spent >= config.brisk_threshold_yuan
+        })
     }
 
     /// Whether the largest package plan's day has passed the percent line.
@@ -94,8 +95,8 @@ impl Snapshot {
             return false;
         }
         self.package_day_spend
-            .as_ref()
-            .is_some_and(|(_, _, spent)| *spent >= config.brisk_package_percent)
+            .values()
+            .any(|(_, spent)| *spent >= config.brisk_package_percent)
     }
 }
 
@@ -284,11 +285,11 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
         // Recorded before anything is refined: the history has to hold what
         // the endpoint actually said, or the next refinement would compare
         // a refined figure against a refined one and drift.
-        record_subscription_usage(&outcome.packages);
-        refine_coarse_windows(&mut outcome.packages);
-        let window_rates = package_rates(&outcome.packages);
-        let today_spend = today_spend();
-        let package_day_spend = package_day_spend(&outcome.packages);
+        record_subscription_usage(&outcome.packages, config);
+        refine_coarse_windows(&mut outcome.packages, config);
+        let window_rates = package_rates(&outcome.packages, config);
+        let today_spend = today_spend(config);
+        let package_day_spend = package_day_spend(&outcome.packages, config);
         (outcome, window_rates, today_spend, package_day_spend)
     });
 
@@ -323,10 +324,26 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
 /// only the drops keeps consumption visible after a recharge, where a
 /// first-minus-last would cancel it out. A day holding one reading, and a day
 /// with no positive drop at all, say nothing rather than a confident zero.
-fn today_spend() -> Option<(String, f64)> {
+fn today_spend(config: &AppConfig) -> std::collections::BTreeMap<String, (String, f64)> {
+    use crate::catalog::Mode;
+
     let today = format!("{} 00:00:00", Local::now().format("%Y-%m-%d"));
-    let records = storage::history_records_since(storage::KEY_DEEPSEEK, &today, 2000).ok()?;
-    spent_of_day(&records)
+    let mut spends = std::collections::BTreeMap::new();
+    for account in crate::accounts::enabled(config) {
+        let Some(meta) = crate::catalog::find(&account.platform) else {
+            continue;
+        };
+        if meta.mode != Mode::Payg {
+            continue;
+        }
+        let Ok(records) = storage::history_records_since(&account.id, &today, 2000) else {
+            continue;
+        };
+        if let Some(spend) = spent_of_day(&records) {
+            spends.insert(account.id.clone(), spend);
+        }
+    }
+    spends
 }
 
 /// The day's positive drops added up, in the currency they share.
@@ -354,36 +371,38 @@ fn spent_of_day(records: &[HistoryRecord]) -> Option<(String, f64)> {
 /// the window the earlier build's day figure used by default.
 fn package_day_spend(
     packages: &std::collections::BTreeMap<String, Subscription<PackageQuota>>,
-) -> Option<(String, String, f64)> {
+    config: &AppConfig,
+) -> std::collections::BTreeMap<String, (String, f64)> {
     let today = format!("{} 00:00:00", Local::now().format("%Y-%m-%d"));
-    let mut best: Option<(String, String, f64)> = None;
+    let mut spends = std::collections::BTreeMap::new();
 
-    for (platform, subscription) in packages {
+    for (account_id, subscription) in packages {
         let Subscription::Loaded(quota) = subscription else {
+            continue;
+        };
+        let Some(platform) = crate::accounts::platform(config, account_id) else {
             continue;
         };
         let Some(window) = crate::model::main_window(quota) else {
             continue;
         };
-        let Ok(points) = storage::subscription_usage_since(platform, window, &today) else {
+        let Ok(points) = storage::subscription_usage_since(account_id, platform, window, &today)
+        else {
             continue;
         };
         let spent = history::window_day_spend(&points);
-        let better = best
-            .as_ref()
-            .map_or(true, |(_, _, current)| spent > *current);
-        if spent > 0.0 && better {
-            best = Some((platform.clone(), window.to_owned(), spent));
+        if spent > 0.0 {
+            spends.insert(account_id.clone(), (window.to_owned(), spent));
         }
     }
-    best
+    spends
 }
 
 /// Refreshes the package plans' quotas alone.
 fn poll_subscriptions(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>) {
-    let packages = gather_packages(platforms::effective_proxy(config));
-    record_subscription_usage(&packages);
-    let window_rates = package_rates(&packages);
+    let packages = gather_packages(platforms::effective_proxy(config), config);
+    record_subscription_usage(&packages, config);
+    let window_rates = package_rates(&packages, config);
 
     if let Ok(mut guard) = snapshot.lock() {
         guard.checking = false;
@@ -410,17 +429,15 @@ struct Outcome {
 }
 
 fn gather(config: &AppConfig) -> Result<Outcome, String> {
-    let api_key = storage::read_secret(storage::KEY_DEEPSEEK)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-
-    if demo::is_enabled(&api_key) {
+    let demo = crate::accounts::enabled(config).any(|account| {
+        matches!(storage::read_secret(&account.id), Ok(Some(key)) if demo::is_enabled(&key))
+    });
+    if demo {
         return gather_demo(config);
     }
 
     let proxy = platforms::effective_proxy(config);
-    let (balances, balance_errors) = gather_balances(proxy);
+    let (balances, balance_errors) = gather_balances(proxy, config);
 
     if balances.is_empty() && balance_errors.is_empty() {
         return Err("No balance provider is configured.".to_owned());
@@ -432,7 +449,7 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
     // own; the indicator is kept per platform so each page shows its own.
     let mut platform_status = std::collections::BTreeMap::new();
     platform_status.insert(storage::KEY_DEEPSEEK.to_owned(), service_status.clone());
-    if minimax_configured() {
+    if minimax_configured(config) {
         let status = platforms::minimax::fetch_status(proxy);
         for meta in crate::catalog::implemented().filter(|meta| meta.key.starts_with("minimax_")) {
             platform_status.insert(meta.key.to_owned(), status.clone());
@@ -441,7 +458,8 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
 
     // Every provider keeps its own history; only DeepSeek has a status page, so
     // the others record the health as unknown.
-    for (platform, found) in &balances {
+    for (account_id, found) in &balances {
+        let platform = crate::accounts::platform(config, account_id).unwrap_or("");
         let status = if platform == storage::KEY_DEEPSEEK {
             service_status.as_str()
         } else {
@@ -449,21 +467,21 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
         };
         // A failed history write costs us the curve, not the reading: the figure
         // on screen comes from the snapshot, so it should still be shown.
-        if let Err(error) = storage::save_balance_history(platform, found, status) {
-            let _ = storage::log_line(&format!("history write failed for {platform}: {error}"));
+        if let Err(error) = storage::save_balance_history(account_id, platform, found, status) {
+            let _ = storage::log_line(&format!("history write failed for {account_id}: {error}"));
         }
     }
     let _ = storage::prune_balance_history(config.retention_days);
     let _ = storage::prune_subscription_history(config.retention_days);
 
     let mut consumption_rates = std::collections::BTreeMap::new();
-    for platform in balances.keys() {
+    for account_id in balances.keys() {
         if let Ok(Some(rate)) = history::consumption_rate_with_fallback(
-            platform,
+            account_id,
             config.retention_days,
             config.interval_minutes,
         ) {
-            consumption_rates.insert(platform.clone(), rate);
+            consumption_rates.insert(account_id.clone(), rate);
         }
     }
 
@@ -473,22 +491,23 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
         service_status,
         platform_status,
         consumption_rates,
-        packages: gather_packages(proxy),
+        packages: gather_packages(proxy, config),
     })
 }
 
 /// Whether any MiniMax plan holds a key: its status page is only fetched when
 /// there is a plan for it to say something about.
-fn minimax_configured() -> bool {
-    crate::catalog::implemented()
-        .filter(|meta| meta.key.starts_with("minimax_"))
-        .any(|meta| matches!(storage::read_secret(meta.key), Ok(Some(_))))
+fn minimax_configured(config: &AppConfig) -> bool {
+    crate::accounts::enabled(config)
+        .filter(|account| account.platform.starts_with("minimax_"))
+        .any(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
 }
 
 /// Reads every configured balance provider, keeping failures beside the
 /// successes so one broken key does not hide the others.
 fn gather_balances(
     proxy: &str,
+    config: &AppConfig,
 ) -> (
     std::collections::BTreeMap<String, Balances>,
     std::collections::BTreeMap<String, String>,
@@ -498,8 +517,14 @@ fn gather_balances(
     let mut balances = std::collections::BTreeMap::new();
     let mut errors = std::collections::BTreeMap::new();
 
-    for meta in catalog::implemented().filter(|meta| meta.mode == Mode::Payg) {
-        let Ok(Some(key)) = storage::read_secret(meta.key) else {
+    for account in crate::accounts::enabled(config) {
+        let Some(meta) = catalog::find(&account.platform) else {
+            continue;
+        };
+        if meta.mode != Mode::Payg {
+            continue;
+        }
+        let Ok(Some(key)) = storage::read_secret(&account.id) else {
             continue;
         };
 
@@ -517,10 +542,10 @@ fn gather_balances(
 
         match result {
             Ok(found) => {
-                balances.insert(meta.key.to_owned(), found);
+                balances.insert(account.id.clone(), found);
             }
             Err(error) => {
-                errors.insert(meta.key.to_owned(), error);
+                errors.insert(account.id.clone(), error);
             }
         }
     }
@@ -533,16 +558,27 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
     demo::prepare(&conn)?;
     let balances = demo::balances(&conn)?;
     let consumption_rate = demo::consumption_rate(&conn).ok();
+    let account_id = crate::accounts::enabled(config)
+        .find(|account| {
+            matches!(storage::read_secret(&account.id), Ok(Some(key)) if demo::is_enabled(&key))
+        })
+        .map(|account| account.id.clone())
+        .or_else(|| {
+            crate::accounts::of_platform(config, storage::KEY_DEEPSEEK)
+                .next()
+                .map(|account| account.id.clone())
+        })
+        .unwrap_or_else(|| storage::KEY_DEEPSEEK.to_owned());
 
     Ok(Outcome {
-        balances: [("deepseek".to_owned(), balances)].into_iter().collect(),
+        balances: [(account_id.clone(), balances)].into_iter().collect(),
         balance_errors: Default::default(),
         service_status: "none".to_owned(),
         platform_status: Default::default(),
         consumption_rates: consumption_rate
-            .map(|rate| [("deepseek".to_owned(), rate)].into_iter().collect())
+            .map(|rate| [(account_id, rate)].into_iter().collect())
             .unwrap_or_default(),
-        packages: gather_packages(platforms::effective_proxy(config)),
+        packages: gather_packages(platforms::effective_proxy(config), config),
     })
 }
 
@@ -553,8 +589,12 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
 /// recorded out of a hundred.
 fn record_subscription_usage(
     packages: &std::collections::BTreeMap<String, Subscription<PackageQuota>>,
+    config: &AppConfig,
 ) {
-    for (platform, subscription) in packages {
+    for (account_id, subscription) in packages {
+        let Some(platform) = crate::accounts::platform(config, account_id) else {
+            continue;
+        };
         let Subscription::Loaded(quota) = subscription else {
             continue;
         };
@@ -568,11 +608,11 @@ fn record_subscription_usage(
                 continue;
             };
             let (used, cap) = entry.as_recorded_usage();
-            if let Err(error) =
-                storage::save_subscription_usage_at(platform, window, used, cap, &timestamp)
-            {
+            if let Err(error) = storage::save_subscription_usage_at(
+                account_id, platform, window, used, cap, &timestamp,
+            ) {
                 let _ = storage::log_line(&format!(
-                    "usage history write failed for {platform} {window}: {error}"
+                    "usage history write failed for {account_id} {window}: {error}"
                 ));
             }
         }
@@ -589,6 +629,7 @@ fn record_subscription_usage(
 /// window is left exactly as the endpoint reported it.
 fn refine_coarse_windows(
     packages: &mut std::collections::BTreeMap<String, Subscription<PackageQuota>>,
+    config: &AppConfig,
 ) {
     use crate::storage::PROVIDER_OPENCODE_GO;
 
@@ -599,26 +640,36 @@ fn refine_coarse_windows(
     /// into money.
     const FIVE_HOUR_POOL: f64 = 12.0;
 
-    let Some(Subscription::Loaded(quota)) = packages.get_mut(PROVIDER_OPENCODE_GO) else {
-        return;
-    };
+    let accounts: Vec<String> = crate::accounts::enabled(config)
+        .filter(|account| account.platform == PROVIDER_OPENCODE_GO)
+        .map(|account| account.id.clone())
+        .collect();
 
-    for (window, pool) in [("weekly", 30.0), ("monthly", 60.0)] {
-        let Ok(readings) =
-            storage::subscription_usage_pairs(PROVIDER_OPENCODE_GO, window, HISTORY_DAYS)
-        else {
-            continue;
-        };
-        let Some(refined) = history::refined_percent(&readings, FIVE_HOUR_POOL, pool) else {
+    for account_id in accounts {
+        let Some(Subscription::Loaded(quota)) = packages.get_mut(&account_id) else {
             continue;
         };
 
-        if let Some(entry) = quota.get(window) {
-            let reset_in_sec = entry.reset_in_sec;
-            quota.insert(
-                window.to_owned(),
-                crate::model::QuotaWindow::from_percent(refined, reset_in_sec),
-            );
+        for (window, pool) in [("weekly", 30.0), ("monthly", 60.0)] {
+            let Ok(readings) = storage::subscription_usage_pairs(
+                &account_id,
+                PROVIDER_OPENCODE_GO,
+                window,
+                HISTORY_DAYS,
+            ) else {
+                continue;
+            };
+            let Some(refined) = history::refined_percent(&readings, FIVE_HOUR_POOL, pool) else {
+                continue;
+            };
+
+            if let Some(entry) = quota.get(window) {
+                let reset_in_sec = entry.reset_in_sec;
+                quota.insert(
+                    window.to_owned(),
+                    crate::model::QuotaWindow::from_percent(refined, reset_in_sec),
+                );
+            }
         }
     }
 }
@@ -630,19 +681,24 @@ fn refine_coarse_windows(
 /// resets from one that will not.
 fn package_rates(
     packages: &std::collections::BTreeMap<String, Subscription<PackageQuota>>,
+    config: &AppConfig,
 ) -> WindowRates {
     /// How far back the pace is read: a monthly window keeps its whole cycle
     /// inside this, and earlier readings describe cycles already reset.
     const HISTORY_DAYS: u64 = 30;
 
     let mut rates = WindowRates::new();
-    for (platform, subscription) in packages {
+    for (account_id, subscription) in packages {
+        let Some(platform) = crate::accounts::platform(config, account_id) else {
+            continue;
+        };
         let Subscription::Loaded(quota) = subscription else {
             continue;
         };
         let mut per_window = std::collections::BTreeMap::new();
         for (window, entry) in quota {
-            let Ok(points) = storage::subscription_usage_history(platform, window, HISTORY_DAYS)
+            let Ok(points) =
+                storage::subscription_usage_history(account_id, platform, window, HISTORY_DAYS)
             else {
                 continue;
             };
@@ -651,7 +707,7 @@ fn package_rates(
             }
         }
         if !per_window.is_empty() {
-            rates.insert(platform.clone(), per_window);
+            rates.insert(account_id.clone(), per_window);
         }
     }
     rates
@@ -659,12 +715,21 @@ fn package_rates(
 
 /// Reads every configured package plan, keeping failures beside the successes
 /// so one broken key does not hide the others.
-fn gather_packages(proxy: &str) -> std::collections::BTreeMap<String, Subscription<PackageQuota>> {
+fn gather_packages(
+    proxy: &str,
+    config: &AppConfig,
+) -> std::collections::BTreeMap<String, Subscription<PackageQuota>> {
     use crate::catalog::{self, Mode};
 
     let mut packages = std::collections::BTreeMap::new();
-    for meta in catalog::implemented().filter(|meta| meta.mode == Mode::Package) {
-        let subscription = match storage::read_secret(meta.key) {
+    for account in crate::accounts::enabled(config) {
+        let Some(meta) = catalog::find(&account.platform) else {
+            continue;
+        };
+        if meta.mode != Mode::Package {
+            continue;
+        }
+        let subscription = match storage::read_secret(&account.id) {
             Ok(Some(key)) => match fetch_package(meta.key, &key, proxy) {
                 Ok(quota) => Subscription::Loaded(quota),
                 Err(error) => Subscription::Failed(error),
@@ -672,7 +737,7 @@ fn gather_packages(proxy: &str) -> std::collections::BTreeMap<String, Subscripti
             Ok(None) => Subscription::NotConfigured,
             Err(error) => Subscription::Failed(error),
         };
-        packages.insert(meta.key.to_owned(), subscription);
+        packages.insert(account.id.clone(), subscription);
     }
     packages
 }
@@ -717,10 +782,17 @@ mod tests {
     #[test]
     fn brisk_spending_needs_a_line_and_a_figure() {
         let mut config = AppConfig::default();
-        let mut snapshot = Snapshot {
-            today_spend: Some(("CNY".to_owned(), 12.0)),
-            ..Snapshot::default()
-        };
+        config.accounts.push(crate::config::AccountConfig {
+            id: storage::KEY_DEEPSEEK.to_owned(),
+            platform: storage::KEY_DEEPSEEK.to_owned(),
+            name: "DeepSeek".to_owned(),
+            enabled: true,
+            billing_day: None,
+        });
+        let mut snapshot = Snapshot::default();
+        snapshot
+            .today_spend
+            .insert("deepseek".to_owned(), ("CNY".to_owned(), 12.0));
 
         // It ships off: no line, no alert, whatever the day cost.
         assert!(!snapshot.spending_is_brisk(&config));
@@ -735,7 +807,7 @@ mod tests {
         assert!(!snapshot.spending_is_brisk(&config));
 
         // A day with nothing to compare is never brisk, however low the line.
-        snapshot.today_spend = None;
+        snapshot.today_spend.clear();
         config.brisk_threshold_yuan = 1.0;
         assert!(!snapshot.spending_is_brisk(&config));
     }

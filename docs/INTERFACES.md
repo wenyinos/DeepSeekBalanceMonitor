@@ -41,7 +41,7 @@
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "provider": { "name": "dsmon2", "version": "2.2.0" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
@@ -49,17 +49,21 @@
   "service_status": "none",
   "last_check_at": "2026-09-15 10:42:00",
   "last_check_sec": 42,
-  "today_spend": { "platform": "deepseek", "currency": "CNY", "amount": 12.5 },
+  "today_spend": { "platform": "deepseek", "account_id": "deepseek",
+                   "currency": "CNY", "amount": 12.5 },
   "platforms": [
     {
-      "key": "deepseek", "display": "DeepSeek", "kind": "payg",
+      "key": "deepseek", "account_id": "deepseek", "account_name": "DeepSeek 主",
+      "display": "DeepSeek", "kind": "payg",
       "balances": [{ "currency": "CNY", "total_balance": 12.34,
                      "topped_up_balance": 10.0, "granted_balance": 2.34 }],
       "rate": { "hourly_rate": 0.42, "busy_hours_left": 291.5, "currency": "CNY" },
       "windows": [],
       "service_status": "none",
       "series": [{ "t": 1757900000, "v": 12.34 }],
-      "daily": [{ "date": "2026-09-14", "used": 3.2, "weekday": 0 }]
+      "daily": [{ "date": "2026-09-14", "used": 3.2, "weekday": 0 }],
+      "today_spend": { "platform": "deepseek", "account_id": "deepseek",
+                       "currency": "CNY", "amount": 12.5 }
     }
   ]
 }
@@ -67,7 +71,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `version` | 整数 | 载荷格式的主版本，当前 **2**。客户端遇到不认识的主版本要提示「主程序版本过新，请升级」，不要装作连不上 |
+| `version` | 整数 | 载荷格式的主版本，当前 **3**。客户端遇到不认识的主版本要提示「主程序版本过新，请升级」，不要装作连不上 |
 | `provider` | 对象 | 谁在供数（`name` + 版本），便于诊断 |
 | `generated_at` | 字符串 | 生成时刻，`%Y-%m-%d %H:%M:%S`（与数据库同格式） |
 | `lang` | 字符串 | 主程序当前语言，`zh` / `en`；**给小工具之外的消费者参考**，小工具自己从配置读 |
@@ -75,8 +79,10 @@
 | `service_status` | 字符串 | 服务状态指示，取值见 §7.4 |
 | `last_check_at` | 字符串｜null | 上次成功查询的时刻，**已格式化**（`%Y-%m-%d %H:%M:%S`）；客户端直接显示，不需要日期库 |
 | `last_check_sec` | 整数｜null | 距上次成功查询的秒数，供客户端判断数据新鲜度 |
-| `today_spend` | 对象｜null | 某个余额平台**今天已经花掉的金额**：`platform`（哪个平台）、`currency`、`amount`。算法是「当日第一条读数 − 最后一条」（与历史页的 `1d` 同一个滚动窗口），余额上升（充值）或当天只有一条读数时为 `null`——**没有可比的东西就不报数**，不拿 0 冒充。客户端应把它显示在**对应平台**的卡片上 |
-| `platforms[].key` | 字符串 | 平台标识，与 §2 的密钥名、§3 的 `platform` 列**同一个值** |
+| `today_spend` | 对象｜null | 兼容字段：**第一个有当日消耗的账户**的金额（`platform`、`account_id`、`currency`、`amount`）。v3 客户端应读条目上的 `platforms[].today_spend`。算法是「当日第一条读数 − 最后一条」（与历史页的 `1d` 同一个滚动窗口），余额上升（充值）或当天只有一条读数时为 `null`——**没有可比的东西就不报数**，不拿 0 冒充 |
+| `platforms[].key` | 字符串 | 平台标识，与 §3 的 `platform` 列、目录里的平台 key **同一个值**；**同一 key 可以出现多次**，每次属于不同的 `account_id` |
+| `platforms[].account_id` | 字符串 | 账户标识，与 `config.json` 的 `accounts[].id`、`secure_settings.key` 同一个值；客户端用它做卡片 id，避免同平台多账户互相覆盖 |
+| `platforms[].account_name` | 字符串 | 账户名（设置页可改）；同平台只有一个账户时通常等于 `display` |
 | `platforms[].display` | 字符串 | 展示名（专有名词，不翻译） |
 | `platforms[].kind` | 字符串 | `payg`（余额）或 `package`（额度窗口），同 `catalog::Mode` |
 | `platforms[].balances[]` | 数组 | 各币种余额，字段同 `model::Balance`（`total_balance` / `topped_up_balance` /
@@ -86,10 +92,11 @@
 | `platforms[].service_status` | 字符串｜缺省 | 平台自己的状态页指示（取值见 §7.4）。**只有有状态页的平台携带**（DeepSeek、MiniMax），其余省略；客户端按缺失画「无状态行」 |
 | `platforms[].series[]` | 数组 | **余额曲线**，按 `days` 截取，**降采样到 ≤240 点**；`t` 秒级时间戳、`v` 总余额 |
 | `platforms[].daily[]` | 数组 | 每日用量（热力图）：`date`（`YYYY-MM-DD`）、`used`、`weekday`（0=周一，客户端据此排版，仍不需要日期库） |
+| `platforms[].today_spend` | 对象｜null | **该账户**今天已经花掉的金额，字段同顶层 `today_spend`；没有可比数据时省略 |
 
 ### 1.4 不变式 🔒
 
-1. **只含已配置平台**（该平台有密钥），顺序按 `catalog::PLATFORMS`；一个都没有就是空数组。
+1. **只含已配置账户**（该账户有密钥），顺序按 `config.json` 里 `accounts` 的顺序；同一个 `key` 可以有多条（同一平台的多个 key），一个账户都没有就是空数组。
 2. **窗口名给键、不给成品文案**：`name_key` ∈ {`window_5h`, `window_weekly`, `window_monthly`}，
    由客户端翻译（客户端与主程序共用同一张 i18n 表）。
 3. **不传凭据**：响应里没有任何 API Key、密文或密钥材料；客户端不需要提供任何凭据，**接口不做鉴权、
@@ -123,7 +130,8 @@
 | `threshold_yuan` | 浮点 | 1.0 | ≤10000 | 低余额告警阈值 |
 | `threshold_package_percent` | 浮点 | 10 | 0–100 | 套餐主窗口剩余百分比低额线（低于即图标转低额） |
 | `ui_language` | 字符串 | `zh` | `zh` / `en` | 界面与通知语言；**小工具也读它** |
-| `auto_start` | 布尔 | false | — | 开机自启 |
+| `auto_start` | 布尔 | false | — | 主程序开机自启 |
+| `accounts` | 数组 | `[]` | 每项 `{ id, platform, name, enabled, billing_day }` | API 密钥账户列表。`id` 同时是 `secure_settings` 的键；旧配置为空时，启动时按已存的平台密钥生成每个平台的首个账户（`id` = 平台 key） |
 | `alert_mode` | 字符串 | `once` | `once` / `always` / `never` | 低余额告警频率 |
 | `api_alert_enabled` | 布尔 | true | — | 服务状态异常是否告警 |
 | `peak_alert_enabled` | 布尔 | false | — | DeepSeek 峰谷切换是否提醒 |
@@ -140,6 +148,7 @@
 | `icon_colors` | 对象 | 空 | 键 `ok`/`degraded`/`low`/`error` → `#rrggbb` | 自定义配色（`theme=custom` 时） |
 | `icon_stroke` | 布尔 | false | — | 图标描边 |
 | `widget_enabled` | 布尔 | false | — | **主程序启动时是否拉起小工具**（不控制端口）；托盘的「显示/隐藏桌面小工具」就是改它。小工具**读到 true→false 会自己退出**，所以取消显示不必去杀进程 |
+| `widget_auto_start` | 布尔 | true | — | 小工具是否随会话启动；与小工具的 `deepseek-balance-monitor-widget.desktop` 条目对账，独立于 `auto_start` |
 | `widget_size` | 字符串 | `standard` | `compact` / `standard` | 小工具尺寸预设 |
 | `widget_opacity` | 浮点 | 0.9 | **四档 0.25 / 0.50 / 0.75 / 0.90**，夹取到 `[0.25, 0.90]` 后吸附到最近档位 | 小工具面板底色 alpha（卡片与文字不随之变淡）；拿不到合成器时按不透明绘制，但不改配置值 |
 | `widget_always_on_top` | 布尔 | true | — | 小工具置顶 |
@@ -171,17 +180,20 @@
 数据库（SQLite，WAL + `busy_timeout` 5 秒，即使两个进程同时写也不会 `database is locked`）：
 
 ```sql
-balance_history(id, platform, timestamp, currency, total, topped, granted, service_status)
-subscription_history(id, timestamp, provider, used, cap, window)
+balance_history(id, account_id, platform, timestamp, currency, total, topped, granted, service_status)
+subscription_history(id, account_id, timestamp, provider, used, cap, window)
 secure_settings(key PRIMARY KEY, value BLOB, updated_at)
 -- 索引：balance_history(timestamp)、balance_history(currency, timestamp)、
+--       balance_history(account_id, timestamp)、
 --       subscription_history(provider, timestamp)、
---       subscription_history(provider, window, timestamp)
+--       subscription_history(provider, window, timestamp)、
+--       subscription_history(account_id, window, timestamp)
 ```
 
 - `timestamp` 一律 `%Y-%m-%d %H:%M:%S`（本地时间，与 1.x 一致）。
 - 同一平台 **120 秒**内的重复读数跳过（去重窗口），时间戳相同的写入视为重复。
-- `platform` / `provider` 列的值就是 §7.1 的 `key`。
+- `account_id` 是账户标识，与 `config.json` 的 `accounts[].id`、`secure_settings.key` 同一个值；`platform` / `provider` 列的值仍是 §7.1 的平台 `key`。**一个平台可以有多个 `account_id`**。
+- 老库启动时自动补 `account_id` 列（`TEXT NOT NULL DEFAULT `），并把已有行回填为 `platform`（余额历史）或 `provider`（订阅历史）；迁移前会写一份 `dsmon.db.before-accounts` 的 `VACUUM INTO` 备份。
 - `window` 是 `5h` / `weekly` / `monthly`：一个套餐有多个窗口，历史要分得开。**没有 `window` 列的老库
   自动补一列**（`ALTER TABLE … ADD COLUMN window TEXT NOT NULL DEFAULT 'monthly'`），已存在的行按定义
   都是月度——那时只记月度。
@@ -197,7 +209,7 @@ secure_settings(key PRIMARY KEY, value BLOB, updated_at)
 - 密文格式：`DSBM1`（5 字节前缀）‖ 12 字节 nonce ‖ 密文 ‖ 16 字节 GCM tag，AES-256-GCM。
 - AAD 是固定串 `deepseek-balance-monitor secure_settings api_key v1`——**跨实现必须逐字节一致**，
   否则对方写的密文解不开。
-- `secure_settings.key` 的取值 = 平台 `key`（如 `deepseek`、`opencode_go`、`glm_coding_cn`）。
+- `secure_settings.key` 的取值 = **账户 id**（`accounts[].id`）。旧版本按平台 key 存的密钥，正好是迁移后首个账户的 id，因此不需要重新加密或搬家。
   **API Key 永不写入 `config.json`。**
 
 只读边界：

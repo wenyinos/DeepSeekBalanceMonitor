@@ -190,16 +190,18 @@ egui/eframe 能把窗口做成 ARGB 透明（`.with_transparent(true)` + `App::c
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "provider": { "name": "dsmon2", "version": "2.2.0" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,
   "service_status": "none",
   "last_check_sec": 42,
-  "today_spend": { "platform": "deepseek", "currency": "CNY", "amount": 12.5 },
+  "today_spend": { "platform": "deepseek", "account_id": "deepseek",
+                   "currency": "CNY", "amount": 12.5 },
   "platforms": [{
-    "key": "command_code", "display": "Command Code", "kind": "package",
+    "key": "command_code", "account_id": "command_code", "account_name": "Command Code 主",
+    "display": "Command Code", "kind": "package",
     "balances": [{ "currency": "CNY", "total_balance": 12.34 }],
     "rate": { "hourly_rate": 0.42, "busy_hours_left": 291.5, "currency": "CNY" },
     "windows": [
@@ -207,24 +209,26 @@ egui/eframe 能把窗口做成 ARGB 透明（`.with_transparent(true)` + `App::c
       { "name_key": "window_weekly", "usage_percent": 86.0, "reset_in_sec": 86400 }
     ],
     "series": [{ "t": 1757900000, "v": 0.31 }],
-    "daily": [{ "date": "2026-09-14", "used": 3.2 }]
+    "daily": [{ "date": "2026-09-14", "used": 3.2 }],
+    "today_spend": null
   }]
 }
 ```
 
 结构约定：
 
-- `platforms` **只含已配置平台**（筛选在主程序侧做，规则与侧边栏一致——见 §4.6）。
+- `platforms` **只含已配置账户**（该账户有密钥；筛选在主程序侧做，规则与侧边栏一致——见 §4.6）。**同一个 `key` 可以出现多次**，用 `account_id` 区分；`account_name` 是设置页里的账户名。
 - `windows[].name_key` 是 i18n 键，由小工具翻译（不返回已本地化的成品文案，界面文案只有一处来源）。
 - **`rate` 就是 `ConsumptionRate` 原样**（`hourly_rate` + `busy_hours_left`，**7 天口径**，由主程序的轮询
   线程算好）；小工具只负责单位格式化与文案，不重算（§3.2）。
 - **`series` 是余额曲线**，与历史页同源（`storage::history_records`），点值 `{t, v}` 是时间戳与该时刻总余额；
   由 `days` 决定窗口，**服务端降采样到 ≤240 点**（30 天 × 10 分钟 = 4320 点，原样发出会让每 2 秒一次的
   轮询背上 ~90KB 的载荷，而绘图根本用不到那么多点）。
-- `daily` 只给热力图用的数字（`history::daily_usage` 的结果），**按平台各来一份**；热力图要的
+- `daily` 只给热力图用的数字（`history::daily_usage` 的结果），**按账户各来一份**；热力图要的
   「全部订阅合计」由客户端把几份按日期相加（§4.4），服务端不另算一份。
 - `today_spend` 是**当日已花金额**（当日正增量累加，日历日窗口；花掉才为正，否则为 `null`），口径与
-  主程序自己的「单日消耗过快」提醒是同一个数；小工具只把它显示在余额卡上（§4.2），不参与判定。
+  主程序自己的「单日消耗过快」提醒是同一个数。v3 里它有两处：顶层的兼容值（第一个有消耗的账户）和
+  每个 `platforms[]` 条目上的值；小工具读**条目上的**，显示在对应账户的卡上（§4.2），不参与判定。
 - `platforms[].service_status` 是**该平台自己状态页的指示值**（§7.4 值域）：只有有状态页的平台携带
   （DeepSeek、MiniMax），其余平台省略这个字段；小工具在对应的卡上画一行状态（点 + 文案），没有就不画。
 - `lang` 是主程序当前语言，**给小工具之外的消费者参考**（例如第三方客户端）；小工具自己从
@@ -301,8 +305,9 @@ ViewportBuilder::default()
 | 卡片间距 / 内边距 | 8px / 12px | 同 |
 | 标题 / 大数字 | 13px 粗体；余额 20px、速率 16px `DIGITS_FAMILY` + 10.5px 单位 | 同 |
 
-**每个已配置的余额平台各一张卡**（`cards::balance_card`），标题就是平台名——与额度卡同一条规矩：面板
-只显示第一个平台，会把主程序正在轮询的其它账户悄悄藏起来。卡里两个数字，**余额在上、速率在下**：
+**每个已配置的余额账户各一张卡**（`cards::balance_card`），标题是 `account_name`（同平台只有一个账户时
+通常等于平台名）——与额度卡同一条规矩：面板只显示第一个平台，会把主程序正在轮询的其它账户悄悄藏起来。
+同一个平台的两个 key 是两张卡、两个余额。卡里两个数字，**余额在上、速率在下**：
 `余额 32.70 CNY` 是主数字（20px，比速率那行大），下面一行 `0.42 /h CNY 预计可用 12d 3h` 是它的派生物
 （16px + 10px 说明）。余额带 `balance_word` 标签，免得和速率混淆——两个都带货币单位时，光看数字分不出
 哪个是存量、哪个是流量。没有消耗历史的平台（例如刚配置的 Kimi）只显示余额与折线，速率那行换成
@@ -596,7 +601,7 @@ dsmon-ui/
 4. **载荷组装**：已配置平台筛选、`rate`（直接取 `Snapshot::consumption_rates`，7 天口径）、
    `series`（按 `?days=1|7|30` 取 `storage::history_records` 并降采样到 ≤240 点）、`daily`、
    `last_check_sec`、`service_status`。
-   验收：只配一个平台时 `platforms` 只有一个元素；未配置平台不出现；`days=30` 时 `series` 不超过 240 点、
+   验收：只配一个账户时 `platforms` 只有一个元素；未配置账户不出现；同平台两个账户时 `platforms` 有两条、`account_id` 不同；`days=30` 时 `series` 不超过 240 点、
    `days` 非法时按 7 处理；`rate` 的数字与主窗口状态页显示的**完全一致**。
 5. 质量门：`cargo fmt --all --check && cargo test --workspace --locked`。
 

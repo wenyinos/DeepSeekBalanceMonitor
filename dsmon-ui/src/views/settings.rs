@@ -45,8 +45,13 @@ pub enum Action {
 pub struct State {
     /// Edited copy of the configuration.
     pub draft: AppConfig,
-    /// New key material, keyed by platform; empty means "keep what is stored".
+    /// New key material, keyed by account id; empty means "keep what is
+    /// stored", and a single `0` asks for the stored secret to be removed.
     pub keys: std::collections::BTreeMap<String, String>,
+    /// Platform picked in the "add account" row, one per group heading.
+    pub new_platforms: std::collections::BTreeMap<String, String>,
+    /// Key typed for the account about to be added.
+    pub new_key: String,
     /// Feedback shown under the cards.
     pub notice: Option<String>,
     /// Set while an erase is waiting for a second click.
@@ -60,6 +65,8 @@ impl State {
         Self {
             draft: config,
             keys: std::collections::BTreeMap::new(),
+            new_platforms: std::collections::BTreeMap::new(),
+            new_key: String::new(),
             notice: None,
             pending_clear: false,
             configured,
@@ -188,11 +195,8 @@ fn credentials_card(
         ui.add_space(10.0);
 
         // Balance providers first, then subscriptions: the two report different
-        // things and are read in different places.
-        //
-        // Within a group only the platforms that already hold a key are listed.
-        // The rest — whether their client exists yet or not — sit behind one
-        // collapsing header, so the page stays short.
+        // things and are read in different places. Every account is a row; the
+        // platform is picked when a row is added, not when the key is typed.
         for (heading, mode) in [
             ("payg_accounts", Mode::Payg),
             ("package_accounts", Mode::Package),
@@ -204,54 +208,139 @@ fn credentials_card(
             );
             ui.add_space(6.0);
 
-            let configured = |meta: &&'static dsmon_core::catalog::PlatformMeta| {
-                meta.mode == mode && state.configured.contains(meta.key)
-            };
-            let unconfigured = |meta: &&'static dsmon_core::catalog::PlatformMeta| {
-                meta.mode == mode && !state.configured.contains(meta.key)
-            };
-
-            for meta in dsmon_core::catalog::PLATFORMS.iter().filter(configured) {
-                let value = state.keys.entry(meta.key.to_owned()).or_default();
-                key_field(ui, palette, meta.display_name, value);
-            }
-
-            let rest: Vec<_> = dsmon_core::catalog::PLATFORMS
+            let indices: Vec<usize> = state
+                .draft
+                .accounts
                 .iter()
-                .filter(unconfigured)
+                .enumerate()
+                .filter(|(_, account)| {
+                    dsmon_core::catalog::find(&account.platform)
+                        .is_some_and(|meta| meta.mode == mode)
+                })
+                .map(|(index, _)| index)
                 .collect();
-            if !rest.is_empty() {
-                // The two groups share a heading, and egui derives a widget's id
-                // from its label — without a salt the second one would collide.
-                egui::CollapsingHeader::new(format!(
-                    "{} ({})",
-                    view.text("unset_keys"),
-                    rest.len()
-                ))
-                .id_salt(heading)
-                .show(ui, |ui| {
-                    ui.add_space(4.0);
-                    for meta in rest {
-                        let value = state.keys.entry(meta.key.to_owned()).or_default();
-                        key_field(ui, palette, meta.display_name, value);
-                    }
+
+            let mut remove = None;
+            for index in indices {
+                let id = state.draft.accounts[index].id.clone();
+                ui.push_id(id, |ui| {
+                    account_row(ui, view, state, index, &mut remove);
                 });
             }
+            if let Some(index) = remove {
+                state.draft.accounts.remove(index);
+            }
 
+            add_account_row(ui, view, state, heading, mode);
             ui.add_space(10.0);
         }
     });
 }
 
-fn key_field(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut String) {
-    row(ui, palette, label, |ui| {
+/// One account: its name, its platform, its key field and whether it polls.
+fn account_row(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    state: &mut State,
+    index: usize,
+    remove: &mut Option<usize>,
+) {
+    let palette = view.palette;
+    let account = &mut state.draft.accounts[index];
+    let platform = dsmon_core::catalog::find(&account.platform)
+        .map(|meta| meta.display_name)
+        .unwrap_or(account.platform.as_str())
+        .to_owned();
+    let key = state.keys.entry(account.id.clone()).or_default();
+
+    ui.horizontal(|ui| {
         ui.add(
-            egui::TextEdit::singleline(value)
+            egui::TextEdit::singleline(&mut account.name)
+                .hint_text(view.text("account_name"))
+                .desired_width(130.0),
+        );
+        ui.label(
+            RichText::new(platform)
+                .color(palette.text_secondary)
+                .size(12.0),
+        );
+        ui.add(
+            egui::TextEdit::singleline(key)
                 .password(true)
                 .hint_text("••••••••")
-                .desired_width(260.0),
+                .desired_width(210.0),
         );
+        ui.checkbox(&mut account.enabled, "");
+        if ui.small_button("✕").clicked() {
+            *remove = Some(index);
+        }
     });
+}
+
+/// The row that adds another account of one mode.
+fn add_account_row(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    state: &mut State,
+    heading: &str,
+    mode: Mode,
+) {
+    let palette = view.palette;
+    let platforms: Vec<&dsmon_core::catalog::PlatformMeta> = dsmon_core::catalog::PLATFORMS
+        .iter()
+        .filter(|meta| meta.implemented && meta.mode == mode)
+        .collect();
+    if platforms.is_empty() {
+        return;
+    }
+
+    let mut chosen = state
+        .new_platforms
+        .get(heading)
+        .cloned()
+        .filter(|key| platforms.iter().any(|meta| meta.key == key))
+        .unwrap_or_else(|| platforms[0].key.to_owned());
+    let display = platforms
+        .iter()
+        .find(|meta| meta.key == chosen)
+        .map(|meta| meta.display_name)
+        .unwrap_or(chosen.as_str())
+        .to_owned();
+
+    ui.horizontal(|ui| {
+        egui::ComboBox::from_id_salt(format!("add-account-{heading}"))
+            .selected_text(RichText::new(display).color(palette.text_secondary))
+            .show_ui(ui, |ui| {
+                for meta in &platforms {
+                    ui.selectable_value(&mut chosen, meta.key.to_owned(), meta.display_name);
+                }
+            });
+        ui.add(
+            egui::TextEdit::singleline(&mut state.new_key)
+                .password(true)
+                .hint_text("••••••••")
+                .desired_width(210.0),
+        );
+        if ui.button(view.text("add_account")).clicked() {
+            let id = dsmon_core::accounts::new_id(&state.draft);
+            let name = dsmon_core::accounts::next_name(&state.draft, &chosen);
+            state
+                .draft
+                .accounts
+                .push(dsmon_core::config::AccountConfig {
+                    id: id.clone(),
+                    platform: chosen.clone(),
+                    name,
+                    enabled: true,
+                    billing_day: None,
+                });
+            if !state.new_key.trim().is_empty() {
+                state.keys.insert(id, state.new_key.trim().to_owned());
+            }
+            state.new_key.clear();
+        }
+    });
+    state.new_platforms.insert(heading.to_owned(), chosen);
 }
 
 fn general_card(

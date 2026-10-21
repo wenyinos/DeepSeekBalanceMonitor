@@ -961,26 +961,29 @@ impl Widget {
                 if payload.platforms.is_empty() {
                     action = cards::nothing_configured(ui, look);
                 } else {
-                    // One card per configured balance provider. The curve range
-                    // is shared, so only the first card carries its button.
-                    let spend = payload.today_spend.as_ref();
+                    // One card per account. The curve range is shared, so only
+                    // the first card carries its button.
                     let mut first = true;
                     for platform in payload.platforms.iter().filter(|p| p.kind == "payg") {
-                        if let Some(chosen) = cards::balance_card(
-                            ui,
-                            look,
-                            platform,
-                            range,
-                            first,
-                            spend.filter(|spend| spend.platform == platform.key),
-                        ) {
-                            action = Some(chosen);
-                        }
+                        ui.push_id(&platform.account_id, |ui| {
+                            if let Some(chosen) = cards::balance_card(
+                                ui,
+                                look,
+                                platform,
+                                range,
+                                first,
+                                platform.today_spend.as_ref(),
+                            ) {
+                                action = Some(chosen);
+                            }
+                        });
                         first = false;
                     }
                 }
                 for platform in payload.platforms.iter().filter(|p| p.kind == "package") {
-                    cards::subscription(ui, look, platform);
+                    ui.push_id(&platform.account_id, |ui| {
+                        cards::subscription(ui, look, platform);
+                    });
                 }
                 // The activity card covers every subscription, so it comes
                 // after all of them — and only when there is one.

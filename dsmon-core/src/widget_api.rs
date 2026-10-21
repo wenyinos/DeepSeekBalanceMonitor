@@ -37,7 +37,7 @@ pub const PORT: u16 = 18964;
 
 /// Version of the payload format. A client that does not know a version says so
 /// instead of pretending the connection failed.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// How many days of balance history the widget may ask for, matching the
 /// history page's ranges.
@@ -91,6 +91,9 @@ pub struct Payload {
 pub struct Spend {
     /// The platform the figure belongs to.
     pub platform: String,
+    /// The account the figure belongs to; empty in payloads written before
+    /// accounts existed.
+    pub account_id: String,
     pub currency: String,
     pub amount: f64,
 }
@@ -107,7 +110,13 @@ pub struct Provider {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Platform {
+    /// The catalog key of the platform this account belongs to.
     pub key: String,
+    /// The account's own id, stable across reads.
+    pub account_id: String,
+    /// The account's name, as the settings page shows it. Empty for a client
+    /// that predates accounts.
+    pub account_name: String,
     pub display: String,
     /// `payg` for a balance, `package` for quota windows.
     pub kind: String,
@@ -119,6 +128,8 @@ pub struct Platform {
     pub service_status: Option<String>,
     pub series: Vec<Point>,
     pub daily: Vec<Day>,
+    /// What this account has spent today, when there is a figure.
+    pub today_spend: Option<Spend>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -177,11 +188,26 @@ pub fn payload(snapshot: &crate::monitor::Snapshot, config: &AppConfig, days: u6
     } else {
         DEFAULT_DAYS
     };
-    let platforms = catalog::PLATFORMS
-        .iter()
-        .filter(|meta| meta.implemented && is_configured(meta.key))
-        .map(|meta| platform(snapshot, meta, days))
+    let platforms: Vec<Platform> = crate::accounts::enabled(config)
+        .filter(|account| catalog::find(&account.platform).is_some_and(|meta| meta.implemented))
+        .filter(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
+        .map(|account| platform(snapshot, account, days))
         .collect();
+
+    // Kept at the top level for clients that read the single figure of v2;
+    // an account's own figure is on its entry.
+    let today_spend = snapshot
+        .today_spend
+        .iter()
+        .next()
+        .map(|(account_id, (currency, amount))| Spend {
+            platform: crate::accounts::platform(config, account_id)
+                .unwrap_or("")
+                .to_owned(),
+            account_id: account_id.clone(),
+            currency: currency.clone(),
+            amount: *amount,
+        });
 
     Payload {
         version: VERSION,
@@ -197,42 +223,47 @@ pub fn payload(snapshot: &crate::monitor::Snapshot, config: &AppConfig, days: u6
         last_check_sec: snapshot
             .last_check
             .map(|checked| (Local::now() - checked).num_seconds().max(0)),
-        today_spend: snapshot
-            .today_spend
-            .as_ref()
-            .map(|(currency, amount)| Spend {
-                platform: storage::KEY_DEEPSEEK.to_owned(),
-                currency: currency.clone(),
-                amount: *amount,
-            }),
+        today_spend,
         platforms,
     }
 }
 
-/// Whether the platform holds a key. The sidebar filters by the same rule, and
-/// the two must agree: the widget shows exactly what the application would.
-fn is_configured(key: &str) -> bool {
-    matches!(storage::read_secret(key), Ok(Some(_)))
-}
-
 fn platform(
     snapshot: &crate::monitor::Snapshot,
-    meta: &catalog::PlatformMeta,
+    account: &crate::config::AccountConfig,
     days: u64,
 ) -> Platform {
+    let Some(meta) = catalog::find(&account.platform) else {
+        return Platform::default();
+    };
     let mut platform = Platform {
         key: meta.key.to_owned(),
+        account_id: account.id.clone(),
+        account_name: if account.name.trim().is_empty() {
+            meta.display_name.to_owned()
+        } else {
+            account.name.clone()
+        },
         display: meta.display_name.to_owned(),
         kind: meta.mode.as_config().to_owned(),
         // Only the providers with a status page of their own carry one; the
         // status line is drawn from it (or not at all).
         service_status: snapshot.platform_status.get(meta.key).cloned(),
+        today_spend: snapshot
+            .today_spend
+            .get(&account.id)
+            .map(|(currency, amount)| Spend {
+                platform: meta.key.to_owned(),
+                account_id: account.id.clone(),
+                currency: currency.clone(),
+                amount: *amount,
+            }),
         ..Platform::default()
     };
 
     match meta.mode {
         Mode::Payg => {
-            if let Some(balances) = snapshot.balances.get(meta.key) {
+            if let Some(balances) = snapshot.balances.get(&account.id) {
                 platform.balances = balances
                     .iter()
                     .map(|(currency, balance)| BalanceEntry {
@@ -243,18 +274,21 @@ fn platform(
                     })
                     .collect();
             }
-            platform.rate = snapshot.consumption_rates.get(meta.key).map(|rate| Rate {
-                hourly_rate: rate.hourly_rate,
-                busy_hours_left: rate.busy_hours_left,
-                currency: rate.currency.clone(),
-            });
-            platform.series = balance_series(meta.key, days);
+            platform.rate = snapshot
+                .consumption_rates
+                .get(&account.id)
+                .map(|rate| Rate {
+                    hourly_rate: rate.hourly_rate,
+                    busy_hours_left: rate.busy_hours_left,
+                    currency: rate.currency.clone(),
+                });
+            platform.series = balance_series(&account.id, days);
         }
         Mode::Package => {
             // A window the provider does not report is left out; the client
             // draws the ones it gets and nothing for the rest, which keeps
             // "not offered" apart from "zero used".
-            if let Some(Subscription::Loaded(quota)) = snapshot.packages.get(meta.key) {
+            if let Some(Subscription::Loaded(quota)) = snapshot.packages.get(&account.id) {
                 platform.windows = meta
                     .windows
                     .iter()
@@ -267,7 +301,7 @@ fn platform(
                     })
                     .collect();
             }
-            platform.daily = activity(meta.key);
+            platform.daily = activity(&account.id, meta.key);
         }
     }
 
@@ -275,8 +309,8 @@ fn platform(
 }
 
 /// The balance curve over `days`, thinned to what a sparkline needs.
-fn balance_series(platform: &str, days: u64) -> Vec<Point> {
-    let records = match storage::history_records(platform, days, None, 20_000) {
+fn balance_series(account_id: &str, days: u64) -> Vec<Point> {
+    let records = match storage::history_records(account_id, days, None, 20_000) {
         Ok(records) => records,
         Err(_) => return Vec::new(),
     };
@@ -309,11 +343,12 @@ fn thinned(points: Vec<Point>) -> Vec<Point> {
 }
 
 /// Per-day consumption, as the heat map draws it.
-fn activity(platform: &str) -> Vec<Day> {
-    let points = match storage::subscription_usage_history(platform, "monthly", HEATMAP_DAYS) {
-        Ok(points) => points,
-        Err(_) => return Vec::new(),
-    };
+fn activity(account_id: &str, provider: &str) -> Vec<Day> {
+    let points =
+        match storage::subscription_usage_history(account_id, provider, "monthly", HEATMAP_DAYS) {
+            Ok(points) => points,
+            Err(_) => return Vec::new(),
+        };
     history::daily_usage(&points)
         .into_iter()
         .map(|usage| Day {
@@ -556,6 +591,17 @@ pub fn fetch(port: u16, path: &str) -> Result<Payload, String> {
 
 #[cfg(test)]
 mod tests {
+    fn config_with(platform: &str) -> AppConfig {
+        let mut config = AppConfig::default();
+        config.accounts.push(crate::config::AccountConfig {
+            id: platform.to_owned(),
+            platform: platform.to_owned(),
+            name: String::new(),
+            enabled: true,
+            billing_day: None,
+        });
+        config
+    }
     use super::*;
     use crate::model::{Balance, Balances};
     use crate::monitor::Snapshot;
@@ -661,9 +707,18 @@ mod tests {
             },
         );
         snapshot.balances.insert("deepseek".to_owned(), balances);
-        snapshot.today_spend = Some(("CNY".to_owned(), 12.5));
+        snapshot
+            .today_spend
+            .insert("deepseek".to_owned(), ("CNY".to_owned(), 12.5));
 
-        let config = AppConfig::default();
+        let mut config = AppConfig::default();
+        config.accounts.push(crate::config::AccountConfig {
+            id: "deepseek".to_owned(),
+            platform: "deepseek".to_owned(),
+            name: "DeepSeek".to_owned(),
+            enabled: true,
+            billing_day: None,
+        });
         let payload = payload(&snapshot, &config, 7);
 
         assert_eq!(payload.version, VERSION);
@@ -683,6 +738,67 @@ mod tests {
         assert!(payload.platforms.is_empty());
     }
 
+    /// Two keys of one provider are two entries, each with its own name and
+    /// day figure: the widget draws a card per account, not per platform.
+    #[test]
+    fn two_accounts_of_one_platform_are_two_entries() {
+        crate::test_support::state_in_a_scratch_directory();
+        let _db = crate::test_support::database_in_turn();
+
+        let mut config = AppConfig::default();
+        for (id, name) in [("deepseek", "Main"), ("second", "Spare")] {
+            config.accounts.push(crate::config::AccountConfig {
+                id: id.to_owned(),
+                platform: "deepseek".to_owned(),
+                name: name.to_owned(),
+                enabled: true,
+                billing_day: None,
+            });
+            crate::storage::store_secret(id, "sk-test").expect("a stored key");
+        }
+
+        let mut snapshot = Snapshot::default();
+        for (id, total) in [("deepseek", 10.0), ("second", 20.0)] {
+            let mut balances = Balances::new();
+            balances.insert(
+                "CNY".to_owned(),
+                Balance {
+                    total_balance: total,
+                    topped_up_balance: total,
+                    granted_balance: 0.0,
+                },
+            );
+            snapshot.balances.insert(id.to_owned(), balances);
+            snapshot
+                .today_spend
+                .insert(id.to_owned(), ("CNY".to_owned(), 1.0));
+        }
+
+        let payload = payload(&snapshot, &config, 7);
+        let entries: Vec<_> = payload
+            .platforms
+            .iter()
+            .filter(|platform| platform.key == "deepseek")
+            .collect();
+        assert_eq!(entries.len(), 2, "one entry per account");
+        assert_eq!(entries[0].account_id, "deepseek");
+        assert_eq!(entries[0].account_name, "Main");
+        assert_eq!(entries[1].account_id, "second");
+        assert_eq!(entries[1].account_name, "Spare");
+        assert_eq!(entries[1].balances[0].total_balance, 20.0);
+        assert_eq!(
+            entries[1]
+                .today_spend
+                .as_ref()
+                .map(|spend| spend.account_id.as_str()),
+            Some("second")
+        );
+
+        for id in ["deepseek", "second"] {
+            crate::storage::delete_secret(id).expect("the key is removed");
+        }
+    }
+
     /// The platform's own status page rides along with its readings: the
     /// widget draws the status line from it.
     #[test]
@@ -700,7 +816,7 @@ mod tests {
             .platform_status
             .insert("deepseek".to_owned(), "major".to_owned());
 
-        let payload = payload(&snapshot, &AppConfig::default(), 7);
+        let payload = payload(&snapshot, &config_with("deepseek"), 7);
         let platform = payload
             .platforms
             .iter()
@@ -722,7 +838,7 @@ mod tests {
 
         crate::storage::store_secret("kimi_token_cn", "sk-test").expect("a stored key");
 
-        let payload = payload(&Snapshot::default(), &AppConfig::default(), 7);
+        let payload = payload(&Snapshot::default(), &config_with("kimi_token_cn"), 7);
         let platform = payload
             .platforms
             .iter()

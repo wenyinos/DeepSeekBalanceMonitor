@@ -4,7 +4,7 @@
 //! come from the catalog, so a plan brings only its client with it — the page
 //! takes care of the rest.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use dsmon_core::catalog::{self, window_label_key, Mode, PlatformMeta};
 use dsmon_core::config::MAX_BILLING_DAY;
@@ -28,8 +28,8 @@ const HEADING_ROW_HEIGHT: f32 = 30.0;
 /// What the page asks the application to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
-    /// The Command Code billing day was edited; persist it.
-    BillingDay(u8),
+    /// The Command Code billing day was edited for one account.
+    BillingDay(String, u8),
     /// Re-read the quotas, leaving the balance alone.
     Refresh,
 }
@@ -51,31 +51,25 @@ impl State {
         }
     }
 
-    /// Reloads every plan's logged readings.
-    pub fn reload(&mut self) {
-        self.history = plans()
-            .map(|meta| {
-                let points = storage::subscription_usage_history(meta.key, "monthly", HISTORY_DAYS)
-                    .unwrap_or_default();
-                (meta.key.to_owned(), points)
+    /// Reloads every account's logged readings.
+    pub fn reload(&mut self, accounts: &[dsmon_core::config::AccountConfig]) {
+        self.history = accounts
+            .iter()
+            .filter(|account| {
+                catalog::find(&account.platform).is_some_and(|meta| meta.mode == Mode::Package)
+            })
+            .map(|account| {
+                let points = storage::subscription_usage_history(
+                    &account.id,
+                    &account.platform,
+                    "monthly",
+                    HISTORY_DAYS,
+                )
+                .unwrap_or_default();
+                (account.id.clone(), points)
             })
             .collect();
     }
-}
-
-/// Every plan the catalog lists, in display order.
-fn plans() -> impl Iterator<Item = PlatformMeta> {
-    catalog::implemented()
-        .filter(|meta| meta.mode == Mode::Package)
-        .copied()
-}
-
-/// The plans that hold a key, and so deserve a card. Decided by the stored key
-/// rather than the last poll, so the cards appear at once.
-fn configured_plans(configured: &BTreeSet<String>) -> Vec<PlatformMeta> {
-    plans()
-        .filter(|meta| configured.contains(meta.key))
-        .collect()
 }
 
 /// Draws the page.
@@ -84,7 +78,7 @@ pub fn show(
     view: &View<'_>,
     snapshot: &Snapshot,
     state: &mut State,
-    configured: &BTreeSet<String>,
+    accounts: &[dsmon_core::config::AccountConfig],
 ) -> Option<Action> {
     let mut refresh = false;
 
@@ -102,9 +96,18 @@ pub fn show(
     });
     ui.add_space(4.0);
 
-    // Only configured plans take up space. Leaving a placeholder for each
-    // unconfigured one would turn into clutter as the list grows.
-    let configured = configured_plans(configured);
+    // Only accounts that hold a key take up space. One plan can appear more
+    // than once, once per account.
+    let configured: Vec<(&PlatformMeta, &dsmon_core::config::AccountConfig)> = accounts
+        .iter()
+        .filter(|account| account.enabled)
+        .filter(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
+        .filter_map(|account| {
+            catalog::find(&account.platform)
+                .filter(|meta| meta.mode == Mode::Package)
+                .map(|meta| (meta, account))
+        })
+        .collect();
     let mut billing_day = None;
 
     if configured.is_empty() {
@@ -120,7 +123,7 @@ pub fn show(
         let height = super::subscription_card_height(
             configured
                 .iter()
-                .map(|meta| meta.windows.len())
+                .map(|(meta, _)| meta.windows.len())
                 .max()
                 .unwrap_or(2),
         );
@@ -128,13 +131,14 @@ pub fn show(
         // Two per row, so a growing list keeps the same rhythm.
         for chunk in configured.chunks(2) {
             ui.columns(2, |columns| {
-                for (slot, meta) in chunk.iter().enumerate() {
+                for (slot, (meta, account)) in chunk.iter().enumerate() {
                     plan_card(
                         &mut columns[slot],
                         view,
                         snapshot,
                         state,
                         meta,
+                        account,
                         height,
                         &mut billing_day,
                     );
@@ -146,7 +150,7 @@ pub fn show(
     if refresh {
         return Some(Action::Refresh);
     }
-    billing_day.map(Action::BillingDay)
+    billing_day.map(|(account, day)| Action::BillingDay(account, day))
 }
 
 /// One plan: its windows in a card, its chart underneath.
@@ -159,16 +163,22 @@ fn plan_card(
     snapshot: &Snapshot,
     state: &State,
     meta: &PlatformMeta,
+    account: &dsmon_core::config::AccountConfig,
     height: f32,
-    billing_day: &mut Option<u8>,
+    billing_day: &mut Option<(String, u8)>,
 ) -> egui::Rect {
     let palette = view.palette;
-    let reading = snapshot.packages.get(meta.key);
+    let reading = snapshot.packages.get(&account.id);
+    let title = if account.name.trim().is_empty() {
+        meta.display_name.to_owned()
+    } else {
+        account.name.clone()
+    };
 
     let panel = card(ui, palette, |ui| {
         ui.set_min_height(height);
         ui.label(
-            RichText::new(meta.display_name)
+            RichText::new(title.clone())
                 .size(16.0)
                 .color(palette.text_primary)
                 .strong(),
@@ -183,7 +193,7 @@ fn plan_card(
                         palette,
                         view.text(window_label_key(name)),
                         usage_of(quota, name),
-                        pace_line(view, palette, snapshot, meta.key, name),
+                        pace_line(view, palette, snapshot, &account.id, name),
                     );
                 }
             }
@@ -210,19 +220,20 @@ fn plan_card(
     // No reading, no chart.
     let points = state
         .history
-        .get(meta.key)
+        .get(&account.id)
         .map(Vec::as_slice)
         .unwrap_or_default();
     if matches!(reading, Some(Subscription::Loaded(_))) {
+        let account_day = account.billing_day.unwrap_or(state.billing_day);
         if let Some(edited) = usage_chart(
             ui,
             view,
-            meta.display_name,
+            &title,
             points,
             meta.key == storage::KEY_COMMAND_CODE,
-            state.billing_day,
+            account_day,
         ) {
-            *billing_day = Some(edited);
+            *billing_day = Some((account.id.clone(), edited));
         }
     }
 
@@ -488,6 +499,13 @@ mod tests {
 
         let state = State::new(1);
         let height = crate::views::subscription_card_height(rows);
+        let account = dsmon_core::config::AccountConfig {
+            id: plan.to_owned(),
+            platform: plan.to_owned(),
+            name: meta.display_name.to_owned(),
+            enabled: true,
+            billing_day: None,
+        };
         let mut billing_day = None;
 
         let mut measured = 0.0;
@@ -501,8 +519,17 @@ mod tests {
         // Twice: egui settles its own layout on the first pass.
         for _ in 0..2 {
             let mut output = context.run_ui(input.clone(), |ui| {
-                measured = plan_card(ui, &view, &snapshot, &state, meta, height, &mut billing_day)
-                    .height();
+                measured = plan_card(
+                    ui,
+                    &view,
+                    &snapshot,
+                    &state,
+                    meta,
+                    &account,
+                    height,
+                    &mut billing_day,
+                )
+                .height();
             });
             // Nothing renders these frames, so the texture deltas go on purpose.
             output.textures_delta.clear();
@@ -539,27 +566,6 @@ mod tests {
             page + 24.0,
             "and a plan with two windows is padded to it"
         );
-    }
-
-    #[test]
-    fn every_plan_in_the_catalog_gets_a_card_when_configured() {
-        let configured: BTreeSet<String> = plans().map(|meta| meta.key.to_owned()).collect();
-        let shown = configured_plans(&configured);
-        assert_eq!(
-            shown.len(),
-            plans().count(),
-            "a key for every plan shows every plan"
-        );
-        assert!(shown.iter().all(|meta| meta.mode == Mode::Package));
-    }
-
-    #[test]
-    fn a_plan_without_a_key_is_not_shown() {
-        let configured: BTreeSet<String> =
-            [storage::KEY_COMMAND_CODE.to_owned()].into_iter().collect();
-        let shown = configured_plans(&configured);
-        assert_eq!(shown.len(), 1);
-        assert_eq!(shown[0].key, storage::KEY_COMMAND_CODE);
     }
 
     #[test]
