@@ -46,20 +46,6 @@ pub fn run() -> eframe::Result<()> {
 
     let config = AppConfig::load();
 
-    // The widget's own start-up entry, separate from the application's: it can
-    // come up at login on its own — saying so when the application is not
-    // running — or wait to be started by the application. Reconciled on every
-    // run, so a moved executable or a setting carried over from another build
-    // still starts; a refusal is logged and the widget runs anyway.
-    if let Err(error) = dsmon_core::autostart::set_enabled(
-        dsmon_core::autostart::Program::Widget,
-        config.widget_auto_start,
-    ) {
-        let _ = dsmon_core::storage::log_line(&format!(
-            "The widget's start-up entry could not be written: {error}"
-        ));
-    }
-
     let mut viewport = viewport(&config);
     if let Some(icon) = window_icon() {
         viewport = viewport.with_icon(icon);
@@ -81,6 +67,32 @@ pub fn run() -> eframe::Result<()> {
         // The copy that is already running has the window; this one is done.
         crate::instance::Role::Latecomer => return Ok(()),
     };
+
+    // The widget's own start-up entry, separate from the application's: it can
+    // come up at login on its own — saying so when the application is not
+    // running — or wait to be started by the application. Reconciled on every
+    // start, so a moved executable or a setting carried over from another build
+    // still starts; a refusal is logged and the widget runs anyway. Only the
+    // running copy does this: a second launch (a development build beside the
+    // installed one, say) leaves after the claim, and must not point the
+    // session at its own, possibly transient, path.
+    match dsmon_core::autostart::set_enabled(
+        dsmon_core::autostart::Program::Widget,
+        config.widget_auto_start,
+    ) {
+        Ok(()) => {
+            let _ = dsmon_core::storage::log_line(&format!(
+                "The widget's start-up entry: asked for {}, the system holds {}.",
+                config.widget_auto_start,
+                dsmon_core::autostart::is_enabled(dsmon_core::autostart::Program::Widget)
+            ));
+        }
+        Err(error) => {
+            let _ = dsmon_core::storage::log_line(&format!(
+                "The widget's start-up entry could not be written: {error}"
+            ));
+        }
+    }
 
     eframe::run_native(
         "token 用量",
@@ -228,6 +240,9 @@ struct Widget {
     tray_commands: tray::Queue,
     /// What a second launch asks of this copy, which has the window.
     requests: std::sync::Arc<std::sync::Mutex<Vec<crate::instance::Request>>>,
+    /// How many times the X11 window has been asked to stay out of the task
+    /// bar and the window list.
+    taskbar_tries: u8,
     /// The claim on being the running copy, kept for the process's lifetime.
     _instance: crate::instance::Guard,
 }
@@ -266,7 +281,38 @@ impl Widget {
             tray,
             tray_commands,
             requests,
+            taskbar_tries: 0,
             _instance: instance,
+        }
+    }
+
+    /// Keeps the panel out of the task bar and the window list.
+    ///
+    /// `_NET_WM_WINDOW_TYPE_UTILITY` says what the window is, not that it
+    /// belongs only in the tray: KWin reports `skipTaskbar=false` for such a
+    /// window and lists it. The two EWMH states are the explicit answer.
+    ///
+    /// Nothing here applies under native Wayland, where the window is an
+    /// ordinary toplevel and the compositor owns this choice. `prefer_x11`
+    /// keeps that path for sessions with no X display at all.
+    fn keep_out_of_taskbar(&mut self, frame: &eframe::Frame) {
+        // A window can be created before the window manager has taken it over,
+        // and a state message about an unmanaged window is dropped. The read
+        // back says whether the message landed; the next frame tries again.
+        const TRIES: u8 = 10;
+        if self.taskbar_tries >= TRIES {
+            return;
+        }
+        self.taskbar_tries += 1;
+        match ewmh::skip_taskbar_and_pager(frame) {
+            Ok(true) => self.taskbar_tries = TRIES,
+            Ok(false) => {}
+            Err(error) => {
+                self.taskbar_tries = TRIES;
+                let _ = dsmon_core::storage::log_line(&format!(
+                    "The widget could not be kept out of the task bar: {error}"
+                ));
+            }
         }
     }
 
@@ -517,6 +563,102 @@ impl Widget {
     }
 }
 
+/// What an X11 window manager reads to decide where a window belongs.
+#[cfg(target_os = "linux")]
+mod ewmh {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask};
+    use x11rb::rust_connection::RustConnection;
+
+    /// Asks the window manager to leave the window out of the task bar and the
+    /// window list, and says whether both states are now on the window.
+    ///
+    /// Wayland has no such request, and a window there is a toplevel the
+    /// compositor owns; the handle is not X11 and there is nothing to send.
+    pub fn skip_taskbar_and_pager(frame: &eframe::Frame) -> Result<bool, String> {
+        let handle = frame
+            .window_handle()
+            .map_err(|error| error.to_string())?
+            .as_raw();
+        let window = match handle {
+            RawWindowHandle::Xlib(handle) => {
+                u32::try_from(handle.window).map_err(|_| "window id does not fit in 32 bits")?
+            }
+            RawWindowHandle::Xcb(handle) => handle.window.get(),
+            _ => return Ok(true),
+        };
+
+        let (connection, screen) = x11rb::connect(None).map_err(|error| error.to_string())?;
+        let root = connection.setup().roots[screen].root;
+        let state = atom(&connection, b"_NET_WM_STATE")?;
+        let wanted = [
+            atom(&connection, b"_NET_WM_STATE_SKIP_TASKBAR")?,
+            atom(&connection, b"_NET_WM_STATE_SKIP_PAGER")?,
+        ];
+
+        if holds(&connection, window, state, &wanted)? {
+            return Ok(true);
+        }
+
+        for property in wanted {
+            // EWMH: action 1 is "add", the source indication says an ordinary
+            // application asked, and either mask reaches the window manager.
+            let event = ClientMessageEvent::new(32, window, state, [1, property, 0, 1, 0]);
+            connection
+                .send_event(
+                    false,
+                    root,
+                    EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+                    event,
+                )
+                .map_err(|error| error.to_string())?
+                .check()
+                .map_err(|error| error.to_string())?;
+        }
+        connection.flush().map_err(|error| error.to_string())?;
+
+        holds(&connection, window, state, &wanted)
+    }
+
+    /// Whether the window's `_NET_WM_STATE` already carries every atom.
+    fn holds(
+        connection: &RustConnection,
+        window: u32,
+        state: u32,
+        wanted: &[u32],
+    ) -> Result<bool, String> {
+        let reply = connection
+            .get_property(false, window, state, AtomEnum::ATOM, 0, 32)
+            .map_err(|error| error.to_string())?
+            .reply()
+            .map_err(|error| error.to_string())?;
+        let present: Vec<u32> = reply
+            .value32()
+            .map(|atoms| atoms.collect())
+            .unwrap_or_default();
+        Ok(wanted.iter().all(|atom| present.contains(atom)))
+    }
+
+    fn atom(connection: &RustConnection, name: &[u8]) -> Result<u32, String> {
+        connection
+            .intern_atom(false, name)
+            .map_err(|error| error.to_string())?
+            .reply()
+            .map(|reply| reply.atom)
+            .map_err(|error| error.to_string())
+    }
+}
+
+/// The platform has no such states; Windows removes the window from its task
+/// bar through the window attributes instead.
+#[cfg(not(target_os = "linux"))]
+mod ewmh {
+    pub fn skip_taskbar_and_pager(_frame: &eframe::Frame) -> Result<bool, String> {
+        Ok(true)
+    }
+}
+
 impl eframe::App for Widget {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         // The panel paints its own surface; the window behind it stays empty,
@@ -525,10 +667,11 @@ impl eframe::App for Widget {
     }
 
     /// Everything that has to happen whether or not a frame is drawn.
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Frames are drawn on demand, and the readings arrive from another
         // thread: without a heartbeat a new one would sit unseen.
         ctx.request_repaint_after(Duration::from_millis(500));
+        self.keep_out_of_taskbar(frame);
         // Whether the tray icon is really there is a question only Windows
         // asks, and it asks it late (see `Tray::report`).
         self.tray.report();

@@ -511,16 +511,21 @@ ViewportBuilder::default()
   （#5ee0c8），画在右下角、留 4% 边距、占 44% 见方——小到 16px 也还看得见。**窗口图标与托盘图标是同一
   张**（都走 `widget_icon`），用户说的「应用图标和托盘图标相同」就是这个意思：小工具内部一致，对外与
   主程序不同。
-- **不进任务栏**：Linux 用 X11 的窗口类型 `Utility`（egui 的 `with_window_type(X11WindowType::Utility)`，
-  对应 `_NET_WM_WINDOW_TYPE_UTILITY`）——规范里它就是"小型的常驻工具窗口"，窗口管理器会把它排除在
-  任务栏与窗口列表之外；Windows 用 `with_taskbar(false)`。两边的窗口图标仍然带着角标，所以即便某个
-  桌面坚持把它列出来，也认得出是哪一个。
+- **不进任务栏**：Linux 走 X11（`prefer_x11`），窗口类型 `Utility`
+  （`_NET_WM_WINDOW_TYPE_UTILITY`）只说"这是常驻工具窗口"，**不够**：KWin 6.7 实测仍报
+  `skipTaskbar=false`，运行中的窗口照样出现在任务栏。创建后由 `Widget::keep_out_of_taskbar` 再发两条
+  EWMH `_NET_WM_STATE`——`SKIP_TASKBAR` 与 `SKIP_PAGER`——并回读属性确认；窗口若还没被窗口管理器
+  接管，消息会被丢掉，所以下一帧重试（最多 10 次，约 5 秒）。Windows 用 `with_taskbar(false)`。
+  原生 Wayland 没有等价请求（窗口是普通 toplevel，去留由合成器决定）。两边的窗口图标仍然带着角标，
+  所以即便某个桌面坚持把它列出来，也认得出是哪一个。
 - 托盘图标与文字都随语言变化：`follow_config()` 发现 `ui_language` 变了就 `tray.set_language()`。
 - **小工具有自己的开机自启项**（`widget_auto_start`，默认开）：与主程序那条**互相独立**，所以小工具
-  可以单独随会话启动——那时主程序还没跑，它就显示断开提示并每 10 秒重连。两次对账：启动时按配置写入
-  或移除，**关闭时（✕）一并移除**（关闭就是不再需要，留着条目下次登录又会把它带回来）。路径与主程序
-  同一套约定，只是文件/值名带 `-widget` 后缀、**不带 `--minimized`**（它没有窗口要收起来），见
-  `INTERFACES.md` §5。
+  可以单独随会话启动——那时主程序还没跑，它就显示断开提示并每 10 秒重连。程序只写桌面环境的
+  `.autostart` 条目，不安装 systemd 服务；KDE Plasma 6 会用 systemd 生成单元来执行这些条目，那是
+  会话的实现方式。两次对账：**单实例声明成功后**按配置写入或移除并记一行结果（第二次启动不改写
+  条目——开发构建若在已安装版本旁边启动过，就不会把会话指向自己的临时路径），**关闭时（✕）一并移除**
+  （关闭就是不再需要，留着条目下次登录又会把它带回来）。路径与主程序同一套约定，只是文件/值名带
+  `-widget` 后缀、**不带 `--minimized`**（它没有窗口要收起来），见 `INTERFACES.md` §5。
 - **Windows 的托盘注册要自己问**：`tray-icon` 对 `Shell_NotifyIconW(NIM_ADD)` 失败**不报错**，所以
   `Tray::report()`（每帧调用，只在答案变化时写一行日志）用 `TrayIcon::rect()` 反查系统是否真的持有
   图标——`Shell_NotifyIconGetRect` 只对系统持有的图标给出矩形。这与主程序是同一个坑（见 §7 与

@@ -932,8 +932,10 @@ dependencies = [
  "egui",
  "egui_plot",
  "ksni",
+ "raw-window-handle",
  "tray-icon",
  "windows-sys 0.61.2",
+ "x11rb",
  "zbus",
 ]
 

@@ -19,6 +19,11 @@ egui_plot.workspace = true
 # never starts.
 ksni = { workspace = true, features = ["async-io", "blocking"] }
 zbus = { workspace = true }
+# The widget's X11 window has to say it belongs in the tray rather than the
+# task bar (see `widget::keep_out_of_taskbar`). Both crates already arrive with
+# winit; these make them usable here rather than through its types.
+raw-window-handle = "0.6"
+x11rb = "0.13"
 
 [target.'cfg(windows)'.dependencies]
 tray-icon.workspace = true
