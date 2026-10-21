@@ -38,7 +38,6 @@ pub fn show(
     let of_platform: Vec<&dsmon_core::config::AccountConfig> = accounts
         .iter()
         .filter(|account| account.platform == platform && account.enabled)
-        .filter(|account| matches!(dsmon_core::storage::read_secret(&account.id), Ok(Some(_))))
         .collect();
     if !of_platform
         .iter()

@@ -101,7 +101,6 @@ pub fn show(
     let configured: Vec<(&PlatformMeta, &dsmon_core::config::AccountConfig)> = accounts
         .iter()
         .filter(|account| account.enabled)
-        .filter(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
         .filter_map(|account| {
             catalog::find(&account.platform)
                 .filter(|meta| meta.mode == Mode::Package)
