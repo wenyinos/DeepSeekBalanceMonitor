@@ -16,6 +16,14 @@ use crate::storage;
 /// that secret already uses. Entries that name an unknown platform, or repeat
 /// an id, are dropped. Returns whether the configuration changed.
 pub fn ensure(config: &mut AppConfig) -> bool {
+    ensure_with(config, |key| {
+        matches!(storage::read_secret(key), Ok(Some(_)))
+    })
+}
+
+/// The part of [`ensure`] that does not touch the database, so its rules can be
+/// tested without sharing one.
+fn ensure_with(config: &mut AppConfig, holds: impl Fn(&str) -> bool) -> bool {
     let before = config.accounts.len();
     config.accounts.retain(|account| {
         !account.id.trim().is_empty() && catalog::find(&account.platform).is_some()
@@ -24,7 +32,7 @@ pub fn ensure(config: &mut AppConfig) -> bool {
 
     if config.accounts.is_empty() {
         for meta in catalog::implemented() {
-            if matches!(storage::read_secret(meta.key), Ok(Some(_))) {
+            if holds(meta.key) {
                 config.accounts.push(AccountConfig {
                     id: meta.key.to_owned(),
                     platform: meta.key.to_owned(),
@@ -192,18 +200,15 @@ mod tests {
 
     #[test]
     fn stored_platform_keys_become_one_account_each() {
-        crate::test_support::state_in_a_scratch_directory();
-        let _db = crate::test_support::database_in_turn();
-        crate::storage::store_secret("deepseek", "sk-test").expect("a stored key");
-
         let mut config = AppConfig::default();
-        assert!(ensure(&mut config));
+        assert!(ensure_with(&mut config, |key| key == "deepseek"));
         assert_eq!(config.accounts.len(), 1);
         assert_eq!(config.accounts[0].id, "deepseek");
         assert_eq!(config.accounts[0].platform, "deepseek");
         assert_eq!(config.accounts[0].name, "DeepSeek");
 
-        crate::storage::delete_secret("deepseek").expect("the key is removed");
+        // A second run, with the list now filled, is a no-op.
+        assert!(!ensure_with(&mut config, |key| key == "deepseek"));
     }
 
     #[test]
