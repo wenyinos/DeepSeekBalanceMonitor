@@ -2,6 +2,42 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.3.0 (2026-10-22)
+
+This release gives every provider room for more than one account: each API key is an account of
+its own, with a name, its own history and its own alerts, and they are shown together.
+
+### Added
+
+- **Several accounts per provider**: `config.json` gains `accounts`; an account's id is the
+  `secure_settings` name, so the first account of each provider keeps its existing key and
+  history. The settings page adds, renames, disables and removes accounts; the balance page shows
+  one card per account of the selected provider, the chart has an account picker, and the
+  subscription page gives each package account its own card.
+- **Per-account readings**: both history tables gain an `account_id` column (old rows are
+  backfilled with the provider key, and a `dsmon.db.before-accounts` copy is written before the
+  migration). Polling, daily spending, burn rates, alerts and tray summaries are per account.
+- **Widget payload v3**: `platforms[]` entries carry `account_id`, `account_name` and their own
+  `today_spend`. The main program and the widget must be upgraded together.
+
+### Fixed
+
+- **The widget stays out of the task bar on X11**: KWin reports a Utility window as a task, so the
+  widget now also sets `_NET_WM_STATE_SKIP_TASKBAR` and `SKIP_PAGER`, reads the state back and
+  retries while the window manager is still taking the window over.
+- **A second widget copy no longer rewrites the start-up entry**: only the copy that wins the
+  instance claim reconciles it, so a development build beside the installed one cannot point the
+  session at its own transient path.
+- **The widget's window-state write keeps the account list**: it reloads the file before saving a
+  new position or size, and the account cards no longer read and decrypt every key on every frame.
+
+### Changed
+
+- No "preferred account": the tray icon follows the first enabled balance account, while low
+  balance, quota and daily-spending alerts are judged for every account and name the account they
+  are about. The `threshold_yuan` and balance daily-spend lines still apply to DeepSeek accounts
+  only, as before.
+
 ## Rust v2.2.0 (2026-10-05)
 
 This release fixes two long-standing silent errors (the statistics and the negative buckets), makes
