@@ -180,11 +180,11 @@ EOF
 # interface can install any one of these. They are SC-only on purpose —
 # `fonts-noto-cjk` and `google-noto-sans-cjk-fonts` also carry Japanese and
 # Korean faces the interface never asks for. Debian has no SC-only Noto package,
-# so the small WenQuanYi faces come first there; Fedora ships
+# so it gets the small WenQuanYi and Arphic faces instead; Fedora ships
 # `google-noto-sans-sc-fonts`.
 only_glibc="libc6 (>= 2.36), libx11-6, libxkbcommon0, libwayland-client0, libvulkan1, xwayland"
 only_glibc_rpm="glibc >= 2.36, libX11, libxkbcommon, libwayland-client, vulkan-loader, xorg-x11-server-Xwayland"
-font_recommends_deb="fonts-wqy-zenhei | fonts-wqy-microhei | fonts-arphic-uming | fonts-noto-cjk"
+font_recommends_deb="fonts-wqy-zenhei | fonts-wqy-microhei | fonts-arphic-uming"
 font_recommends_rpm="(google-noto-sans-sc-fonts or wqy-zenhei-fonts or wqy-microhei-fonts or adobe-source-han-sans-cn-fonts)"
 
 # --- The application --------------------------------------------------------
