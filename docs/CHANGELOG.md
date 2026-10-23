@@ -2,6 +2,20 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.3.1 (2026-10-22)
+
+The Linux packages now recommend a Simplified Chinese font instead of requiring the whole CJK
+family; the English interface needs no font package at all.
+
+### Changed
+
+- **A Chinese font is recommended, not required**: the `Recommends` field names SC-only faces —
+  `fonts-wqy-zenhei | fonts-wqy-microhei | fonts-arphic-uming` on Debian/Ubuntu, and
+  `(google-noto-sans-sc-fonts or wqy-zenhei-fonts or wqy-microhei-fonts or
+  adobe-source-han-sans-cn-fonts)` on Fedora. `apt`/`dnf` still install one by default, so the
+  Chinese interface keeps working out of the box, while the English interface can skip it. The
+  old hard requirement also pulled Japanese and Korean faces the interface never uses.
+
 ## Rust v2.3.0 (2026-10-22)
 
 This release gives every provider room for more than one account: each API key is an account of

@@ -2,6 +2,18 @@
 
 所有值得记录的变更均记录于此。
 
+## Rust v2.3.1 (2026-10-22)
+
+Linux 安装包改为“推荐”一个简体中文字体，不再硬依赖整套 CJK；英文界面完全不需要字体包。
+
+### 变更
+
+- **中文字体由必需改为推荐**：`Recommends` 只列简体中文字体——Debian/Ubuntu 为
+  `fonts-wqy-zenhei | fonts-wqy-microhei | fonts-arphic-uming`，Fedora 为
+  `(google-noto-sans-sc-fonts or wqy-zenhei-fonts or wqy-microhei-fonts or
+  adobe-source-han-sans-cn-fonts)`。`apt`/`dnf` 默认仍会装一个，中文界面开箱可用；只要英文
+  的用户可以跳过或卸载。旧的硬依赖还会带入界面根本用不到的日文、韩文字形。
+
 ## Rust v2.3.0 (2026-10-22)
 
 这一版让每个平台都能挂多个账户：一个 API Key 就是一个独立账户，有自己的名字、历史和告警，
