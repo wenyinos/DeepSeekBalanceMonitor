@@ -107,7 +107,7 @@ Section: utils
 Priority: optional
 Architecture: $arch
 Depends: $3
-Recommends: mesa-vulkan-drivers
+Recommends: mesa-vulkan-drivers, $font_recommends_deb
 Maintainer: wenyinos <https://github.com/wenyinos>
 Homepage: https://github.com/wenyinos/DeepSeekBalanceMonitor
 Description: $4
@@ -151,6 +151,7 @@ License:        MIT
 URL:            https://github.com/wenyinos/DeepSeekBalanceMonitor
 Requires:       $3
 Recommends:     mesa-vulkan-drivers
+Recommends:     $font_recommends_rpm
 
 %description
 $5
@@ -174,8 +175,17 @@ EOF
     find "$rpm_top/RPMS" -name '*.rpm' -exec cp {} "$output/" \;
 }
 
-only_glibc="libc6 (>= 2.36), libx11-6, libxkbcommon0, libwayland-client0, libvulkan1, xwayland, fonts-noto-cjk"
-only_glibc_rpm="glibc >= 2.36, libX11, libxkbcommon, libwayland-client, vulkan-loader, xorg-x11-server-Xwayland, google-noto-sans-cjk-fonts"
+# The interface is bilingual, so a Chinese face is a recommendation and not a
+# requirement: English needs none of this, and a user who wants the Chinese
+# interface can install any one of these. They are SC-only on purpose —
+# `fonts-noto-cjk` and `google-noto-sans-cjk-fonts` also carry Japanese and
+# Korean faces the interface never asks for. Debian has no SC-only Noto package,
+# so the small WenQuanYi faces come first there; Fedora ships
+# `google-noto-sans-sc-fonts`.
+only_glibc="libc6 (>= 2.36), libx11-6, libxkbcommon0, libwayland-client0, libvulkan1, xwayland"
+only_glibc_rpm="glibc >= 2.36, libX11, libxkbcommon, libwayland-client, vulkan-loader, xorg-x11-server-Xwayland"
+font_recommends_deb="fonts-wqy-zenhei | fonts-wqy-microhei | fonts-arphic-uming | fonts-noto-cjk"
+font_recommends_rpm="(google-noto-sans-sc-fonts or wqy-zenhei-fonts or wqy-microhei-fonts or adobe-source-han-sans-cn-fonts)"
 
 # --- The application --------------------------------------------------------
 app="deepseek-balance-monitor"

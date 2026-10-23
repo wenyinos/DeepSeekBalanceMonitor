@@ -20,7 +20,7 @@ pub fn ui_font(size: f32) -> egui::FontId {
 }
 
 /// Registers the embedded digits face and, when available, a system font that
-/// covers CJK. Call once during start-up.
+/// covers Chinese. Call once during start-up.
 pub fn install(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
 
@@ -57,9 +57,10 @@ pub fn install(ctx: &egui::Context) {
 /// Reads the desktop's default sans-serif face.
 ///
 /// Linux asks fontconfig, which resolves whatever the user installed. Windows
-/// walks the well-known CJK families in the system font directory. A failure
-/// here is survivable: the embedded text fonts still render Latin characters,
-/// and the packaged builds depend on a CJK font being present.
+/// walks the well-known Chinese families in the system font directory. A
+/// failure here is survivable: the embedded text fonts still render Latin
+/// characters, and the packages recommend a Simplified Chinese font for the
+/// Chinese interface while the English one needs none.
 #[cfg(target_os = "linux")]
 fn load_system_font() -> Option<(Vec<u8>, u32)> {
     let output = std::process::Command::new("fc-match")

@@ -47,7 +47,8 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
 
 - **Windows** 10 build 19041（20H1）及以上，x64 或 arm64。
 - **Linux** kernel 6.1 档及以上——Debian 12 / Ubuntu 24.04 / Fedora 38 起——amd64 或 arm64。
-  Wayland 会话下需要 XWayland（原因见下），中文界面需要 CJK 字体。
+  Wayland 会话下需要 XWayland（原因见下）；中文界面还需要简体中文字体，包内以推荐方式安装，
+  英文界面不需要。
 
 ## 安装
 
@@ -56,7 +57,8 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
 还附 `checksums-*.txt`，可核对 SHA256。
 
 **主程序与桌面小工具各是一个包**：可以只装主程序，也可以两个都装、分别升级。包内已声明应用所需的
-依赖（XWayland、Vulkan、CJK 字体），正常安装会自动拉齐。
+依赖：XWayland 与 Vulkan 为必需，简体中文字体为推荐；正常安装会自动拉齐字体，英文界面不装
+也能用。
 
 ## 首次运行
 

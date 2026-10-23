@@ -58,8 +58,8 @@ the accounts that hold a key appear in the sidebar and on the subscription page.
 
 - **Windows** 10 build 19041 (20H1) or later, x64 or arm64.
 - **Linux** kernel 6.1 era or later — Debian 12, Ubuntu 24.04, Fedora 38 and up — amd64 or
-  arm64. On a Wayland session XWayland is required (see below), and the Chinese interface
-  needs a CJK font.
+  arm64. On a Wayland session XWayland is required (see below); the Chinese interface also needs
+  a Simplified Chinese font, which the packages recommend. The English interface needs none.
 
 ## Install
 
@@ -68,8 +68,8 @@ each release's notes carry a download table split by platform and architecture, 
 file name, plus `checksums-*.txt` in the same release for verifying the SHA256.
 
 The application and the **desktop widget** are packaged apart: install the application alone, or
-both, and upgrade the two separately. Each package declares what it needs — XWayland, Vulkan, a CJK
-font — so a normal install pulls them in.
+both, and upgrade the two separately. XWayland and Vulkan are required; a Simplified Chinese font
+is recommended, so a normal install pulls it in while the English interface works without one.
 
 ## First run
 
