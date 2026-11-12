@@ -339,6 +339,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
 
     match published {
         Ok((outcome, window_rates, today_spend, monthly_spend, package_day_spend)) => {
+            let failures = failure_counts(&outcome, &previous, config);
             guard.balances = outcome.balances;
             guard.balance_errors = outcome.balance_errors;
             guard.service_status = outcome.service_status;
@@ -349,7 +350,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
             guard.today_spend = today_spend;
             guard.monthly_spend = monthly_spend;
             guard.package_day_spend = package_day_spend;
-            guard.account_failures = failure_counts(&outcome, &previous, config);
+            guard.account_failures = failures;
             guard.last_error = None;
         }
         Err(error) => guard.last_error = Some(error),
