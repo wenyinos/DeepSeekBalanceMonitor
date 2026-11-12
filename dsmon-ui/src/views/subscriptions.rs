@@ -79,6 +79,7 @@ pub fn show(
     snapshot: &Snapshot,
     state: &mut State,
     accounts: &[dsmon_core::config::AccountConfig],
+    configured: &std::collections::BTreeSet<String>,
 ) -> Option<Action> {
     let mut refresh = false;
 
@@ -100,6 +101,7 @@ pub fn show(
     // than once, once per account.
     let configured: Vec<(&PlatformMeta, &dsmon_core::config::AccountConfig)> = accounts
         .iter()
+        .filter(|account| configured.contains(&account.platform))
         .filter_map(|account| {
             catalog::find(&account.platform)
                 .filter(|meta| meta.mode == Mode::Package)

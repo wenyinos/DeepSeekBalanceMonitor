@@ -26,9 +26,12 @@ pub fn show(
     view: &View<'_>,
     snapshot: &Snapshot,
     config: &AppConfig,
+    configured: &std::collections::BTreeSet<String>,
 ) -> Option<Action> {
     let mut action = None;
-    let accounts: Vec<&AccountConfig> = dsmon_core::accounts::all(config).collect();
+    let accounts: Vec<&AccountConfig> = dsmon_core::accounts::all(config)
+        .filter(|account| configured.contains(&account.platform))
+        .collect();
 
     if accounts.is_empty() {
         ui.label(

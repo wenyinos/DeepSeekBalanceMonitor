@@ -816,9 +816,13 @@ impl eframe::App for App {
                 match &self.page {
                     Page::Overview => {
                         egui::ScrollArea::vertical().show(ui, |ui| {
-                            if let Some(action) =
-                                views::overview::show(ui, &view, &snapshot, &self.config)
-                            {
+                            if let Some(action) = views::overview::show(
+                                ui,
+                                &view,
+                                &snapshot,
+                                &self.config,
+                                &self.configured,
+                            ) {
                                 match action {
                                     views::overview::Action::Open { platform, account } => {
                                         self.history.account = account;
@@ -854,6 +858,7 @@ impl eframe::App for App {
                                 &snapshot,
                                 &mut self.subscriptions,
                                 &self.config.accounts,
+                                &self.configured,
                             ) {
                                 match action {
                                     views::subscriptions::Action::BillingDay(account, day) => {
