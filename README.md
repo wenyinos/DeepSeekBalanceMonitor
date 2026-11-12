@@ -1,4 +1,4 @@
-# DeepSeek Balance Monitor 2.3
+# DeepSeek Balance Monitor 2.4
 
 A desktop application for Windows and Linux that keeps an eye on your DeepSeek account — and on
 the other providers it knows — from the system tray. One Rust application, one user interface,
@@ -13,6 +13,14 @@ both platforms.
   balance, the burn rate, the service state, and how long ago the reading was taken.
 - **Every provider in one window.** Fourteen entries across eight families, in two kinds:
   accounts with a balance, and plans with quota windows.
+- **Every account on one page.** The overview adds balances up per currency and puts the accounts
+  closest to their line first; a card opens the platform page with that account selected.
+- **Alerts that know which account.** Each account has its own line, monthly cap and mute; quiet
+  hours postpone notifications without losing them, and repeated read failures are announced and
+  retried with a backoff.
+- **Keys you can test.** The settings page says whether a key is stored, tests it on demand, and
+  refuses one already used by another account. A one-click backup copies the database, key and
+  settings into a folder that can be restored on the next start.
 - **Several keys per provider.** A provider can hold more than one account: each key is its own
   account with a name, its own history and its own alerts, and the balance page shows them side
   by side. Accounts are added, renamed and removed on the settings page.
@@ -116,7 +124,7 @@ Toolchain: stable. The Linux packages are built in a Debian 12 container so the 
 glibc 2.36 floor:
 
 ```bash
-packaging/build-packages.sh 2.3.1 arm64 target/release/dsmon2 dist
+packaging/build-packages.sh 2.4.0 arm64 target/release/dsmon2 dist
 ```
 
 See [CHANGELOG.md](docs/CHANGELOG.md) for what changed in this version.

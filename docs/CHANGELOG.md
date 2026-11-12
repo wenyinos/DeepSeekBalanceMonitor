@@ -2,6 +2,40 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.4.0 (2026-11-12)
+
+This release makes a multi-account setup usable day to day: one overview, alerts
+that belong to an account, keys you can test, retries that back off, and a backup
+you can restore.
+
+### Added
+
+- **Overview page**: every account on one page, totals per currency, the accounts
+  closest to their line first; a card opens its platform page with that account
+  selected.
+- **Per-account lines and budgets**: each account can carry its own balance/quota
+  line, a monthly spending cap and an alert switch. Quiet hours suppress
+  notifications without losing the pending state.
+- **Forecast**: each balance card shows the current rate, when it crosses the
+  account's line, and this month's projected spend against the budget.
+- **Key status and test**: settings shows stored/missing/unsaved, tests an
+  account immediately, and refuses a key already used by another account.
+- **Failure handling**: consecutive failures are counted, announced once per
+  episode, and retried with a per-account exponential backoff; a manual refresh
+  clears the gate.
+- **Backup and restore**: one click copies the database, key file and config into
+  a timestamped folder; restoring validates it and applies on the next start,
+  keeping the previous files as `.before-restore-*`.
+- **Widget controls**: an account can be hidden from the panel, and a platform
+  with several accounts can be folded; the setting is remembered.
+
+### Fixed
+
+- **The health card follows the selected account** instead of always reading the
+  first DeepSeek account's rate.
+- **The tray tooltip lists every balance account**, not only the one the icon
+  shows.
+
 ## Rust v2.3.1 (2026-10-22)
 
 The Linux packages now recommend a Simplified Chinese font instead of requiring the whole CJK

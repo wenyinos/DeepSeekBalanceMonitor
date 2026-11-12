@@ -42,7 +42,7 @@
 ```json
 {
   "version": 3,
-  "provider": { "name": "dsmon2", "version": "2.3.1" },
+  "provider": { "name": "dsmon2", "version": "2.4.0" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,
@@ -96,7 +96,7 @@
 
 ### 1.4 不变式 🔒
 
-1. **只含已配置账户**（该账户有密钥），顺序按 `config.json` 里 `accounts` 的顺序；同一个 `key` 可以有多条（同一平台的多个 key），一个账户都没有就是空数组。
+1. **只含已配置账户**（该账户有密钥，且 `show_in_widget` 为真），顺序按 `config.json` 里 `accounts` 的顺序；同一个 `key` 可以有多条（同一平台的多个 key），一个账户都没有就是空数组。
 2. **窗口名给键、不给成品文案**：`name_key` ∈ {`window_5h`, `window_weekly`, `window_monthly`}，
    由客户端翻译（客户端与主程序共用同一张 i18n 表）。
 3. **不传凭据**：响应里没有任何 API Key、密文或密钥材料；客户端不需要提供任何凭据，**接口不做鉴权、
@@ -131,7 +131,7 @@
 | `threshold_package_percent` | 浮点 | 10 | 0–100 | 套餐主窗口剩余百分比低额线（低于即图标转低额） |
 | `ui_language` | 字符串 | `zh` | `zh` / `en` | 界面与通知语言；**小工具也读它** |
 | `auto_start` | 布尔 | false | — | 主程序开机自启 |
-| `accounts` | 数组 | `[]` | 每项 `{ id, platform, name, enabled, billing_day }` | API 密钥账户列表。`id` 同时是 `secure_settings` 的键；旧配置为空时，启动时按已存的平台密钥生成每个平台的首个账户（`id` = 平台 key） |
+| `accounts` | 数组 | `[]` | 每项 `{ id, platform, name, enabled, billing_day, show_in_widget, alert_enabled, alert_threshold, monthly_budget }` | API 密钥账户列表。`id` 同时是 `secure_settings` 的键；旧配置为空时，启动时按已存的平台密钥生成每个平台的首个账户（`id` = 平台 key）。`show_in_widget` 只影响小工具；`alert_threshold` 在 payg 是金额、在套餐是剩余百分比；0 表示沿用全局线/关闭；`monthly_budget` 0 为关 |
 | `alert_mode` | 字符串 | `once` | `once` / `always` / `never` | 低余额告警频率 |
 | `api_alert_enabled` | 布尔 | true | — | 服务状态异常是否告警 |
 | `peak_alert_enabled` | 布尔 | false | — | DeepSeek 峰谷切换是否提醒 |
@@ -149,6 +149,9 @@
 | `icon_stroke` | 布尔 | false | — | 图标描边 |
 | `widget_enabled` | 布尔 | false | — | **主程序启动时是否拉起小工具**（不控制端口）；托盘的「显示/隐藏桌面小工具」就是改它。小工具**读到 true→false 会自己退出**，所以取消显示不必去杀进程 |
 | `widget_auto_start` | 布尔 | true | — | 小工具是否随会话启动；与小工具的 `deepseek-balance-monitor-widget.desktop` 条目对账，独立于 `auto_start` |
+| `widget_collapsed_platforms` | 数组 | `[]` | 平台 key 列表 | 小工具里折叠起来的平台分组 |
+| `quiet_hours_enabled` | 布尔 | false | — | 是否启用免打扰时段 |
+| `quiet_hours_start` / `quiet_hours_end` | 整数 | 23 / 8 | 0–23 | 免打扰时段；`start > end` 表示跨午夜 |
 | `widget_size` | 字符串 | `standard` | `compact` / `standard` | 小工具尺寸预设 |
 | `widget_opacity` | 浮点 | 0.9 | **四档 0.25 / 0.50 / 0.75 / 0.90**，夹取到 `[0.25, 0.90]` 后吸附到最近档位 | 小工具面板底色 alpha（卡片与文字不随之变淡）；拿不到合成器时按不透明绘制，但不改配置值 |
 | `widget_always_on_top` | 布尔 | true | — | 小工具置顶 |

@@ -191,7 +191,7 @@ egui/eframe 能把窗口做成 ARGB 透明（`.with_transparent(true)` + `App::c
 ```json
 {
   "version": 3,
-  "provider": { "name": "dsmon2", "version": "2.3.1" },
+  "provider": { "name": "dsmon2", "version": "2.4.0" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,
@@ -346,6 +346,8 @@ ViewportBuilder::default()
 - **标签用账户名**：同一平台的两个 key 必须能在这里分开，所以不能只取平台名的首个词（那会让
   "DeepSeek 主"和"DeepSeek 备用"都变成 `DeepSeek`）。标签行本身可换行，长名字由用户自己在设置页
   改短；完整名字仍在 hover 提示里。
+- **账户可以隐藏，平台可以折叠**：设置页的「小工具」勾选只影响面板，不停止轮询；同平台有两个以上
+  账户时卡片上方出现折叠标题，折叠状态写回 `widget_collapsed_platforms`，下次启动仍然保持。
 - **每张网格按自己的最大值分档**，不跨订阅共用比例尺：同一时刻只有一张在屏幕上，共用比例尺会让用量
   小的订阅看起来一片空白，而那不是它的样子。
 - 「全部」是**客户端求和**（`merged_days`，按 `date` 相加各平台的 `daily`），契约不用改，Python 版照做
