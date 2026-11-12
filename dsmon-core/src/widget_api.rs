@@ -188,7 +188,7 @@ pub fn payload(snapshot: &crate::monitor::Snapshot, config: &AppConfig, days: u6
     } else {
         DEFAULT_DAYS
     };
-    let platforms: Vec<Platform> = crate::accounts::enabled(config)
+    let platforms: Vec<Platform> = crate::accounts::all(config)
         .filter(|account| account.show_in_widget)
         .filter(|account| catalog::find(&account.platform).is_some_and(|meta| meta.implemented))
         .filter(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
@@ -598,7 +598,6 @@ mod tests {
             id: platform.to_owned(),
             platform: platform.to_owned(),
             name: String::new(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,
@@ -721,7 +720,6 @@ mod tests {
             id: "deepseek".to_owned(),
             platform: "deepseek".to_owned(),
             name: "DeepSeek".to_owned(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,
@@ -760,7 +758,6 @@ mod tests {
                 id: id.to_owned(),
                 platform: "deepseek".to_owned(),
                 name: name.to_owned(),
-                enabled: true,
                 billing_day: None,
                 show_in_widget: true,
                 alert_enabled: true,

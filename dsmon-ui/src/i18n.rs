@@ -38,7 +38,6 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
 
             ("en", "account_budget") => "Monthly budget",
             ("en", "account_alerts") => "Alerts",
-            ("en", "account_enabled") => "Enabled",
             ("en", "quiet_hours_label") => "Quiet hours",
             ("en", "quiet_hours_start") => "From (hour)",
             ("en", "quiet_hours_end") => "To (hour)",
@@ -297,7 +296,6 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
 
             (_, "account_budget") => "月预算",
             (_, "account_alerts") => "告警",
-            (_, "account_enabled") => "启用",
             (_, "quiet_hours_label") => "免打扰时段",
             (_, "quiet_hours_start") => "开始（时）",
             (_, "quiet_hours_end") => "结束（时）",
@@ -582,7 +580,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 181] = [
+    const USED_KEYS: [&str; 180] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -678,7 +676,6 @@ mod tests {
         "duplicate_key",
         "account_budget",
         "account_alerts",
-        "account_enabled",
         "quiet_hours_label",
         "quiet_hours_start",
         "quiet_hours_end",

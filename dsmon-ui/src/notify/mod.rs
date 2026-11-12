@@ -361,7 +361,7 @@ impl Watch {
         config: &AppConfig,
         lang: &str,
     ) -> Option<Message> {
-        let low: Vec<(String, String, f64, f64)> = dsmon_core::accounts::enabled(config)
+        let low: Vec<(String, String, f64, f64)> = dsmon_core::accounts::all(config)
             .filter(|account| account.alert_enabled)
             .filter_map(|account| {
                 if !catalog::find(&account.platform)
@@ -435,7 +435,7 @@ impl Watch {
         let mut reported = std::collections::BTreeSet::new();
         let mut message = None;
 
-        for account in dsmon_core::accounts::enabled(config) {
+        for account in dsmon_core::accounts::all(config) {
             if !account.alert_enabled {
                 continue;
             }
@@ -497,7 +497,7 @@ impl Watch {
         self.account_failures_reported
             .retain(|id| snapshot.account_failures.get(id).copied().unwrap_or(0) > 0);
 
-        for account in dsmon_core::accounts::enabled(config) {
+        for account in dsmon_core::accounts::all(config) {
             let failures = snapshot
                 .account_failures
                 .get(&account.id)
@@ -539,7 +539,7 @@ impl Watch {
         let month = Local::now().format("%Y-%m").to_string();
         self.budget_reported.retain(|key| key.ends_with(&month));
 
-        for account in dsmon_core::accounts::enabled(config) {
+        for account in dsmon_core::accounts::all(config) {
             if !account.alert_enabled || account.monthly_budget <= 0.0 {
                 continue;
             }
@@ -610,7 +610,7 @@ pub fn balance_message(snapshot: &Snapshot, config: &AppConfig, lang: &str) -> M
     let separator = if lang == "en" { ": " } else { "：" };
     let mut lines = Vec::new();
 
-    for account in dsmon_core::accounts::enabled(config) {
+    for account in dsmon_core::accounts::all(config) {
         let Some((currency, balance)) = snapshot
             .balances
             .get(&account.id)
@@ -787,7 +787,6 @@ mod tests {
             id: storage::KEY_DEEPSEEK.to_owned(),
             platform: storage::KEY_DEEPSEEK.to_owned(),
             name: "DeepSeek".to_owned(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,
@@ -798,7 +797,6 @@ mod tests {
             id: "opencode_go".to_owned(),
             platform: "opencode_go".to_owned(),
             name: "OpenCode Go".to_owned(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,

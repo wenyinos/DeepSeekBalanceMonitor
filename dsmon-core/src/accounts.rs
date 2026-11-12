@@ -37,7 +37,6 @@ fn ensure_with(config: &mut AppConfig, holds: impl Fn(&str) -> bool) -> bool {
                     id: meta.key.to_owned(),
                     platform: meta.key.to_owned(),
                     name: meta.display_name.to_owned(),
-                    enabled: true,
                     billing_day: None,
                     show_in_widget: true,
                     alert_enabled: true,
@@ -68,9 +67,11 @@ fn ensure_with(config: &mut AppConfig, holds: impl Fn(&str) -> bool) -> bool {
     changed
 }
 
-/// The accounts that should be polled, in configuration order.
-pub fn enabled(config: &AppConfig) -> impl Iterator<Item = &AccountConfig> {
-    config.accounts.iter().filter(|account| account.enabled)
+/// Every account, in configuration order. A key that is still there is an
+/// account that still counts; stopping one means removing it or clearing its
+/// key, not hiding it behind a second switch.
+pub fn all(config: &AppConfig) -> impl Iterator<Item = &AccountConfig> {
+    config.accounts.iter()
 }
 
 /// The accounts of one platform, in configuration order.
@@ -170,7 +171,6 @@ mod tests {
             id: id.to_owned(),
             platform: platform.to_owned(),
             name: String::new(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,

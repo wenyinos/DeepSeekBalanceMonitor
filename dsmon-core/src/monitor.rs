@@ -407,7 +407,7 @@ fn failure_counts(
     config: &AppConfig,
 ) -> std::collections::BTreeMap<String, u32> {
     let mut counts = std::collections::BTreeMap::new();
-    for account in crate::accounts::enabled(config) {
+    for account in crate::accounts::all(config) {
         let retrying = matches!(
             outcome.balance_errors.get(&account.id).map(String::as_str),
             Some("retrying later")
@@ -453,7 +453,7 @@ fn today_spend(config: &AppConfig) -> std::collections::BTreeMap<String, (String
 
     let today = format!("{} 00:00:00", Local::now().format("%Y-%m-%d"));
     let mut spends = std::collections::BTreeMap::new();
-    for account in crate::accounts::enabled(config) {
+    for account in crate::accounts::all(config) {
         let Some(meta) = crate::catalog::find(&account.platform) else {
             continue;
         };
@@ -476,7 +476,7 @@ fn monthly_spend(config: &AppConfig) -> std::collections::BTreeMap<String, f64> 
 
     let start = format!("{} 01 00:00:00", Local::now().format("%Y-%m"));
     let mut spends = std::collections::BTreeMap::new();
-    for account in crate::accounts::enabled(config) {
+    for account in crate::accounts::all(config) {
         let Some(meta) = crate::catalog::find(&account.platform) else {
             continue;
         };
@@ -576,7 +576,7 @@ struct Outcome {
 }
 
 fn gather(config: &AppConfig, backoff: &mut Backoff) -> Result<Outcome, String> {
-    let demo = crate::accounts::enabled(config).any(|account| {
+    let demo = crate::accounts::all(config).any(|account| {
         matches!(storage::read_secret(&account.id), Ok(Some(key)) if demo::is_enabled(&key))
     });
     if demo {
@@ -645,7 +645,7 @@ fn gather(config: &AppConfig, backoff: &mut Backoff) -> Result<Outcome, String> 
 /// Whether any MiniMax plan holds a key: its status page is only fetched when
 /// there is a plan for it to say something about.
 fn minimax_configured(config: &AppConfig) -> bool {
-    crate::accounts::enabled(config)
+    crate::accounts::all(config)
         .filter(|account| account.platform.starts_with("minimax_"))
         .any(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
 }
@@ -665,7 +665,7 @@ fn gather_balances(
     let mut balances = std::collections::BTreeMap::new();
     let mut errors = std::collections::BTreeMap::new();
 
-    for account in crate::accounts::enabled(config) {
+    for account in crate::accounts::all(config) {
         let Some(meta) = catalog::find(&account.platform) else {
             continue;
         };
@@ -754,7 +754,7 @@ fn gather_demo(config: &AppConfig, backoff: &mut Backoff) -> Result<Outcome, Str
     demo::prepare(&conn)?;
     let balances = demo::balances(&conn)?;
     let consumption_rate = demo::consumption_rate(&conn).ok();
-    let account_id = crate::accounts::enabled(config)
+    let account_id = crate::accounts::all(config)
         .find(|account| {
             matches!(storage::read_secret(&account.id), Ok(Some(key)) if demo::is_enabled(&key))
         })
@@ -836,7 +836,7 @@ fn refine_coarse_windows(
     /// into money.
     const FIVE_HOUR_POOL: f64 = 12.0;
 
-    let accounts: Vec<String> = crate::accounts::enabled(config)
+    let accounts: Vec<String> = crate::accounts::all(config)
         .filter(|account| account.platform == PROVIDER_OPENCODE_GO)
         .map(|account| account.id.clone())
         .collect();
@@ -919,7 +919,7 @@ fn gather_packages(
     use crate::catalog::{self, Mode};
 
     let mut packages = std::collections::BTreeMap::new();
-    for account in crate::accounts::enabled(config) {
+    for account in crate::accounts::all(config) {
         let Some(meta) = catalog::find(&account.platform) else {
             continue;
         };
@@ -999,7 +999,6 @@ mod tests {
             id: storage::KEY_DEEPSEEK.to_owned(),
             platform: storage::KEY_DEEPSEEK.to_owned(),
             name: "DeepSeek".to_owned(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,

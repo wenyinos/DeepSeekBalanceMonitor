@@ -335,7 +335,6 @@ fn account_row(
             *test = Some(account.id.clone());
         }
 
-        ui.checkbox(&mut account.enabled, view.text("account_enabled"));
         ui.checkbox(
             &mut account.show_in_widget,
             view.text("widget_show_account"),
@@ -424,7 +423,6 @@ fn add_account_row(
                     id: id.clone(),
                     platform: chosen.clone(),
                     name,
-                    enabled: true,
                     billing_day: None,
                     show_in_widget: true,
                     alert_enabled: true,

@@ -28,7 +28,7 @@ pub fn show(
     config: &AppConfig,
 ) -> Option<Action> {
     let mut action = None;
-    let accounts: Vec<&AccountConfig> = dsmon_core::accounts::enabled(config).collect();
+    let accounts: Vec<&AccountConfig> = dsmon_core::accounts::all(config).collect();
 
     if accounts.is_empty() {
         ui.label(

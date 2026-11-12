@@ -40,7 +40,7 @@ pub fn show(
     // provider are two balances, not one.
     let of_platform: Vec<&dsmon_core::config::AccountConfig> = accounts
         .iter()
-        .filter(|account| account.platform == platform && account.enabled)
+        .filter(|account| account.platform == platform)
         .collect();
     if !of_platform
         .iter()

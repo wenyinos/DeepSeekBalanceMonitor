@@ -97,7 +97,7 @@ pub fn status(snapshot: &Snapshot, config: &AppConfig, lang: &str) -> Status {
                 format_amount(total),
                 currency
             );
-            for account in dsmon_core::accounts::enabled(config) {
+            for account in dsmon_core::accounts::all(config) {
                 if account.id == id {
                     continue;
                 }
@@ -133,7 +133,7 @@ pub fn status(snapshot: &Snapshot, config: &AppConfig, lang: &str) -> Status {
 /// The reading the icon stands for: the first enabled balance account that
 /// answered, in configuration order.
 fn reading(snapshot: &Snapshot, config: &AppConfig) -> Option<(String, String, String, f64)> {
-    dsmon_core::accounts::enabled(config)
+    dsmon_core::accounts::all(config)
         .filter(|account| {
             dsmon_core::catalog::find(&account.platform).is_some_and(|meta| meta.mode == Mode::Payg)
         })
@@ -179,7 +179,7 @@ fn state_of(snapshot: &Snapshot, config: &AppConfig, account_id: &str, total: f6
 /// its own: there is no "preferred plan" here, so one plan running low is
 /// enough to say so.
 fn package_plan_is_low(snapshot: &Snapshot, config: &AppConfig) -> bool {
-    for account in dsmon_core::accounts::enabled(config) {
+    for account in dsmon_core::accounts::all(config) {
         if !account.alert_enabled {
             continue;
         }
@@ -331,7 +331,6 @@ mod tests {
             id: "deepseek".to_owned(),
             platform: "deepseek".to_owned(),
             name: "DeepSeek".to_owned(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,
@@ -342,7 +341,6 @@ mod tests {
             id: "openrouter".to_owned(),
             platform: "openrouter".to_owned(),
             name: "OpenRouter".to_owned(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,
@@ -353,7 +351,6 @@ mod tests {
             id: "opencode_go".to_owned(),
             platform: "opencode_go".to_owned(),
             name: "OpenCode Go".to_owned(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,

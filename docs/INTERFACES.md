@@ -131,7 +131,7 @@
 | `threshold_package_percent` | 浮点 | 10 | 0–100 | 套餐主窗口剩余百分比低额线（低于即图标转低额） |
 | `ui_language` | 字符串 | `zh` | `zh` / `en` | 界面与通知语言；**小工具也读它** |
 | `auto_start` | 布尔 | false | — | 主程序开机自启 |
-| `accounts` | 数组 | `[]` | 每项 `{ id, platform, name, enabled, billing_day, show_in_widget, alert_enabled, alert_threshold, monthly_budget }` | API 密钥账户列表。`id` 同时是 `secure_settings` 的键；旧配置为空时，启动时按已存的平台密钥生成每个平台的首个账户（`id` = 平台 key）。`show_in_widget` 只影响小工具；`alert_threshold` 在 payg 是金额、在套餐是剩余百分比；0 表示沿用全局线/关闭；`monthly_budget` 0 为关 |
+| `accounts` | 数组 | `[]` | 每项 `{ id, platform, name, billing_day, show_in_widget, alert_enabled, alert_threshold, monthly_budget }` | API 密钥账户列表。`id` 同时是 `secure_settings` 的键；旧配置为空时，启动时按已存的平台密钥生成每个平台的首个账户（`id` = 平台 key）。**没有 `enabled` 开关**：只要账户还在、key 还在就参与轮询和显示，停用等于删除账户或清空 key。`show_in_widget` 只影响小工具；`alert_threshold` 在 payg 是金额、在套餐是剩余百分比；0 表示沿用全局线/关闭；`monthly_budget` 0 为关 |
 | `alert_mode` | 字符串 | `once` | `once` / `always` / `never` | 低余额告警频率 |
 | `api_alert_enabled` | 布尔 | true | — | 服务状态异常是否告警 |
 | `peak_alert_enabled` | 布尔 | false | — | DeepSeek 峰谷切换是否提醒 |

@@ -29,6 +29,13 @@ you can restore.
 - **Widget controls**: an account can be hidden from the panel, and a platform
   with several accounts can be folded; the setting is remembered.
 
+### Changed
+
+- **An account no longer has a separate "enabled" switch.** A key that is still
+  stored is an account that is polled and shown; stopping one means deleting the
+  account or clearing its key. A disabled flag left by 2.3 is ignored, so an
+  account that silently disappeared comes back after the upgrade.
+
 ### Fixed
 
 - **The health card follows the selected account** instead of always reading the

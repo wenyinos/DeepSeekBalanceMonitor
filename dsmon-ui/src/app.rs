@@ -979,7 +979,6 @@ fn configured_platforms(config: &AppConfig) -> std::collections::BTreeSet<String
     config
         .accounts
         .iter()
-        .filter(|account| account.enabled)
         .filter(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
         .map(|account| account.platform.clone())
         .collect()

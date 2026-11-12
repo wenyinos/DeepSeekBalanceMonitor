@@ -100,7 +100,6 @@ pub fn show(
     // than once, once per account.
     let configured: Vec<(&PlatformMeta, &dsmon_core::config::AccountConfig)> = accounts
         .iter()
-        .filter(|account| account.enabled)
         .filter_map(|account| {
             catalog::find(&account.platform)
                 .filter(|meta| meta.mode == Mode::Package)
@@ -502,7 +501,6 @@ mod tests {
             id: plan.to_owned(),
             platform: plan.to_owned(),
             name: meta.display_name.to_owned(),
-            enabled: true,
             billing_day: None,
             show_in_widget: true,
             alert_enabled: true,

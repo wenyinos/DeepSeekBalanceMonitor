@@ -76,8 +76,6 @@ pub struct AccountConfig {
     pub platform: String,
     #[serde(default)]
     pub name: String,
-    #[serde(default = "default_true")]
-    pub enabled: bool,
     /// Overrides the plan-wide billing day when the provider needs one.
     #[serde(default)]
     pub billing_day: Option<u8>,
