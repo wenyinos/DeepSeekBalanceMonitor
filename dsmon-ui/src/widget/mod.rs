@@ -99,6 +99,7 @@ pub fn run() -> eframe::Result<()> {
         "token 用量",
         eframe::NativeOptions {
             viewport,
+            renderer: crate::renderer(),
             ..Default::default()
         },
         Box::new(move |cc| {

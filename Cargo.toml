@@ -3,7 +3,7 @@ resolver = "2"
 members = ["dsmon-core", "dsmon-ui"]
 
 [workspace.package]
-version = "2.4.0"
+version = "2.4.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/wenyinos/DeepSeekBalanceMonitor"
@@ -26,7 +26,11 @@ ring = "0.17"
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 ab_glyph = "0.2"
 
-eframe = "0.36"
+# Glow is the OpenGL backend. eframe 0.36 defaults to wgpu (D3D12 on
+# Windows), whose device and driver working set costs every process about
+# 300 MB even when idle; both programs are small panels, so they opt into
+# glow instead, which keeps them in the tens of megabytes.
+eframe = { version = "0.36", features = ["glow"] }
 egui = "0.36"
 egui_plot = "0.37"
 

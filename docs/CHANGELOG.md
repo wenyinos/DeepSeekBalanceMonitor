@@ -2,6 +2,18 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.4.1 (2026-11-12)
+
+### Fixed
+
+- **Both windows no longer sit at about 300 MB each.** eframe 0.36 defaults to
+  the wgpu renderer, which on Windows runs on D3D12 and keeps a device and
+  driver working set of roughly 300 MB per process even when idle — the
+  application and the widget each paid it. Both now default to glow (OpenGL).
+  `DSMON_RENDERER=wgpu` (or `dx12`) opts back into D3D12 for machines where
+  OpenGL is unavailable, such as remote desktops and some virtual machines, at
+  that memory cost.
+
 ## Rust v2.4.0 (2026-11-12)
 
 This release makes a multi-account setup usable day to day: one overview, alerts

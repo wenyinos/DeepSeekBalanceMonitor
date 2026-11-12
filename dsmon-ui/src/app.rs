@@ -70,6 +70,7 @@ pub fn run() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport,
+        renderer: crate::renderer(),
         ..Default::default()
     };
 

@@ -1,10 +1,15 @@
-# DeepSeek Balance Monitor 2.4
+# DeepSeek Balance Monitor 2.4.1
 
 A desktop application for Windows and Linux that keeps an eye on your DeepSeek account — and on
 the other providers it knows — from the system tray. One Rust application, one user interface,
 both platforms.
 
 [中文版](README_zh.md)
+
+**2.4.1** switches both windows to the glow (OpenGL) renderer: the wgpu backend eframe 0.36
+defaults to runs on D3D12 and cost each process about 300 MB of working set on Windows. Set
+`DSMON_RENDERER=wgpu` to fall back on machines without usable OpenGL (remote desktops, some
+virtual machines).
 
 ## What it does
 

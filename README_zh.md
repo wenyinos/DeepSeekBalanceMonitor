@@ -1,9 +1,13 @@
-# DeepSeek 余额监控 2.4
+# DeepSeek 余额监控 2.4.1
 
 Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账户，以及其他它认识的平台。
 一个纯 Rust 应用、一份界面代码，两个平台共用。
 
 [English](README.md)
+
+**2.4.1** 把主程序和小工具都切到 glow（OpenGL）渲染器：eframe 0.36 默认的 wgpu 后端在
+Windows 上走 D3D12，每个进程常驻约 300 MB 工作集。OpenGL 不可用的机器（远程桌面、部分虚拟机）
+可设 `DSMON_RENDERER=wgpu` 回退。
 
 ## 它做什么
 
