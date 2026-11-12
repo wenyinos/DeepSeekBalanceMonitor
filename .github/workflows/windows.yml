@@ -9,7 +9,6 @@ on:
   push:
     branches:
       - rust-2.x
-      - feat/2.4-usability
     tags:
       - "v[0-9]*"
   pull_request:
