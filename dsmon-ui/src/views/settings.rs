@@ -9,6 +9,8 @@ use egui::RichText;
 use super::{card, View};
 use crate::theme::{Palette, Style};
 use dsmon_core::catalog::Mode;
+use dsmon_core::monitor::Snapshot;
+use dsmon_core::storage;
 
 /// Where the release page lives, opened from the About card.
 pub const RELEASES_URL: &str = "https://github.com/wenyinos/DeepSeekBalanceMonitor/releases";
@@ -26,6 +28,8 @@ pub enum Action {
     SaveKeys,
     /// The user confirmed clearing the keys marked with `0`.
     ConfirmClear,
+    /// Ask one account to prove its key now.
+    TestAccount(String),
     /// Copy the earlier build's data into this one.
     ImportLegacy,
     /// Drop the records that sit outside the retention window and compact the
@@ -58,10 +62,18 @@ pub struct State {
     pub pending_clear: bool,
     /// Platforms that already have a key stored.
     pub configured: std::collections::BTreeSet<String>,
+    /// Accounts that already have a key stored.
+    pub stored: std::collections::BTreeSet<String>,
 }
 
 impl State {
     pub fn new(config: AppConfig, configured: std::collections::BTreeSet<String>) -> Self {
+        let stored = config
+            .accounts
+            .iter()
+            .filter(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
+            .map(|account| account.id.clone())
+            .collect();
         Self {
             draft: config,
             keys: std::collections::BTreeMap::new(),
@@ -70,6 +82,7 @@ impl State {
             notice: None,
             pending_clear: false,
             configured,
+            stored,
         }
     }
 
@@ -87,11 +100,12 @@ pub fn show(
     view: &View<'_>,
     state: &mut State,
     newer_version: Option<&str>,
+    snapshot: &Snapshot,
 ) -> Option<Action> {
     let mut action = None;
     let mut preview = false;
 
-    credentials_card(ui, view, state, &mut action);
+    credentials_card(ui, view, state, &mut action, snapshot);
     general_card(ui, view, state, &mut preview, &mut action);
     alerts_card(ui, view, state);
     data_card(ui, view, state, &mut action);
@@ -149,6 +163,7 @@ fn credentials_card(
     view: &View<'_>,
     state: &mut State,
     action: &mut Option<Action>,
+    snapshot: &Snapshot,
 ) {
     let palette = view.palette;
 
@@ -221,14 +236,18 @@ fn credentials_card(
                 .collect();
 
             let mut remove = None;
+            let mut test = None;
             for index in indices {
                 let id = state.draft.accounts[index].id.clone();
                 ui.push_id(id, |ui| {
-                    account_row(ui, view, state, index, &mut remove);
+                    account_row(ui, view, state, index, &mut remove, &mut test, snapshot);
                 });
             }
             if let Some(index) = remove {
                 state.draft.accounts.remove(index);
+            }
+            if let Some(id) = test {
+                *action = Some(Action::TestAccount(id));
             }
 
             add_account_row(ui, view, state, heading, mode);
@@ -244,6 +263,8 @@ fn account_row(
     state: &mut State,
     index: usize,
     remove: &mut Option<usize>,
+    test: &mut Option<String>,
+    snapshot: &Snapshot,
 ) {
     let palette = view.palette;
     let account = &mut state.draft.accounts[index];
@@ -268,8 +289,45 @@ fn account_row(
             egui::TextEdit::singleline(key)
                 .password(true)
                 .hint_text("••••••••")
-                .desired_width(210.0),
+                .desired_width(180.0),
         );
+
+        let result = snapshot.test_results.get(&account.id);
+        let (status, color) = if let Some(result) = result {
+            (
+                if result.ok {
+                    view.text("test_ok")
+                } else {
+                    view.text("test_failed")
+                },
+                if result.ok {
+                    palette.positive
+                } else {
+                    palette.destructive
+                },
+            )
+        } else if !key.is_empty() {
+            (
+                if key.trim() == "0" {
+                    view.text("key_status_clear")
+                } else {
+                    view.text("key_status_unsaved")
+                },
+                palette.text_secondary,
+            )
+        } else if state.stored.contains(&account.id) {
+            (view.text("key_status_saved"), palette.positive)
+        } else {
+            (view.text("key_status_missing"), palette.warning)
+        };
+        let mut response = ui.label(RichText::new(status).size(10.0).color(color));
+        if let Some(result) = result {
+            response = response.on_hover_text(&result.message);
+        }
+        if ui.small_button(view.text("test_key")).clicked() {
+            *test = Some(account.id.clone());
+        }
+
         ui.checkbox(&mut account.enabled, "");
         ui.checkbox(
             &mut account.show_in_widget,

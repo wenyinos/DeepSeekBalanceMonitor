@@ -299,14 +299,36 @@ impl App {
     fn store_keys(&mut self) -> bool {
         let mut failure = None;
         for (platform, value) in &self.settings.keys {
-            let result = match storage::classify_key_input(value) {
+            match storage::classify_key_input(value) {
                 storage::KeyInput::Keep => continue,
-                storage::KeyInput::Clear => storage::delete_secret(platform),
-                storage::KeyInput::Set(secret) => storage::store_secret(platform, secret),
-            };
-            if let Err(error) = result {
-                failure = Some(error);
-                break;
+                storage::KeyInput::Clear => {
+                    if let Err(error) = storage::delete_secret(platform) {
+                        failure = Some(error);
+                        break;
+                    }
+                }
+                storage::KeyInput::Set(secret) => {
+                    // The same key under two names would be the same account
+                    // polled twice and two histories for one balance.
+                    if let Some(other) = self.settings.draft.accounts.iter().find(|account| {
+                        account.id != *platform
+                            && matches!(
+                                storage::read_secret(&account.id),
+                                Ok(Some(existing)) if existing == secret
+                            )
+                    }) {
+                        failure = Some(format!(
+                            "{} {}",
+                            tr(&self.config.ui_language, "duplicate_key"),
+                            other.label()
+                        ));
+                        break;
+                    }
+                    if let Err(error) = storage::store_secret(platform, secret) {
+                        failure = Some(error);
+                        break;
+                    }
+                }
             }
         }
 
@@ -333,12 +355,9 @@ impl App {
             return;
         }
 
-        for value in self.settings.keys.values_mut() {
-            value.clear();
-        }
-        self.settings.pending_clear = false;
         self.settings.configured = configured_platforms(&self.config);
         self.configured = self.settings.configured.clone();
+        self.settings.reset(self.config.clone());
 
         let lang = self.config.ui_language.clone();
         self.settings.notice = Some(tr(&lang, "og_credentials_saved").to_owned());
@@ -839,6 +858,7 @@ impl eframe::App for App {
                                 &view,
                                 &mut self.settings,
                                 snapshot.newer_version.as_deref(),
+                                &snapshot,
                             ) {
                                 match action {
                                     views::settings::Action::Save => self.save_settings(ui.ctx()),
@@ -849,6 +869,9 @@ impl eframe::App for App {
                                         } else {
                                             self.save_keys();
                                         }
+                                    }
+                                    views::settings::Action::TestAccount(id) => {
+                                        self.monitor.test_account(&id);
                                     }
                                     views::settings::Action::ImportLegacy => {
                                         self.import_from_legacy()

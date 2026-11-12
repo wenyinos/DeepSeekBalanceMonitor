@@ -70,6 +70,8 @@ pub struct Watch {
     update_reported: Option<String>,
     /// `account month` pairs whose monthly budget has already been reported.
     budget_reported: std::collections::BTreeSet<String>,
+    /// Accounts whose repeated failures have already been reported.
+    account_failures_reported: std::collections::BTreeSet<String>,
 }
 
 impl Watch {
@@ -104,6 +106,9 @@ impl Watch {
         }
         if let Some(budget) = self.budget_message(snapshot, config, lang) {
             messages.push(budget);
+        }
+        if let Some(failure) = self.failure_message(snapshot, config, lang) {
+            messages.push(failure);
         }
         if let Some(brisk) = self.brisk_message(snapshot, config, lang) {
             messages.push(brisk);
@@ -413,6 +418,48 @@ impl Watch {
                 currency,
             ),
         })
+    }
+
+    /// An account that has failed repeatedly, said once per episode.
+    fn failure_message(
+        &mut self,
+        snapshot: &Snapshot,
+        config: &AppConfig,
+        lang: &str,
+    ) -> Option<Message> {
+        self.account_failures_reported
+            .retain(|id| snapshot.account_failures.get(id).copied().unwrap_or(0) > 0);
+
+        for account in dsmon_core::accounts::enabled(config) {
+            let failures = snapshot
+                .account_failures
+                .get(&account.id)
+                .copied()
+                .unwrap_or(0);
+            if failures < 3 || self.account_failures_reported.contains(&account.id) {
+                continue;
+            }
+            let reason = snapshot
+                .balance_errors
+                .get(&account.id)
+                .cloned()
+                .or_else(|| match snapshot.packages.get(&account.id) {
+                    Some(crate::monitor::Subscription::Failed(error)) => Some(error.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| "the provider did not answer".to_owned());
+            self.account_failures_reported.insert(account.id.clone());
+            return Some(Message {
+                title: tr(lang, "account_failure_title").to_owned(),
+                body: format!(
+                    "{} · {} ({}×) · {reason}",
+                    dsmon_core::accounts::label(config, &account.id),
+                    tr(lang, "account_failure_body"),
+                    failures
+                ),
+            });
+        }
+        None
     }
 
     /// A month whose spending has reached its budget, once per account.

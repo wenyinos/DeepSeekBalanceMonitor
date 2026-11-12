@@ -68,6 +68,10 @@ pub struct Snapshot {
     pub today_spend: std::collections::BTreeMap<String, (String, f64)>,
     /// Month-to-date spending per balance account, positive drops added up.
     pub monthly_spend: std::collections::BTreeMap<String, f64>,
+    /// Consecutive failed reads per account.
+    pub account_failures: std::collections::BTreeMap<String, u32>,
+    /// The last answer to the settings page's "test" button, per account.
+    pub test_results: std::collections::BTreeMap<String, TestResult>,
     /// The day's largest package-window spend per account: account id to
     /// (window, percentage points spent). Absent when no plan recorded a rise.
     pub package_day_spend: std::collections::BTreeMap<String, (String, f64)>,
@@ -102,13 +106,23 @@ impl Snapshot {
     }
 }
 
+/// The result of asking one account to prove its key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestResult {
+    pub ok: bool,
+    pub message: String,
+    pub at: DateTime<Local>,
+}
+
 /// Commands the interface sends to the polling thread.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     /// Poll the balance, the service health and the subscriptions.
     Refresh,
     /// Poll only the subscription quotas.
     RefreshSubscriptions,
+    /// Ask one account for a reading, without touching the snapshot's data.
+    Test(String),
     Stop,
 }
 
@@ -154,6 +168,11 @@ impl Monitor {
     /// Asks the thread to refresh only the subscription quotas.
     pub fn refresh_subscriptions(&self) {
         let _ = self.commands.send(Command::RefreshSubscriptions);
+    }
+
+    /// Asks one account to prove its key now.
+    pub fn test_account(&self, id: &str) {
+        let _ = self.commands.send(Command::Test(id.to_owned()));
     }
 }
 
@@ -220,6 +239,11 @@ fn run(config: AppConfig, receiver: Receiver<Command>, snapshot: Arc<Mutex<Snaps
     loop {
         let interval = Duration::from_secs(config.interval_minutes.max(1) * 60);
         let scope = match receiver.recv_timeout(interval) {
+            Ok(Command::Test(id)) => {
+                let config = AppConfig::load();
+                test_account(&config, &id, &snapshot);
+                continue;
+            }
             Ok(Command::Refresh) => Scope::Everything,
             Ok(Command::RefreshSubscriptions) => Scope::Subscriptions,
             Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return,
@@ -302,6 +326,11 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
         )
     });
 
+    let previous = snapshot
+        .lock()
+        .map(|guard| guard.account_failures.clone())
+        .unwrap_or_default();
+
     let Ok(mut guard) = snapshot.lock() else {
         return;
     };
@@ -320,10 +349,38 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
             guard.today_spend = today_spend;
             guard.monthly_spend = monthly_spend;
             guard.package_day_spend = package_day_spend;
+            guard.account_failures = failure_counts(&outcome, &previous, config);
             guard.last_error = None;
         }
         Err(error) => guard.last_error = Some(error),
     }
+}
+
+/// Consecutive failures per account: a failure counts only while it lasts.
+fn failure_counts(
+    outcome: &Outcome,
+    previous: &std::collections::BTreeMap<String, u32>,
+    config: &AppConfig,
+) -> std::collections::BTreeMap<String, u32> {
+    let mut counts = std::collections::BTreeMap::new();
+    for account in crate::accounts::enabled(config) {
+        let failed = outcome.balance_errors.contains_key(&account.id)
+            || matches!(
+                outcome.packages.get(&account.id),
+                Some(Subscription::Failed(_))
+            );
+        if failed {
+            counts.insert(
+                account.id.clone(),
+                previous
+                    .get(&account.id)
+                    .copied()
+                    .unwrap_or(0)
+                    .saturating_add(1),
+            );
+        }
+    }
+    counts
 }
 
 /// What today has cost the DeepSeek account: the day's positive drops added
@@ -561,17 +618,7 @@ fn gather_balances(
             continue;
         };
 
-        let result = match meta.key {
-            "deepseek" => platforms::deepseek::fetch_balance(&key, proxy),
-            "kimi_token_cn" | "kimi_token_global" => {
-                platforms::kimi::fetch_balance(meta.key, &key, proxy)
-            }
-            "stepfun_token_cn" | "stepfun_token_global" => {
-                platforms::stepfun::fetch_balance(meta.key, &key, proxy)
-            }
-            "openrouter" => platforms::openrouter::fetch_balance(meta.key, &key, proxy),
-            _ => continue,
-        };
+        let result = fetch_balance(meta.key, &key, proxy);
 
         match result {
             Ok(found) => {
@@ -584,6 +631,60 @@ fn gather_balances(
     }
 
     (balances, errors)
+}
+
+/// Sends one balance provider's request to its client.
+fn fetch_balance(platform: &str, key: &str, proxy: &str) -> Result<Balances, String> {
+    match platform {
+        "deepseek" => platforms::deepseek::fetch_balance(key, proxy),
+        "kimi_token_cn" | "kimi_token_global" => {
+            platforms::kimi::fetch_balance(platform, key, proxy)
+        }
+        "stepfun_token_cn" | "stepfun_token_global" => {
+            platforms::stepfun::fetch_balance(platform, key, proxy)
+        }
+        "openrouter" => platforms::openrouter::fetch_balance(platform, key, proxy),
+        other => Err(format!("No balance client for {other}.")),
+    }
+}
+
+/// Asks one account for a reading and leaves the answer for the settings page.
+fn test_account(config: &AppConfig, id: &str, snapshot: &Arc<Mutex<Snapshot>>) {
+    let result = (|| -> Result<String, String> {
+        let account = crate::accounts::find(config, id)
+            .ok_or_else(|| "The account is not configured.".to_owned())?;
+        let meta = crate::catalog::find(&account.platform)
+            .ok_or_else(|| "Unknown platform.".to_owned())?;
+        let key = storage::read_secret(&account.id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "No key is stored for this account.".to_owned())?;
+        let proxy = platforms::effective_proxy(config);
+        match meta.mode {
+            crate::catalog::Mode::Payg => {
+                let balances = fetch_balance(meta.key, &key, proxy)?;
+                Ok(format!("{} currencies read", balances.len()))
+            }
+            crate::catalog::Mode::Package => {
+                let quota = fetch_package(meta.key, &key, proxy)?;
+                Ok(format!("{} windows read", quota.len()))
+            }
+        }
+    })();
+
+    if let Ok(mut guard) = snapshot.lock() {
+        let (ok, message) = match result {
+            Ok(message) => (true, message),
+            Err(error) => (false, error),
+        };
+        guard.test_results.insert(
+            id.to_owned(),
+            TestResult {
+                ok,
+                message,
+                at: Local::now(),
+            },
+        );
+    }
 }
 
 fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {

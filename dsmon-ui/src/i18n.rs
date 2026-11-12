@@ -20,6 +20,15 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "overview_tab") => "Overview",
             ("en", "widget_show_account") => "Widget",
             ("en", "account_alert_line") => "Alert line",
+            ("en", "key_status_saved") => "Saved",
+            ("en", "key_status_missing") => "Not set",
+            ("en", "key_status_unsaved") => "Unsaved",
+            ("en", "key_status_clear") => "Will clear",
+            ("en", "test_key") => "Test",
+            ("en", "test_ok") => "OK",
+            ("en", "test_failed") => "Failed",
+            ("en", "duplicate_key") => "This key already belongs to",
+
             ("en", "account_budget") => "Monthly budget",
             ("en", "account_alerts") => "Alerts",
             ("en", "quiet_hours_label") => "Quiet hours",
@@ -30,6 +39,8 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "forecast_label") => "Projected this month",
             ("en", "threshold_crossing") => "Crosses the line in",
             ("en", "budget_title") => "Monthly budget reached",
+            ("en", "account_failure_title") => "Account keeps failing",
+            ("en", "account_failure_body") => "failed",
             ("en", "budget_body") => "has spent",
 
             ("en", "overview_total") => "Total",
@@ -258,6 +269,15 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "overview_tab") => "总览",
             (_, "widget_show_account") => "小工具",
             (_, "account_alert_line") => "告警线",
+            (_, "key_status_saved") => "已保存",
+            (_, "key_status_missing") => "未设置",
+            (_, "key_status_unsaved") => "待保存",
+            (_, "key_status_clear") => "将清除",
+            (_, "test_key") => "测试",
+            (_, "test_ok") => "正常",
+            (_, "test_failed") => "失败",
+            (_, "duplicate_key") => "该密钥已属于",
+
             (_, "account_budget") => "月预算",
             (_, "account_alerts") => "告警",
             (_, "quiet_hours_label") => "免打扰时段",
@@ -268,6 +288,8 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "forecast_label") => "预计本月",
             (_, "threshold_crossing") => "预计跌破告警线",
             (_, "budget_title") => "月度预算已到",
+            (_, "account_failure_title") => "账户连续读取失败",
+            (_, "account_failure_body") => "已连续失败",
             (_, "budget_body") => "已花",
 
             (_, "overview_total") => "合计",
@@ -540,7 +562,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 162] = [
+    const USED_KEYS: [&str; 172] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -620,6 +642,14 @@ mod tests {
         "overview_tab",
         "widget_show_account",
         "account_alert_line",
+        "key_status_saved",
+        "key_status_missing",
+        "key_status_unsaved",
+        "key_status_clear",
+        "test_key",
+        "test_ok",
+        "test_failed",
+        "duplicate_key",
         "account_budget",
         "account_alerts",
         "quiet_hours_label",
@@ -630,6 +660,8 @@ mod tests {
         "forecast_label",
         "threshold_crossing",
         "budget_title",
+        "account_failure_title",
+        "account_failure_body",
         "budget_body",
         "overview_total",
         "overview_no_accounts",
