@@ -444,7 +444,7 @@ impl Watch {
                 .get(&account.id)
                 .cloned()
                 .or_else(|| match snapshot.packages.get(&account.id) {
-                    Some(crate::monitor::Subscription::Failed(error)) => Some(error.clone()),
+                    Some(dsmon_core::monitor::Subscription::Failed(error)) => Some(error.clone()),
                     _ => None,
                 })
                 .unwrap_or_else(|| "the provider did not answer".to_owned());
