@@ -8,7 +8,7 @@
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local};
 
@@ -228,12 +228,45 @@ enum Scope {
     Subscriptions,
 }
 
+/// Per-account retry gates: a failing provider is asked less often, and a
+/// manual refresh clears the gates so the user can force a try.
+#[derive(Default)]
+struct Backoff {
+    retry_at: std::collections::BTreeMap<String, Instant>,
+    failures: std::collections::BTreeMap<String, u32>,
+}
+
+impl Backoff {
+    fn ready(&self, id: &str) -> bool {
+        self.retry_at.get(id).is_none_or(|at| *at <= Instant::now())
+    }
+
+    fn record(&mut self, id: &str, ok: bool, interval_minutes: u64) {
+        if ok {
+            self.failures.remove(id);
+            self.retry_at.remove(id);
+            return;
+        }
+        let count = self.failures.entry(id.to_owned()).or_insert(0);
+        *count = count.saturating_add(1);
+        let exponent = (*count - 1).min(6);
+        let seconds = interval_minutes
+            .max(1)
+            .saturating_mul(60)
+            .saturating_mul(1u64 << exponent)
+            .min(3600);
+        self.retry_at
+            .insert(id.to_owned(), Instant::now() + Duration::from_secs(seconds));
+    }
+}
+
 /// The polling loop: one pass at start-up, then a pass per interval or command.
 fn run(config: AppConfig, receiver: Receiver<Command>, snapshot: Arc<Mutex<Snapshot>>) {
     let mut config = config;
+    let mut backoff = Backoff::default();
     let mut update_checked: Option<DateTime<Local>> = None;
 
-    poll_once(&config, &snapshot, Scope::Everything);
+    poll_once(&config, &snapshot, Scope::Everything, &mut backoff);
     check_for_update(&config, &snapshot, &mut update_checked);
 
     loop {
@@ -244,7 +277,10 @@ fn run(config: AppConfig, receiver: Receiver<Command>, snapshot: Arc<Mutex<Snaps
                 test_account(&config, &id, &snapshot);
                 continue;
             }
-            Ok(Command::Refresh) => Scope::Everything,
+            Ok(Command::Refresh) => {
+                backoff.retry_at.clear();
+                Scope::Everything
+            }
             Ok(Command::RefreshSubscriptions) => Scope::Subscriptions,
             Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return,
             Err(RecvTimeoutError::Timeout) => Scope::Everything,
@@ -254,8 +290,10 @@ fn run(config: AppConfig, receiver: Receiver<Command>, snapshot: Arc<Mutex<Snaps
         config = AppConfig::load();
 
         match scope {
-            Scope::Everything => poll_once(&config, &snapshot, Scope::Everything),
-            Scope::Subscriptions => poll_once(&config, &snapshot, Scope::Subscriptions),
+            Scope::Everything => poll_once(&config, &snapshot, Scope::Everything, &mut backoff),
+            Scope::Subscriptions => {
+                poll_once(&config, &snapshot, Scope::Subscriptions, &mut backoff)
+            }
         }
         check_for_update(&config, &snapshot, &mut update_checked);
     }
@@ -297,16 +335,21 @@ fn check_for_update(
 /// makes every reader wait on it — the interface's own frame, and the widget's
 /// request, which reads history to build its answer — and a busy database is
 /// allowed to take seconds before it gives up.
-fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) {
+fn poll_once(
+    config: &AppConfig,
+    snapshot: &Arc<Mutex<Snapshot>>,
+    scope: Scope,
+    backoff: &mut Backoff,
+) {
     set_checking(snapshot, true);
 
     // A subscription pass leaves the balance and the service health as they are.
     if scope == Scope::Subscriptions {
-        poll_subscriptions(config, snapshot);
+        poll_subscriptions(config, snapshot, backoff);
         return;
     }
 
-    let result = gather(config);
+    let result = gather(config, backoff);
     let published = result.map(|mut outcome| {
         // Recorded before anything is refined: the history has to hold what
         // the endpoint actually said, or the next refinement would compare
@@ -490,8 +533,8 @@ fn package_day_spend(
 }
 
 /// Refreshes the package plans' quotas alone.
-fn poll_subscriptions(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>) {
-    let packages = gather_packages(platforms::effective_proxy(config), config);
+fn poll_subscriptions(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, backoff: &mut Backoff) {
+    let packages = gather_packages(platforms::effective_proxy(config), config, backoff);
     record_subscription_usage(&packages, config);
     let window_rates = package_rates(&packages, config);
 
@@ -519,16 +562,16 @@ struct Outcome {
     packages: std::collections::BTreeMap<String, Subscription<PackageQuota>>,
 }
 
-fn gather(config: &AppConfig) -> Result<Outcome, String> {
+fn gather(config: &AppConfig, backoff: &mut Backoff) -> Result<Outcome, String> {
     let demo = crate::accounts::enabled(config).any(|account| {
         matches!(storage::read_secret(&account.id), Ok(Some(key)) if demo::is_enabled(&key))
     });
     if demo {
-        return gather_demo(config);
+        return gather_demo(config, backoff);
     }
 
     let proxy = platforms::effective_proxy(config);
-    let (balances, balance_errors) = gather_balances(proxy, config);
+    let (balances, balance_errors) = gather_balances(proxy, config, backoff);
 
     if balances.is_empty() && balance_errors.is_empty() {
         return Err("No balance provider is configured.".to_owned());
@@ -582,7 +625,7 @@ fn gather(config: &AppConfig) -> Result<Outcome, String> {
         service_status,
         platform_status,
         consumption_rates,
-        packages: gather_packages(proxy, config),
+        packages: gather_packages(proxy, config, backoff),
     })
 }
 
@@ -599,6 +642,7 @@ fn minimax_configured(config: &AppConfig) -> bool {
 fn gather_balances(
     proxy: &str,
     config: &AppConfig,
+    backoff: &mut Backoff,
 ) -> (
     std::collections::BTreeMap<String, Balances>,
     std::collections::BTreeMap<String, String>,
@@ -615,17 +659,21 @@ fn gather_balances(
         if meta.mode != Mode::Payg {
             continue;
         }
+        if !backoff.ready(&account.id) {
+            errors.insert(account.id.clone(), "retrying later".to_owned());
+            continue;
+        }
         let Ok(Some(key)) = storage::read_secret(&account.id) else {
             continue;
         };
 
-        let result = fetch_balance(meta.key, &key, proxy);
-
-        match result {
+        match fetch_balance(meta.key, &key, proxy) {
             Ok(found) => {
+                backoff.record(&account.id, true, config.interval_minutes);
                 balances.insert(account.id.clone(), found);
             }
             Err(error) => {
+                backoff.record(&account.id, false, config.interval_minutes);
                 errors.insert(account.id.clone(), error);
             }
         }
@@ -688,7 +736,7 @@ fn test_account(config: &AppConfig, id: &str, snapshot: &Arc<Mutex<Snapshot>>) {
     }
 }
 
-fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
+fn gather_demo(config: &AppConfig, backoff: &mut Backoff) -> Result<Outcome, String> {
     let conn = storage::open_db()?;
     demo::prepare(&conn)?;
     let balances = demo::balances(&conn)?;
@@ -713,7 +761,7 @@ fn gather_demo(config: &AppConfig) -> Result<Outcome, String> {
         consumption_rates: consumption_rate
             .map(|rate| [(account_id, rate)].into_iter().collect())
             .unwrap_or_default(),
-        packages: gather_packages(platforms::effective_proxy(config), config),
+        packages: gather_packages(platforms::effective_proxy(config), config, backoff),
     })
 }
 
@@ -853,6 +901,7 @@ fn package_rates(
 fn gather_packages(
     proxy: &str,
     config: &AppConfig,
+    backoff: &mut Backoff,
 ) -> std::collections::BTreeMap<String, Subscription<PackageQuota>> {
     use crate::catalog::{self, Mode};
 
@@ -864,12 +913,28 @@ fn gather_packages(
         if meta.mode != Mode::Package {
             continue;
         }
+        if !backoff.ready(&account.id) {
+            packages.insert(
+                account.id.clone(),
+                Subscription::Failed("retrying later".to_owned()),
+            );
+            continue;
+        }
         let subscription = match storage::read_secret(&account.id) {
             Ok(Some(key)) => match fetch_package(meta.key, &key, proxy) {
-                Ok(quota) => Subscription::Loaded(quota),
-                Err(error) => Subscription::Failed(error),
+                Ok(quota) => {
+                    backoff.record(&account.id, true, config.interval_minutes);
+                    Subscription::Loaded(quota)
+                }
+                Err(error) => {
+                    backoff.record(&account.id, false, config.interval_minutes);
+                    Subscription::Failed(error)
+                }
             },
-            Ok(None) => Subscription::NotConfigured,
+            Ok(None) => {
+                backoff.record(&account.id, true, config.interval_minutes);
+                Subscription::NotConfigured
+            }
             Err(error) => Subscription::Failed(error),
         };
         packages.insert(account.id.clone(), subscription);
