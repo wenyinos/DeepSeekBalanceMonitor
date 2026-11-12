@@ -118,7 +118,7 @@ pub fn status(snapshot: &Snapshot, config: &AppConfig, lang: &str) -> Status {
             }
             Status {
                 label: icon::icon_label(total),
-                state: state_of(snapshot, config, total),
+                state: state_of(snapshot, config, &id, total),
                 tooltip,
             }
         }
@@ -155,8 +155,12 @@ fn reading(snapshot: &Snapshot, config: &AppConfig) -> Option<(String, String, S
 
 /// Low balance first, then a degraded service, then a day that is costing a
 /// lot — the order the previous build used.
-fn state_of(snapshot: &Snapshot, config: &AppConfig, total: f64) -> State {
-    if total < config.threshold_yuan || package_plan_is_low(snapshot, config) {
+fn state_of(snapshot: &Snapshot, config: &AppConfig, account_id: &str, total: f64) -> State {
+    let line = dsmon_core::accounts::find(config, account_id)
+        .filter(|account| account.alert_enabled)
+        .map(|account| low_line(account, config))
+        .unwrap_or(0.0);
+    if (line > 0.0 && total < line) || package_plan_is_low(snapshot, config) {
         State::Low
     } else if matches!(
         snapshot.service_status.as_str(),
@@ -175,14 +179,45 @@ fn state_of(snapshot: &Snapshot, config: &AppConfig, total: f64) -> State {
 /// its own: there is no "preferred plan" here, so one plan running low is
 /// enough to say so.
 fn package_plan_is_low(snapshot: &Snapshot, config: &AppConfig) -> bool {
-    snapshot.packages.values().any(|subscription| {
-        let Subscription::Loaded(quota) = subscription else {
-            return false;
+    for account in dsmon_core::accounts::enabled(config) {
+        if !account.alert_enabled {
+            continue;
+        }
+        if !dsmon_core::catalog::find(&account.platform)
+            .is_some_and(|meta| meta.mode == Mode::Package)
+        {
+            continue;
+        }
+        let line = if account.alert_threshold > 0.0 {
+            account.alert_threshold
+        } else {
+            config.threshold_package_percent
         };
-        main_window(quota)
+        if line <= 0.0 {
+            continue;
+        }
+        let Some(Subscription::Loaded(quota)) = snapshot.packages.get(&account.id) else {
+            continue;
+        };
+        if main_window(quota)
             .and_then(|window| quota.get(window))
-            .is_some_and(|entry| entry.percent_remaining < config.threshold_package_percent)
-    })
+            .is_some_and(|entry| entry.percent_remaining < line)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// The account's own line, falling back to the global yuan line for DeepSeek.
+fn low_line(account: &dsmon_core::config::AccountConfig, config: &AppConfig) -> f64 {
+    if account.alert_threshold > 0.0 {
+        account.alert_threshold
+    } else if account.platform == dsmon_core::storage::KEY_DEEPSEEK {
+        config.threshold_yuan
+    } else {
+        0.0
+    }
 }
 
 /// Handle to the tray icon: draws it, and hands what the user picked to the
@@ -299,6 +334,9 @@ mod tests {
             enabled: true,
             billing_day: None,
             show_in_widget: true,
+            alert_enabled: true,
+            alert_threshold: 0.0,
+            monthly_budget: 0.0,
         });
         config.accounts.push(dsmon_core::config::AccountConfig {
             id: "openrouter".to_owned(),
@@ -307,6 +345,9 @@ mod tests {
             enabled: true,
             billing_day: None,
             show_in_widget: true,
+            alert_enabled: true,
+            alert_threshold: 0.0,
+            monthly_budget: 0.0,
         });
         config
     }
@@ -326,7 +367,10 @@ mod tests {
             .insert("opencode_go".to_owned(), Subscription::Loaded(quota));
 
         let config = config();
-        assert_eq!(state_of(&snapshot, &config, 100.0), State::Low);
+        assert_eq!(
+            state_of(&snapshot, &config, "opencode_go", 100.0),
+            State::Low
+        );
     }
 
     #[test]
@@ -342,7 +386,10 @@ mod tests {
             .insert("opencode_go".to_owned(), Subscription::Loaded(quota));
 
         let config = config();
-        assert_eq!(state_of(&snapshot, &config, 100.0), State::Ok);
+        assert_eq!(
+            state_of(&snapshot, &config, "opencode_go", 100.0),
+            State::Ok
+        );
     }
 
     #[test]
@@ -354,7 +401,10 @@ mod tests {
 
         let mut config = config();
         config.brisk_package_percent = 10.0;
-        assert_eq!(state_of(&snapshot, &config, 100.0), State::Brisk);
+        assert_eq!(
+            state_of(&snapshot, &config, "deepseek", 100.0),
+            State::Brisk
+        );
     }
 
     #[test]

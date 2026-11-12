@@ -85,7 +85,9 @@ fn risk(account: &AccountConfig, snapshot: &Snapshot, config: &AppConfig) -> f64
             // The one line that exists is in yuan and belongs to DeepSeek; for
             // another provider the balance has no comparable line, so it sorts
             // by its own figure relative to a nominal one.
-            let line = if account.platform == dsmon_core::storage::KEY_DEEPSEEK {
+            let line = if account.alert_threshold > 0.0 {
+                account.alert_threshold
+            } else if account.platform == dsmon_core::storage::KEY_DEEPSEEK {
                 config.threshold_yuan
             } else {
                 0.0
@@ -315,12 +317,14 @@ fn low(account: &AccountConfig, snapshot: &Snapshot, config: &AppConfig) -> bool
             else {
                 return false;
             };
-            let line = if account.platform == dsmon_core::storage::KEY_DEEPSEEK {
+            let line = if account.alert_threshold > 0.0 {
+                account.alert_threshold
+            } else if account.platform == dsmon_core::storage::KEY_DEEPSEEK {
                 config.threshold_yuan
             } else {
                 0.0
             };
-            line > 0.0 && balance.total_balance < line
+            account.alert_enabled && line > 0.0 && balance.total_balance < line
         }
         Mode::Package => snapshot
             .packages
@@ -334,6 +338,14 @@ fn low(account: &AccountConfig, snapshot: &Snapshot, config: &AppConfig) -> bool
                     }),
                 _ => None,
             })
-            .is_some_and(|remaining| remaining < config.threshold_package_percent),
+            .is_some_and(|remaining| {
+                account.alert_enabled
+                    && remaining
+                        < if account.alert_threshold > 0.0 {
+                            account.alert_threshold
+                        } else {
+                            config.threshold_package_percent
+                        }
+            }),
     }
 }

@@ -85,6 +85,17 @@ pub struct AccountConfig {
     /// false; the filter is about the panel, not about the reading.
     #[serde(default = "default_true")]
     pub show_in_widget: bool,
+    /// Whether this account takes part in alerts.
+    #[serde(default = "default_true")]
+    pub alert_enabled: bool,
+    /// The account's own line: a balance amount for a pay-as-you-go account,
+    /// percentage points remaining for a package. Zero falls back to the
+    /// global line where one exists.
+    #[serde(default)]
+    pub alert_threshold: f64,
+    /// A monthly spending cap in the account's currency. Zero is off.
+    #[serde(default)]
+    pub monthly_budget: f64,
 }
 
 impl AccountConfig {
@@ -182,6 +193,15 @@ pub struct AppConfig {
     #[serde(default)]
     pub widget_collapsed_platforms: Vec<String>,
 
+    /// Suppress non-critical notifications during these hours. The window
+    /// wraps midnight when `start > end`.
+    #[serde(default)]
+    pub quiet_hours_enabled: bool,
+    #[serde(default = "default_quiet_start")]
+    pub quiet_hours_start: u8,
+    #[serde(default = "default_quiet_end")]
+    pub quiet_hours_end: u8,
+
     /// Day of the month Command Code renews on, 1-28. Its API reports no
     /// period end, unlike OpenCode Go, so the cycle is taken from here.
     #[serde(default = "default_billing_day")]
@@ -236,6 +256,9 @@ impl Default for AppConfig {
             widget_auto_start: true,
             widget_pos: None,
             widget_collapsed_platforms: Vec::new(),
+            quiet_hours_enabled: false,
+            quiet_hours_start: default_quiet_start(),
+            quiet_hours_end: default_quiet_end(),
             billing_day_command_code: default_billing_day(),
             window_size: None,
             widget_window_size: None,
@@ -279,6 +302,14 @@ fn default_ui_theme() -> String {
 
 fn default_theme() -> String {
     "default".to_owned()
+}
+
+fn default_quiet_start() -> u8 {
+    23
+}
+
+fn default_quiet_end() -> u8 {
+    8
 }
 
 fn default_billing_day() -> u8 {
@@ -416,6 +447,8 @@ impl AppConfig {
             self.widget_size = default_widget_size();
         }
         self.billing_day_command_code = self.billing_day_command_code.clamp(1, MAX_BILLING_DAY);
+        self.quiet_hours_start = self.quiet_hours_start.min(23);
+        self.quiet_hours_end = self.quiet_hours_end.min(23);
     }
 }
 

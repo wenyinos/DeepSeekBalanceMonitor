@@ -66,6 +66,8 @@ pub struct Snapshot {
     /// holding one reading, a balance that went up, or before the first poll —
     /// is absent rather than zero.
     pub today_spend: std::collections::BTreeMap<String, (String, f64)>,
+    /// Month-to-date spending per balance account, positive drops added up.
+    pub monthly_spend: std::collections::BTreeMap<String, f64>,
     /// The day's largest package-window spend per account: account id to
     /// (window, percentage points spent). Absent when no plan recorded a rise.
     pub package_day_spend: std::collections::BTreeMap<String, (String, f64)>,
@@ -289,8 +291,15 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
         refine_coarse_windows(&mut outcome.packages, config);
         let window_rates = package_rates(&outcome.packages, config);
         let today_spend = today_spend(config);
+        let monthly_spend = monthly_spend(config);
         let package_day_spend = package_day_spend(&outcome.packages, config);
-        (outcome, window_rates, today_spend, package_day_spend)
+        (
+            outcome,
+            window_rates,
+            today_spend,
+            monthly_spend,
+            package_day_spend,
+        )
     });
 
     let Ok(mut guard) = snapshot.lock() else {
@@ -300,7 +309,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
     guard.last_check = Some(Local::now());
 
     match published {
-        Ok((outcome, window_rates, today_spend, package_day_spend)) => {
+        Ok((outcome, window_rates, today_spend, monthly_spend, package_day_spend)) => {
             guard.balances = outcome.balances;
             guard.balance_errors = outcome.balance_errors;
             guard.service_status = outcome.service_status;
@@ -309,6 +318,7 @@ fn poll_once(config: &AppConfig, snapshot: &Arc<Mutex<Snapshot>>, scope: Scope) 
             guard.packages = outcome.packages;
             guard.window_rates = window_rates;
             guard.today_spend = today_spend;
+            guard.monthly_spend = monthly_spend;
             guard.package_day_spend = package_day_spend;
             guard.last_error = None;
         }
@@ -341,6 +351,29 @@ fn today_spend(config: &AppConfig) -> std::collections::BTreeMap<String, (String
         };
         if let Some(spend) = spent_of_day(&records) {
             spends.insert(account.id.clone(), spend);
+        }
+    }
+    spends
+}
+
+/// The month's positive drops added up, per balance account.
+fn monthly_spend(config: &AppConfig) -> std::collections::BTreeMap<String, f64> {
+    use crate::catalog::Mode;
+
+    let start = format!("{} 01 00:00:00", Local::now().format("%Y-%m"));
+    let mut spends = std::collections::BTreeMap::new();
+    for account in crate::accounts::enabled(config) {
+        let Some(meta) = crate::catalog::find(&account.platform) else {
+            continue;
+        };
+        if meta.mode != Mode::Payg {
+            continue;
+        }
+        let Ok(records) = storage::history_records_since(&account.id, &start, 20_000) else {
+            continue;
+        };
+        if let Some((_, spent)) = spent_of_day(&records) {
+            spends.insert(account.id.clone(), spent);
         }
     }
     spends
@@ -789,6 +822,9 @@ mod tests {
             enabled: true,
             billing_day: None,
             show_in_widget: true,
+            alert_enabled: true,
+            alert_threshold: 0.0,
+            monthly_budget: 0.0,
         });
         let mut snapshot = Snapshot::default();
         snapshot

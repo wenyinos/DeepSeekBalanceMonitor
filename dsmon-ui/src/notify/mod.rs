@@ -17,7 +17,7 @@ use linux as platform;
 #[cfg(target_os = "windows")]
 use windows as platform;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Timelike};
 
 use dsmon_core::catalog;
 use dsmon_core::config::AppConfig;
@@ -68,12 +68,20 @@ pub struct Watch {
     /// The version whose release has been announced, so one release is one
     /// notification however long the program runs.
     update_reported: Option<String>,
+    /// `account month` pairs whose monthly budget has already been reported.
+    budget_reported: std::collections::BTreeSet<String>,
 }
 
 impl Watch {
     /// What this snapshot calls for, or nothing when nothing has moved.
     pub fn judge(&mut self, snapshot: &Snapshot, config: &AppConfig, lang: &str) -> Vec<Message> {
         let mut messages = Vec::new();
+
+        // Quiet hours leave the judgement's memory alone: a balance that is
+        // still low when the window ends should speak then, not vanish.
+        if quiet_now(config) {
+            return messages;
+        }
 
         // One judgement per reading. This runs on every frame otherwise.
         let Some(checked) = snapshot.last_check else {
@@ -93,6 +101,9 @@ impl Watch {
         }
         if let Some(balance) = self.low_balance_message(snapshot, config, lang) {
             messages.push(balance);
+        }
+        if let Some(budget) = self.budget_message(snapshot, config, lang) {
+            messages.push(budget);
         }
         if let Some(brisk) = self.brisk_message(snapshot, config, lang) {
             messages.push(brisk);
@@ -340,15 +351,36 @@ impl Watch {
         config: &AppConfig,
         lang: &str,
     ) -> Option<Message> {
-        let low: Vec<(String, String, f64)> = dsmon_core::accounts::enabled(config)
-            .filter(|account| account.platform == storage::KEY_DEEPSEEK)
+        let low: Vec<(String, String, f64, f64)> = dsmon_core::accounts::enabled(config)
+            .filter(|account| account.alert_enabled)
             .filter_map(|account| {
+                if !catalog::find(&account.platform)
+                    .is_some_and(|meta| meta.mode == catalog::Mode::Payg)
+                {
+                    return None;
+                }
+                let line = if account.alert_threshold > 0.0 {
+                    account.alert_threshold
+                } else if account.platform == storage::KEY_DEEPSEEK {
+                    config.threshold_yuan
+                } else {
+                    0.0
+                };
+                if line <= 0.0 {
+                    return None;
+                }
                 let (currency, balance) = snapshot
                     .balances
                     .get(&account.id)
                     .and_then(preferred_balance)?;
-                (balance.total_balance < config.threshold_yuan)
-                    .then(|| (account.id.clone(), currency.clone(), balance.total_balance))
+                (balance.total_balance < line).then(|| {
+                    (
+                        account.id.clone(),
+                        currency.clone(),
+                        balance.total_balance,
+                        line,
+                    )
+                })
             })
             .collect();
 
@@ -357,14 +389,14 @@ impl Watch {
             return None;
         }
         self.low_balance_reported
-            .retain(|account| low.iter().any(|(id, _, _)| id == account));
+            .retain(|account| low.iter().any(|(id, _, _, _)| id == account));
 
-        let (account, currency, total) = match config.alert_mode.as_str() {
+        let (account, currency, total, line) = match config.alert_mode.as_str() {
             "never" => return None,
             "always" => low.first()?,
             _ => low
                 .iter()
-                .find(|(id, _, _)| !self.low_balance_reported.contains(id))?,
+                .find(|(id, _, _, _)| !self.low_balance_reported.contains(id))?,
         };
         self.low_balance_reported.insert(account.clone());
 
@@ -377,10 +409,83 @@ impl Watch {
                 format_amount(*total),
                 currency,
                 tr(lang, "threshold"),
-                format_amount(config.threshold_yuan),
+                format_amount(*line),
                 currency,
             ),
         })
+    }
+
+    /// A month whose spending has reached its budget, once per account.
+    fn budget_message(
+        &mut self,
+        snapshot: &Snapshot,
+        config: &AppConfig,
+        lang: &str,
+    ) -> Option<Message> {
+        let month = Local::now().format("%Y-%m").to_string();
+        self.budget_reported.retain(|key| key.ends_with(&month));
+
+        for account in dsmon_core::accounts::enabled(config) {
+            if !account.alert_enabled || account.monthly_budget <= 0.0 {
+                continue;
+            }
+            if !catalog::find(&account.platform)
+                .is_some_and(|meta| meta.mode == catalog::Mode::Payg)
+            {
+                continue;
+            }
+            let spent = snapshot
+                .monthly_spend
+                .get(&account.id)
+                .copied()
+                .unwrap_or(0.0);
+            if spent < account.monthly_budget {
+                continue;
+            }
+            let key = format!("{} {month}", account.id);
+            if self.budget_reported.contains(&key) {
+                continue;
+            }
+            let Some((currency, _)) = snapshot
+                .balances
+                .get(&account.id)
+                .and_then(preferred_balance)
+            else {
+                continue;
+            };
+            self.budget_reported.insert(key);
+            return Some(Message {
+                title: tr(lang, "budget_title").to_owned(),
+                body: format!(
+                    "{} {} {} {}, {} {} {}",
+                    dsmon_core::accounts::label(config, &account.id),
+                    tr(lang, "budget_body"),
+                    format_amount(spent),
+                    currency,
+                    tr(lang, "budget_label"),
+                    format_amount(account.monthly_budget),
+                    currency,
+                ),
+            });
+        }
+        None
+    }
+}
+
+/// Whether the configured quiet window contains the current hour.
+fn quiet_now(config: &AppConfig) -> bool {
+    if !config.quiet_hours_enabled {
+        return false;
+    }
+    let hour = Local::now().hour() as u8;
+    let start = config.quiet_hours_start.min(23);
+    let end = config.quiet_hours_end.min(23);
+    if start == end {
+        false
+    } else if start < end {
+        hour >= start && hour < end
+    } else {
+        hour >= start || hour < end
     }
 }
 
@@ -571,6 +676,9 @@ mod tests {
             enabled: true,
             billing_day: None,
             show_in_widget: true,
+            alert_enabled: true,
+            alert_threshold: 0.0,
+            monthly_budget: 0.0,
         });
         config.accounts.push(dsmon_core::config::AccountConfig {
             id: "opencode_go".to_owned(),
@@ -579,6 +687,9 @@ mod tests {
             enabled: true,
             billing_day: None,
             show_in_widget: true,
+            alert_enabled: true,
+            alert_threshold: 0.0,
+            monthly_budget: 0.0,
         });
         config
     }

@@ -794,6 +794,7 @@ impl eframe::App for App {
                             &mut self.history,
                             platform,
                             &self.config.accounts,
+                            &self.config,
                         ) {
                             match action {
                                 views::status::Action::Refresh => self.monitor.refresh(),

@@ -505,6 +505,9 @@ mod tests {
             enabled: true,
             billing_day: None,
             show_in_widget: true,
+            alert_enabled: true,
+            alert_threshold: 0.0,
+            monthly_budget: 0.0,
         };
         let mut billing_day = None;
 

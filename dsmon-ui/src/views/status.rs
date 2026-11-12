@@ -3,6 +3,8 @@
 //! The two summary cards sit side by side; the chart takes the full width
 //! underneath.
 
+use chrono::{Datelike, Local, NaiveDate};
+use dsmon_core::config::AppConfig;
 use dsmon_core::model::preferred_balance;
 use dsmon_core::monitor::Snapshot;
 use egui::{FontId, RichText};
@@ -29,6 +31,7 @@ pub fn show(
     history: &mut history::State,
     platform: &str,
     accounts: &[dsmon_core::config::AccountConfig],
+    config: &AppConfig,
 ) -> Option<Action> {
     let mut refresh = false;
     let mut history_action = None;
@@ -52,7 +55,14 @@ pub fn show(
     for chunk in of_platform.chunks(2) {
         ui.columns(2, |columns| {
             for (slot, account) in chunk.iter().enumerate() {
-                balance_card(&mut columns[slot], view, snapshot, account, &mut refresh);
+                balance_card(
+                    &mut columns[slot],
+                    view,
+                    snapshot,
+                    config,
+                    account,
+                    &mut refresh,
+                );
             }
         });
         ui.add_space(8.0);
@@ -70,7 +80,7 @@ pub fn show(
                 .find(|account| account.id == history.account)
                 .or_else(|| of_platform.first())
                 .copied();
-            health_card(&mut columns[1], view, snapshot, selected);
+            health_card(&mut columns[1], view, snapshot);
         } else if let Some(status) = snapshot.platform_status.get(platform) {
             service_card(&mut columns[1], view, status);
         } else {
@@ -128,6 +138,7 @@ fn balance_card(
     ui: &mut egui::Ui,
     view: &View<'_>,
     snapshot: &Snapshot,
+    config: &AppConfig,
     account: &dsmon_core::config::AccountConfig,
     refresh: &mut bool,
 ) {
@@ -207,6 +218,93 @@ fn balance_card(
             .color(palette.text_secondary)
             .size(12.0),
         );
+
+        if let Some(rate) = snapshot.consumption_rates.get(&account.id) {
+            ui.label(
+                RichText::new(format!(
+                    "{} {}/h · {} {}",
+                    view.text("daily_rate"),
+                    dsmon_core::history::format_amount(rate.hourly_rate),
+                    view.text("estimated_remaining"),
+                    format_busy_hours(rate.busy_hours_left)
+                ))
+                .color(palette.text_secondary)
+                .size(11.0),
+            );
+            if let Some((_, balance)) = preferred {
+                let line = if account.alert_threshold > 0.0 {
+                    Some(account.alert_threshold)
+                } else if account.platform == dsmon_core::storage::KEY_DEEPSEEK {
+                    Some(config.threshold_yuan)
+                } else {
+                    None
+                };
+                if let Some(line) = line {
+                    if rate.hourly_rate > 0.0 && balance.total_balance > line {
+                        let hours = (balance.total_balance - line) / rate.hourly_rate;
+                        ui.label(
+                            RichText::new(format!(
+                                "{} {}",
+                                view.text("threshold_crossing"),
+                                format_busy_hours(hours)
+                            ))
+                            .color(palette.text_secondary)
+                            .size(11.0),
+                        );
+                    }
+                }
+            }
+        }
+
+        if account.monthly_budget > 0.0 {
+            let spent = snapshot
+                .monthly_spend
+                .get(&account.id)
+                .copied()
+                .unwrap_or(0.0);
+            let over = spent >= account.monthly_budget;
+            ui.label(
+                RichText::new(format!(
+                    "{} {} / {} {}",
+                    view.text("budget_spent"),
+                    dsmon_core::history::format_amount(spent),
+                    view.text("budget_label"),
+                    dsmon_core::history::format_amount(account.monthly_budget)
+                ))
+                .color(if over {
+                    palette.warning
+                } else {
+                    palette.text_secondary
+                })
+                .size(11.0),
+            );
+            if let Some(rate) = snapshot.consumption_rates.get(&account.id) {
+                let now = Local::now();
+                let first = NaiveDate::from_ymd_opt(now.year(), now.month(), 1)
+                    .unwrap_or_else(|| now.date_naive());
+                let next = if now.month() == 12 {
+                    NaiveDate::from_ymd_opt(now.year() + 1, 1, 1)
+                } else {
+                    NaiveDate::from_ymd_opt(now.year(), now.month() + 1, 1)
+                }
+                .unwrap_or(first);
+                let days = (next - first).num_days() - i64::from(now.day()) + 1;
+                let projected = spent + rate.hourly_rate * 24.0 * days as f64;
+                ui.label(
+                    RichText::new(format!(
+                        "{} {}",
+                        view.text("forecast_label"),
+                        dsmon_core::history::format_amount(projected)
+                    ))
+                    .color(if projected > account.monthly_budget {
+                        palette.warning
+                    } else {
+                        palette.text_secondary
+                    })
+                    .size(11.0),
+                );
+            }
+        }
 
         ui.add_space(2.0);
         ui.label(
@@ -333,12 +431,7 @@ fn connection_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, acco
     });
 }
 
-fn health_card(
-    ui: &mut egui::Ui,
-    view: &View<'_>,
-    snapshot: &Snapshot,
-    account: Option<&dsmon_core::config::AccountConfig>,
-) {
+fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
@@ -364,39 +457,6 @@ fn health_card(
                     .color(palette.text_primary),
             );
         });
-
-        ui.add_space(6.0);
-
-        match account.and_then(|account| snapshot.consumption_rates.get(&account.id)) {
-            Some(rate) => {
-                ui.label(
-                    RichText::new(format!(
-                        "{} {}/h",
-                        view.text("daily_rate"),
-                        dsmon_core::history::format_amount(rate.hourly_rate)
-                    ))
-                    .color(palette.text_secondary)
-                    .size(12.0),
-                );
-                ui.add_space(2.0);
-                ui.label(
-                    RichText::new(format!(
-                        "{} {}",
-                        view.text("estimated_remaining"),
-                        format_busy_hours(rate.busy_hours_left)
-                    ))
-                    .color(palette.text_secondary)
-                    .size(12.0),
-                );
-            }
-            None => {
-                ui.label(
-                    RichText::new(view.text("not_enough_data"))
-                        .color(palette.text_secondary)
-                        .size(12.0),
-                );
-            }
-        }
     });
 }
 

@@ -279,6 +279,30 @@ fn account_row(
             *remove = Some(index);
         }
     });
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(view.text("account_alert_line"))
+                .color(palette.text_secondary)
+                .size(11.0),
+        );
+        ui.add(
+            egui::DragValue::new(&mut account.alert_threshold)
+                .range(0.0..=10_000.0)
+                .speed(0.1),
+        );
+        ui.add_space(8.0);
+        ui.label(
+            RichText::new(view.text("account_budget"))
+                .color(palette.text_secondary)
+                .size(11.0),
+        );
+        ui.add(
+            egui::DragValue::new(&mut account.monthly_budget)
+                .range(0.0..=100_000.0)
+                .speed(0.5),
+        );
+        ui.checkbox(&mut account.alert_enabled, view.text("account_alerts"));
+    });
 }
 
 /// The row that adds another account of one mode.
@@ -338,6 +362,9 @@ fn add_account_row(
                     enabled: true,
                     billing_day: None,
                     show_in_widget: true,
+                    alert_enabled: true,
+                    alert_threshold: 0.0,
+                    monthly_budget: 0.0,
                 });
             if !state.new_key.trim().is_empty() {
                 state.keys.insert(id, state.new_key.trim().to_owned());
@@ -487,6 +514,20 @@ fn alerts_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State) {
             &mut state.draft.update_check_enabled,
             view.text("update_check_label"),
         );
+
+        ui.add_space(6.0);
+        ui.checkbox(
+            &mut state.draft.quiet_hours_enabled,
+            view.text("quiet_hours_label"),
+        );
+        if state.draft.quiet_hours_enabled {
+            row(ui, palette, view.text("quiet_hours_start"), |ui| {
+                ui.add(egui::DragValue::new(&mut state.draft.quiet_hours_start).range(0..=23));
+            });
+            row(ui, palette, view.text("quiet_hours_end"), |ui| {
+                ui.add(egui::DragValue::new(&mut state.draft.quiet_hours_end).range(0..=23));
+            });
+        }
 
         // The line for a day that is costing a lot. Zero is off, which is how
         // it ships: only the user knows what "a lot" is for their account.

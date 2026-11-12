@@ -601,6 +601,9 @@ mod tests {
             enabled: true,
             billing_day: None,
             show_in_widget: true,
+            alert_enabled: true,
+            alert_threshold: 0.0,
+            monthly_budget: 0.0,
         });
         config
     }
@@ -721,6 +724,9 @@ mod tests {
             enabled: true,
             billing_day: None,
             show_in_widget: true,
+            alert_enabled: true,
+            alert_threshold: 0.0,
+            monthly_budget: 0.0,
         });
         let payload = payload(&snapshot, &config, 7);
 
@@ -757,6 +763,9 @@ mod tests {
                 enabled: true,
                 billing_day: None,
                 show_in_widget: true,
+                alert_enabled: true,
+                alert_threshold: 0.0,
+                monthly_budget: 0.0,
             });
             crate::storage::store_secret(id, "sk-test").expect("a stored key");
         }
