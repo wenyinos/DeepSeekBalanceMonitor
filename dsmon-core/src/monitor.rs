@@ -408,6 +408,19 @@ fn failure_counts(
 ) -> std::collections::BTreeMap<String, u32> {
     let mut counts = std::collections::BTreeMap::new();
     for account in crate::accounts::enabled(config) {
+        let retrying = matches!(
+            outcome.balance_errors.get(&account.id).map(String::as_str),
+            Some("retrying later")
+        ) || matches!(
+            outcome.packages.get(&account.id),
+            Some(Subscription::Failed(error)) if error == "retrying later"
+        );
+        if retrying {
+            if let Some(count) = previous.get(&account.id) {
+                counts.insert(account.id.clone(), *count);
+            }
+            continue;
+        }
         let failed = outcome.balance_errors.contains_key(&account.id)
             || matches!(
                 outcome.packages.get(&account.id),

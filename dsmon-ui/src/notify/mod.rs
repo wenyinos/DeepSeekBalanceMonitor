@@ -72,6 +72,8 @@ pub struct Watch {
     budget_reported: std::collections::BTreeSet<String>,
     /// Accounts whose repeated failures have already been reported.
     account_failures_reported: std::collections::BTreeSet<String>,
+    /// Package accounts whose window is below its line.
+    package_low_reported: std::collections::BTreeSet<String>,
 }
 
 impl Watch {
@@ -109,6 +111,9 @@ impl Watch {
         }
         if let Some(failure) = self.failure_message(snapshot, config, lang) {
             messages.push(failure);
+        }
+        if let Some(package) = self.package_low_message(snapshot, config, lang) {
+            messages.push(package);
         }
         if let Some(brisk) = self.brisk_message(snapshot, config, lang) {
             messages.push(brisk);
@@ -418,6 +423,68 @@ impl Watch {
                 currency,
             ),
         })
+    }
+
+    /// A package window below its account's line, once while it stays there.
+    fn package_low_message(
+        &mut self,
+        snapshot: &Snapshot,
+        config: &AppConfig,
+        lang: &str,
+    ) -> Option<Message> {
+        let mut reported = std::collections::BTreeSet::new();
+        let mut message = None;
+
+        for account in dsmon_core::accounts::enabled(config) {
+            if !account.alert_enabled {
+                continue;
+            }
+            if !catalog::find(&account.platform)
+                .is_some_and(|meta| meta.mode == catalog::Mode::Package)
+            {
+                continue;
+            }
+            let line = if account.alert_threshold > 0.0 {
+                account.alert_threshold
+            } else {
+                config.threshold_package_percent
+            };
+            if line <= 0.0 {
+                continue;
+            }
+            let Some(crate::monitor::Subscription::Loaded(quota)) =
+                snapshot.packages.get(&account.id)
+            else {
+                continue;
+            };
+            let Some(window) = dsmon_core::model::main_window(quota) else {
+                continue;
+            };
+            let Some(entry) = quota.get(window) else {
+                continue;
+            };
+            if entry.percent_remaining >= line {
+                continue;
+            }
+            if message.is_none() && !self.package_low_reported.contains(&account.id) {
+                message = Some(Message {
+                    title: tr(lang, "package_low_title").to_owned(),
+                    body: format!(
+                        "{} · {} {} {:.0}%, {} {:.0}%",
+                        dsmon_core::accounts::label(config, &account.id),
+                        tr(lang, catalog::window_label_key(window)),
+                        tr(lang, "package_low_body"),
+                        entry.percent_remaining,
+                        tr(lang, "threshold"),
+                        line,
+                    ),
+                });
+            }
+            reported.insert(account.id.clone());
+        }
+
+        self.package_low_reported = reported;
+        message
     }
 
     /// An account that has failed repeatedly, said once per episode.

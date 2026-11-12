@@ -47,6 +47,8 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "threshold_crossing") => "Crosses the line in",
             ("en", "budget_title") => "Monthly budget reached",
             ("en", "account_failure_title") => "Account keeps failing",
+            ("en", "package_low_title") => "Package running low",
+            ("en", "package_low_body") => "remaining",
             ("en", "account_failure_body") => "failed",
             ("en", "budget_body") => "has spent",
 
@@ -303,6 +305,8 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "threshold_crossing") => "预计跌破告警线",
             (_, "budget_title") => "月度预算已到",
             (_, "account_failure_title") => "账户连续读取失败",
+            (_, "package_low_title") => "套餐额度偏低",
+            (_, "package_low_body") => "剩余",
             (_, "account_failure_body") => "已连续失败",
             (_, "budget_body") => "已花",
 
@@ -576,7 +580,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 178] = [
+    const USED_KEYS: [&str; 180] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -681,6 +685,8 @@ mod tests {
         "threshold_crossing",
         "budget_title",
         "account_failure_title",
+        "package_low_title",
+        "package_low_body",
         "account_failure_body",
         "budget_body",
         "overview_total",

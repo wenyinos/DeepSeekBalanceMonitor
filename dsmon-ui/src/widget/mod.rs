@@ -590,9 +590,10 @@ impl Widget {
 fn platform_groups(platforms: &[Platform]) -> Vec<Vec<&Platform>> {
     let mut groups: Vec<Vec<&Platform>> = Vec::new();
     for platform in platforms {
-        match groups.last_mut() {
-            Some(group) if group[0].key == platform.key => group.push(platform),
-            _ => groups.push(vec![platform]),
+        if let Some(group) = groups.iter_mut().find(|group| group[0].key == platform.key) {
+            group.push(platform);
+        } else {
+            groups.push(vec![platform]);
         }
     }
     groups

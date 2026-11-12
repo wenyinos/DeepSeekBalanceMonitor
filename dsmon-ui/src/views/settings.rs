@@ -300,7 +300,16 @@ fn account_row(
         );
 
         let result = snapshot.test_results.get(&account.id);
-        let (status, color) = if let Some(result) = result {
+        let (status, color) = if !key.is_empty() {
+            (
+                if key.trim() == "0" {
+                    view.text("key_status_clear")
+                } else {
+                    view.text("key_status_unsaved")
+                },
+                palette.text_secondary,
+            )
+        } else if let Some(result) = result {
             (
                 if result.ok {
                     view.text("test_ok")
@@ -312,15 +321,6 @@ fn account_row(
                 } else {
                     palette.destructive
                 },
-            )
-        } else if !key.is_empty() {
-            (
-                if key.trim() == "0" {
-                    view.text("key_status_clear")
-                } else {
-                    view.text("key_status_unsaved")
-                },
-                palette.text_secondary,
             )
         } else if state.stored.contains(&account.id) {
             (view.text("key_status_saved"), palette.positive)
