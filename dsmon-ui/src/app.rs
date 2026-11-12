@@ -124,6 +124,12 @@ impl App {
     ) -> Self {
         crate::fonts::install(&cc.egui_ctx);
 
+        // A restore requested from the settings page is applied before any
+        // database is opened: replacing a live SQLite file is not safe.
+        if let Err(error) = storage::apply_pending_restore() {
+            let _ = storage::log_line(&format!("The restore could not be applied: {error}"));
+        }
+
         // This build used to keep its files where the earlier build reads its
         // own, so what is still there is moved to this build's own directory
         // before anything is read — the configuration included.
@@ -627,6 +633,24 @@ impl App {
         self.monitor.refresh();
     }
 
+    /// Copies the database, key and configuration into a backup folder.
+    fn backup_now(&mut self) {
+        let lang = self.config.ui_language.clone();
+        self.settings.notice = Some(match storage::backup_now(&backup_parent(&self.config)) {
+            Ok(path) => format!("{} {}", tr(&lang, "backup_done"), path.display()),
+            Err(error) => error,
+        });
+    }
+
+    /// Validates a backup folder and leaves it for the next start.
+    fn restore_from(&mut self, path: &str) {
+        let lang = self.config.ui_language.clone();
+        self.settings.notice = Some(match storage::request_restore(std::path::Path::new(path)) {
+            Ok(()) => tr(&lang, "restore_requested").to_owned(),
+            Err(error) => error,
+        });
+    }
+
     /// Writes the visible records to a CSV file.
     fn export_history(&mut self) {
         let path = export_target(&self.config);
@@ -873,6 +897,10 @@ impl eframe::App for App {
                                     views::settings::Action::TestAccount(id) => {
                                         self.monitor.test_account(&id);
                                     }
+                                    views::settings::Action::BackupNow => self.backup_now(),
+                                    views::settings::Action::RestoreFrom(path) => {
+                                        self.restore_from(&path)
+                                    }
                                     views::settings::Action::ImportLegacy => {
                                         self.import_from_legacy()
                                     }
@@ -1002,6 +1030,15 @@ fn export_target(config: &AppConfig) -> PathBuf {
         home_dir().join(name)
     } else {
         PathBuf::from(configured).join(name)
+    }
+}
+
+fn backup_parent(config: &AppConfig) -> PathBuf {
+    let configured = config.export_path.trim();
+    if configured.is_empty() {
+        home_dir()
+    } else {
+        PathBuf::from(configured)
     }
 }
 

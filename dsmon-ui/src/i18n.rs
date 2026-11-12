@@ -21,6 +21,13 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "widget_show_account") => "Widget",
             ("en", "account_alert_line") => "Alert line",
             ("en", "key_status_saved") => "Saved",
+            ("en", "backup_now") => "Back up now",
+            ("en", "backup_hint") => "database, key and settings",
+            ("en", "backup_done") => "Backed up to",
+            ("en", "restore_hint") => "Backup folder",
+            ("en", "restore_now") => "Restore",
+            ("en", "restore_requested") => "The restore will be applied on the next start.",
+
             ("en", "key_status_missing") => "Not set",
             ("en", "key_status_unsaved") => "Unsaved",
             ("en", "key_status_clear") => "Will clear",
@@ -270,6 +277,13 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "widget_show_account") => "小工具",
             (_, "account_alert_line") => "告警线",
             (_, "key_status_saved") => "已保存",
+            (_, "backup_now") => "立即备份",
+            (_, "backup_hint") => "数据库、密钥与设置",
+            (_, "backup_done") => "已备份到",
+            (_, "restore_hint") => "备份目录",
+            (_, "restore_now") => "恢复",
+            (_, "restore_requested") => "将在下次启动时恢复。",
+
             (_, "key_status_missing") => "未设置",
             (_, "key_status_unsaved") => "待保存",
             (_, "key_status_clear") => "将清除",
@@ -562,7 +576,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 172] = [
+    const USED_KEYS: [&str; 178] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -643,6 +657,12 @@ mod tests {
         "widget_show_account",
         "account_alert_line",
         "key_status_saved",
+        "backup_now",
+        "backup_hint",
+        "backup_done",
+        "restore_hint",
+        "restore_now",
+        "restore_requested",
         "key_status_missing",
         "key_status_unsaved",
         "key_status_clear",

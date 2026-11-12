@@ -1061,6 +1061,110 @@ fn keep_log_line(line: &str, cutoff: chrono::NaiveDateTime) -> bool {
         .unwrap_or(true)
 }
 
+/// The marker a settings-page restore leaves for the next start.
+const RESTORE_MARKER: &str = ".restore-pending";
+
+/// Copies the live database, the key file and the configuration into a new
+/// folder, so a restore can put all three back together.
+pub fn backup_now(parent: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let stamp = Local::now().format("%Y%m%d-%H%M%S");
+    let directory = parent.join(format!("dsmon-backup-{stamp}"));
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+
+    let database = directory.join("dsmon.db");
+    let escaped = database.display().to_string().replace('\'', "\'\'");
+    let conn = open_db()?;
+    conn.execute_batch(&format!("VACUUM INTO '{escaped}'"))
+        .map_err(|error| error.to_string())?;
+
+    let key = paths::secret_key_file();
+    if key.exists() {
+        let target = directory.join(".secure_settings.key");
+        std::fs::copy(&key, &target).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+
+    let config = paths::config_file();
+    if config.exists() {
+        std::fs::copy(&config, directory.join("config.json")).map_err(|error| error.to_string())?;
+    }
+
+    Ok(directory)
+}
+
+/// Validates a backup folder and asks the next start to put it in place.
+pub fn request_restore(source: &std::path::Path) -> Result<(), String> {
+    if !source.join("dsmon.db").is_file() {
+        return Err("the folder has no dsmon.db".to_owned());
+    }
+    if !source.join(".secure_settings.key").is_file() {
+        return Err("the folder has no .secure_settings.key".to_owned());
+    }
+    let marker = paths::state_dir().join(RESTORE_MARKER);
+    paths::ensure_dir(&paths::state_dir()).map_err(|error| error.to_string())?;
+    std::fs::write(&marker, source.display().to_string()).map_err(|error| error.to_string())
+}
+
+/// Applies a restore that was requested from the settings page.
+///
+/// Runs before the database is opened: replacing a live SQLite file under its
+/// connections is not something the next WAL frame would survive.
+pub fn apply_pending_restore() -> Result<Option<std::path::PathBuf>, String> {
+    let marker = paths::state_dir().join(RESTORE_MARKER);
+    if !marker.exists() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&marker).map_err(|error| error.to_string())?;
+    let source = std::path::PathBuf::from(text.trim());
+    if !source.join("dsmon.db").is_file() || !source.join(".secure_settings.key").is_file() {
+        return Err(format!(
+            "the restore folder {} is no longer complete",
+            source.display()
+        ));
+    }
+
+    let stamp = Local::now().format("%Y%m%d-%H%M%S");
+    let database = paths::history_db_file();
+    for suffix in ["", "-wal", "-shm"] {
+        let current = std::path::PathBuf::from(format!("{}{suffix}", database.display()));
+        if current.exists() {
+            let keep =
+                std::path::PathBuf::from(format!("{}.before-restore-{stamp}", current.display()));
+            let _ = std::fs::rename(&current, keep);
+        }
+    }
+
+    let config = paths::config_file();
+    if config.exists() {
+        let keep = std::path::PathBuf::from(format!("{}.before-restore-{stamp}", config.display()));
+        let _ = std::fs::rename(&config, keep);
+    }
+    let key = paths::secret_key_file();
+    if key.exists() {
+        let keep = std::path::PathBuf::from(format!("{}.before-restore-{stamp}", key.display()));
+        let _ = std::fs::rename(&key, keep);
+    }
+
+    std::fs::copy(source.join("dsmon.db"), &database).map_err(|error| error.to_string())?;
+    std::fs::copy(source.join(".secure_settings.key"), &key).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600));
+    }
+    let source_config = source.join("config.json");
+    if source_config.exists() {
+        std::fs::copy(&source_config, paths::config_file()).map_err(|error| error.to_string())?;
+    }
+
+    let _ = std::fs::remove_file(&marker);
+    Ok(Some(source))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

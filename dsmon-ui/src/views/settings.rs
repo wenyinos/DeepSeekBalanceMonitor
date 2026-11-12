@@ -30,6 +30,10 @@ pub enum Action {
     ConfirmClear,
     /// Ask one account to prove its key now.
     TestAccount(String),
+    /// Copy the database, key and configuration into a timestamped folder.
+    BackupNow,
+    /// Arrange for a backup folder to replace the data on the next start.
+    RestoreFrom(String),
     /// Copy the earlier build's data into this one.
     ImportLegacy,
     /// Drop the records that sit outside the retention window and compact the
@@ -56,6 +60,8 @@ pub struct State {
     pub new_platforms: std::collections::BTreeMap<String, String>,
     /// Key typed for the account about to be added.
     pub new_key: String,
+    /// Folder typed into the restore field.
+    pub restore_path: String,
     /// Feedback shown under the cards.
     pub notice: Option<String>,
     /// Set while an erase is waiting for a second click.
@@ -79,6 +85,7 @@ impl State {
             keys: std::collections::BTreeMap::new(),
             new_platforms: std::collections::BTreeMap::new(),
             new_key: String::new(),
+            restore_path: String::new(),
             notice: None,
             pending_clear: false,
             configured,
@@ -656,6 +663,32 @@ fn data_card(ui: &mut egui::Ui, view: &View<'_>, state: &mut State, action: &mut
                     *action = Some(Action::ClearOldData);
                 }
             });
+        });
+
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            if ui.button(view.text("backup_now")).clicked() {
+                *action = Some(Action::BackupNow);
+            }
+            ui.label(
+                RichText::new(view.text("backup_hint"))
+                    .color(palette.text_secondary)
+                    .size(11.0),
+            );
+        });
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut state.restore_path)
+                    .hint_text(view.text("restore_hint"))
+                    .desired_width(260.0),
+            );
+            if ui.button(view.text("restore_now")).clicked()
+                && !state.restore_path.trim().is_empty()
+            {
+                *action = Some(Action::RestoreFrom(state.restore_path.trim().to_owned()));
+            }
         });
 
         ui.add_space(10.0);
