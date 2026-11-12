@@ -452,7 +452,7 @@ impl Watch {
             if line <= 0.0 {
                 continue;
             }
-            let Some(crate::monitor::Subscription::Loaded(quota)) =
+            let Some(dsmon_core::monitor::Subscription::Loaded(quota)) =
                 snapshot.packages.get(&account.id)
             else {
                 continue;
