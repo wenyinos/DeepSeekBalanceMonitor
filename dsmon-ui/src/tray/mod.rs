@@ -349,6 +349,17 @@ mod tests {
             alert_threshold: 0.0,
             monthly_budget: 0.0,
         });
+        config.accounts.push(dsmon_core::config::AccountConfig {
+            id: "opencode_go".to_owned(),
+            platform: "opencode_go".to_owned(),
+            name: "OpenCode Go".to_owned(),
+            enabled: true,
+            billing_day: None,
+            show_in_widget: true,
+            alert_enabled: true,
+            alert_threshold: 0.0,
+            monthly_budget: 0.0,
+        });
         config
     }
 
