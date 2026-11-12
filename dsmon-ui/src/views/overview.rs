@@ -298,8 +298,8 @@ fn package_body(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, account
     super::progress_line(
         ui,
         palette,
-        entry.percent_remaining / 100.0,
-        usage_color(palette, entry.percent_remaining),
+        entry.percent_remaining as f32 / 100.0,
+        usage_color(palette, entry.percent_remaining as f32),
     );
 }
 

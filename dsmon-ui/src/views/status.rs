@@ -75,11 +75,6 @@ pub fn show(
         history_action = history::show_summary(&mut columns[0], view, history);
 
         if platform == dsmon_core::storage::KEY_DEEPSEEK {
-            let selected = of_platform
-                .iter()
-                .find(|account| account.id == history.account)
-                .or_else(|| of_platform.first())
-                .copied();
             health_card(&mut columns[1], view, snapshot);
         } else if let Some(status) = snapshot.platform_status.get(platform) {
             service_card(&mut columns[1], view, status);

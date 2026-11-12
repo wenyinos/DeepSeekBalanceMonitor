@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use dsmon_core::config::{widget_opacity_level, AppConfig, WIDGET_OPACITY_LEVELS};
 use dsmon_core::widget_api::{Payload, Platform, DAYS};
-use egui::{Color32, CornerRadius, Sense, Stroke, ViewportCommand};
+use egui::{Color32, CornerRadius, RichText, Sense, Stroke, ViewportCommand};
 
 use crate::i18n::tr;
 use crate::theme::{self, Palette};
