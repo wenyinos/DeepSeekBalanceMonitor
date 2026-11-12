@@ -335,7 +335,7 @@ fn account_row(
             *test = Some(account.id.clone());
         }
 
-        ui.checkbox(&mut account.enabled, "");
+        ui.checkbox(&mut account.enabled, view.text("account_enabled"));
         ui.checkbox(
             &mut account.show_in_widget,
             view.text("widget_show_account"),
