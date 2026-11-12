@@ -17,6 +17,10 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             ("en", "open_window") => "Open Main Window",
             ("en", "account_tab") => "Account",
             ("en", "settings_tab") => "Settings",
+            ("en", "overview_tab") => "Overview",
+            ("en", "widget_show_account") => "Widget",
+            ("en", "overview_total") => "Total",
+            ("en", "overview_no_accounts") => "No accounts configured yet.",
             ("en", "history_tab") => "History",
             ("en", "group_credentials") => "Credentials",
             ("en", "group_query") => "Query",
@@ -238,6 +242,10 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
             (_, "open_window") => "打开主窗口",
             (_, "account_tab") => "账户",
             (_, "settings_tab") => "设置",
+            (_, "overview_tab") => "总览",
+            (_, "widget_show_account") => "小工具",
+            (_, "overview_total") => "合计",
+            (_, "overview_no_accounts") => "还没有配置账户。",
             (_, "history_tab") => "历史",
             (_, "group_credentials") => "凭据",
             (_, "group_query") => "查询",
@@ -506,7 +514,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 146] = [
+    const USED_KEYS: [&str; 150] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
@@ -583,6 +591,10 @@ mod tests {
         "account_label",
         "service_status",
         "settings_tab",
+        "overview_tab",
+        "widget_show_account",
+        "overview_total",
+        "overview_no_accounts",
         "subscription_tab",
         "theme_bright",
         "theme_contrast",

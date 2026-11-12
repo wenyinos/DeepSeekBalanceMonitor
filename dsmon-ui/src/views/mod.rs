@@ -1,6 +1,7 @@
 //! The pages reachable from the sidebar.
 
 pub mod history;
+pub mod overview;
 pub mod settings;
 pub mod status;
 pub mod subscriptions;

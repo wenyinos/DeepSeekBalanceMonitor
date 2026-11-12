@@ -788,6 +788,7 @@ mod tests {
             name: "DeepSeek".to_owned(),
             enabled: true,
             billing_day: None,
+            show_in_widget: true,
         });
         let mut snapshot = Snapshot::default();
         snapshot

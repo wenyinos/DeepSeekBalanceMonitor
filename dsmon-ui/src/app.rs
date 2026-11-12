@@ -14,6 +14,8 @@ use crate::views::{self, View};
 /// Pages reachable from the sidebar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Page {
+    /// Every account, across platforms, on one page.
+    Overview,
     /// One balance provider, identified by its catalog key.
     Balance(String),
     Subscriptions,
@@ -25,6 +27,7 @@ impl Page {
     /// platform's display name.
     fn label(&self, lang: &str) -> &'static str {
         match self {
+            Page::Overview => tr(lang, "overview_tab"),
             Page::Balance(_) => "",
             Page::Subscriptions => tr(lang, "subscription_tab"),
             Page::Settings => tr(lang, "settings_tab"),
@@ -233,8 +236,13 @@ impl App {
         let mut history = views::history::State::default();
         history.platform = first_platform.clone();
         history.account = first_account;
+        let start_page = if configured.is_empty() {
+            Page::Settings
+        } else {
+            Page::Overview
+        };
         let mut app = Self {
-            page: Page::Balance(first_platform),
+            page: start_page,
             config,
             monitor,
             _widget_api: widget_api,
@@ -697,6 +705,15 @@ impl eframe::App for App {
                 );
                 ui.add_space(14.0);
 
+                if !self.configured.is_empty() {
+                    let selected = self.page == Page::Overview;
+                    if nav_item(ui, &palette, tr(&lang, "overview_tab"), selected).clicked()
+                        && !selected
+                    {
+                        self.page = Page::Overview;
+                    }
+                }
+
                 // One entry per *configured* balance platform — decided by the
                 // stored keys, not by the last poll, so the pages are there from
                 // the first frame.
@@ -754,6 +771,21 @@ impl eframe::App for App {
                 // The status page fills the window so it never scrolls; the
                 // other pages scroll when their content grows.
                 match &self.page {
+                    Page::Overview => {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            if let Some(action) =
+                                views::overview::show(ui, &view, &snapshot, &self.config)
+                            {
+                                match action {
+                                    views::overview::Action::Open { platform, account } => {
+                                        self.history.account = account;
+                                        self.page = Page::Balance(platform);
+                                        self.reload_history();
+                                    }
+                                }
+                            }
+                        });
+                    }
                     Page::Balance(platform) => {
                         if let Some(action) = views::status::show(
                             ui,

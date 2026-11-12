@@ -189,6 +189,7 @@ pub fn payload(snapshot: &crate::monitor::Snapshot, config: &AppConfig, days: u6
         DEFAULT_DAYS
     };
     let platforms: Vec<Platform> = crate::accounts::enabled(config)
+        .filter(|account| account.show_in_widget)
         .filter(|account| catalog::find(&account.platform).is_some_and(|meta| meta.implemented))
         .filter(|account| matches!(storage::read_secret(&account.id), Ok(Some(_))))
         .map(|account| platform(snapshot, account, days))
@@ -599,6 +600,7 @@ mod tests {
             name: String::new(),
             enabled: true,
             billing_day: None,
+            show_in_widget: true,
         });
         config
     }
@@ -718,6 +720,7 @@ mod tests {
             name: "DeepSeek".to_owned(),
             enabled: true,
             billing_day: None,
+            show_in_widget: true,
         });
         let payload = payload(&snapshot, &config, 7);
 
@@ -753,6 +756,7 @@ mod tests {
                 name: name.to_owned(),
                 enabled: true,
                 billing_day: None,
+                show_in_widget: true,
             });
             crate::storage::store_secret(id, "sk-test").expect("a stored key");
         }

@@ -39,6 +39,7 @@ fn ensure_with(config: &mut AppConfig, holds: impl Fn(&str) -> bool) -> bool {
                     name: meta.display_name.to_owned(),
                     enabled: true,
                     billing_day: None,
+                    show_in_widget: true,
                 });
                 changed = true;
             }
@@ -168,6 +169,7 @@ mod tests {
             name: String::new(),
             enabled: true,
             billing_day: None,
+            show_in_widget: true,
         }
     }
 

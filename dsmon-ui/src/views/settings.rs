@@ -271,6 +271,10 @@ fn account_row(
                 .desired_width(210.0),
         );
         ui.checkbox(&mut account.enabled, "");
+        ui.checkbox(
+            &mut account.show_in_widget,
+            view.text("widget_show_account"),
+        );
         if ui.small_button("✕").clicked() {
             *remove = Some(index);
         }
@@ -333,6 +337,7 @@ fn add_account_row(
                     name,
                     enabled: true,
                     billing_day: None,
+                    show_in_widget: true,
                 });
             if !state.new_key.trim().is_empty() {
                 state.keys.insert(id, state.new_key.trim().to_owned());

@@ -504,6 +504,7 @@ mod tests {
             name: meta.display_name.to_owned(),
             enabled: true,
             billing_day: None,
+            show_in_widget: true,
         };
         let mut billing_day = None;
 

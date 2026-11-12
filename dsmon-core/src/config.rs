@@ -81,6 +81,10 @@ pub struct AccountConfig {
     /// Overrides the plan-wide billing day when the provider needs one.
     #[serde(default)]
     pub billing_day: Option<u8>,
+    /// Whether the desktop widget draws this account. It still polls when
+    /// false; the filter is about the panel, not about the reading.
+    #[serde(default = "default_true")]
+    pub show_in_widget: bool,
 }
 
 impl AccountConfig {
@@ -173,6 +177,10 @@ pub struct AppConfig {
     pub widget_auto_start: bool,
     #[serde(default)]
     pub widget_pos: Option<[f32; 2]>,
+    /// Platforms whose group is folded in the widget. Kept here so a panel
+    /// that was tidied once stays tidied.
+    #[serde(default)]
+    pub widget_collapsed_platforms: Vec<String>,
 
     /// Day of the month Command Code renews on, 1-28. Its API reports no
     /// period end, unlike OpenCode Go, so the cycle is taken from here.
@@ -227,6 +235,7 @@ impl Default for AppConfig {
             widget_show_trend: true,
             widget_auto_start: true,
             widget_pos: None,
+            widget_collapsed_platforms: Vec::new(),
             billing_day_command_code: default_billing_day(),
             window_size: None,
             widget_window_size: None,

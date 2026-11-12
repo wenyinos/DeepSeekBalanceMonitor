@@ -89,17 +89,39 @@ pub fn status(snapshot: &Snapshot, config: &AppConfig, lang: &str) -> Status {
     }
 
     match reading(snapshot, config) {
-        Some((name, currency, total)) => Status {
-            label: icon::icon_label(total),
-            state: state_of(snapshot, config, total),
-            tooltip: format!(
+        Some((id, name, currency, total)) => {
+            let mut tooltip = format!(
                 "{} {}: {} {}",
                 name,
                 tr(lang, "balance_word"),
                 format_amount(total),
                 currency
-            ),
-        },
+            );
+            for account in dsmon_core::accounts::enabled(config) {
+                if account.id == id {
+                    continue;
+                }
+                let Some((currency, balance)) = snapshot
+                    .balances
+                    .get(&account.id)
+                    .and_then(preferred_balance)
+                else {
+                    continue;
+                };
+                tooltip.push_str(&format!(
+                    "\n{} {}: {} {}",
+                    account.label(),
+                    tr(lang, "balance_word"),
+                    format_amount(balance.total_balance),
+                    currency
+                ));
+            }
+            Status {
+                label: icon::icon_label(total),
+                state: state_of(snapshot, config, total),
+                tooltip,
+            }
+        }
         None => Status {
             label: "...".to_owned(),
             state: State::NoData,
@@ -110,7 +132,7 @@ pub fn status(snapshot: &Snapshot, config: &AppConfig, lang: &str) -> Status {
 
 /// The reading the icon stands for: the first enabled balance account that
 /// answered, in configuration order.
-fn reading(snapshot: &Snapshot, config: &AppConfig) -> Option<(String, String, f64)> {
+fn reading(snapshot: &Snapshot, config: &AppConfig) -> Option<(String, String, String, f64)> {
     dsmon_core::accounts::enabled(config)
         .filter(|account| {
             dsmon_core::catalog::find(&account.platform).is_some_and(|meta| meta.mode == Mode::Payg)
@@ -121,7 +143,12 @@ fn reading(snapshot: &Snapshot, config: &AppConfig) -> Option<(String, String, f
                 .get(&account.id)
                 .and_then(preferred_balance)
                 .map(|(currency, balance)| {
-                    (account.label(), currency.clone(), balance.total_balance)
+                    (
+                        account.id.clone(),
+                        account.label(),
+                        currency.clone(),
+                        balance.total_balance,
+                    )
                 })
         })
 }
@@ -271,6 +298,7 @@ mod tests {
             name: "DeepSeek".to_owned(),
             enabled: true,
             billing_day: None,
+            show_in_widget: true,
         });
         config.accounts.push(dsmon_core::config::AccountConfig {
             id: "openrouter".to_owned(),
@@ -278,6 +306,7 @@ mod tests {
             name: "OpenRouter".to_owned(),
             enabled: true,
             billing_day: None,
+            show_in_widget: true,
         });
         config
     }

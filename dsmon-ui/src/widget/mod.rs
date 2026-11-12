@@ -11,10 +11,11 @@ mod charts;
 mod client;
 mod tray;
 
+use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 use dsmon_core::config::{widget_opacity_level, AppConfig, WIDGET_OPACITY_LEVELS};
-use dsmon_core::widget_api::{Payload, DAYS};
+use dsmon_core::widget_api::{Payload, Platform, DAYS};
 use egui::{Color32, CornerRadius, Sense, Stroke, ViewportCommand};
 
 use crate::i18n::tr;
@@ -243,6 +244,8 @@ struct Widget {
     /// How many times the X11 window has been asked to stay out of the task
     /// bar and the window list.
     taskbar_tries: u8,
+    /// Platforms whose account cards are folded away in the panel.
+    collapsed: BTreeSet<String>,
     /// The claim on being the running copy, kept for the process's lifetime.
     _instance: crate::instance::Guard,
 }
@@ -264,6 +267,7 @@ impl Widget {
             position: config.widget_pos,
             size: config.widget_window_size,
         };
+        let collapsed = config.widget_collapsed_platforms.iter().cloned().collect();
         let tray_commands: tray::Queue = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let tray = tray::Tray::spawn(
             &config.ui_language,
@@ -282,6 +286,7 @@ impl Widget {
             tray_commands,
             requests,
             taskbar_tries: 0,
+            collapsed,
             _instance: instance,
         }
     }
@@ -492,6 +497,19 @@ impl Widget {
         }
     }
 
+    /// Folds or unfolds one platform's account cards.
+    fn toggle_collapsed(&mut self, platform: &str) {
+        if !self.collapsed.remove(platform) {
+            self.collapsed.insert(platform.to_owned());
+        }
+        // The file, not the stale copy: another process may have changed the
+        // account list since this widget last read it.
+        let mut config = AppConfig::load();
+        config.widget_collapsed_platforms = self.collapsed.iter().cloned().collect();
+        let _ = config.save();
+        self.config = config;
+    }
+
     /// Turns the next range in the cycle.
     fn next_range(&self) {
         let current = self.link.range();
@@ -566,6 +584,18 @@ impl Widget {
             _ => {}
         }
     }
+}
+
+/// Consecutive accounts of one platform, in payload order.
+fn platform_groups(platforms: &[Platform]) -> Vec<Vec<&Platform>> {
+    let mut groups: Vec<Vec<&Platform>> = Vec::new();
+    for platform in platforms {
+        match groups.last_mut() {
+            Some(group) if group[0].key == platform.key => group.push(platform),
+            _ => groups.push(vec![platform]),
+        }
+    }
+    groups
 }
 
 /// What an X11 window manager reads to decide where a window belongs.
@@ -966,29 +996,61 @@ impl Widget {
                 if payload.platforms.is_empty() {
                     action = cards::nothing_configured(ui, look);
                 } else {
-                    // One card per account. The curve range is shared, so only
-                    // the first card carries its button.
+                    // One card per account. A platform with several accounts
+                    // gets a heading that folds the group away; the curve range
+                    // is shared, so only the first card carries its button.
                     let mut first = true;
-                    for platform in payload.platforms.iter().filter(|p| p.kind == "payg") {
-                        ui.push_id(&platform.account_id, |ui| {
-                            if let Some(chosen) = cards::balance_card(
-                                ui,
-                                look,
-                                platform,
-                                range,
-                                first,
-                                platform.today_spend.as_ref(),
-                            ) {
-                                action = Some(chosen);
-                            }
-                        });
-                        first = false;
+                    let mut toggle = None;
+                    for group in platform_groups(&payload.platforms) {
+                        let key = group[0].key.clone();
+                        let folded = self.collapsed.contains(&key);
+                        if group.len() > 1 {
+                            ui.add_space(2.0);
+                            ui.horizontal(|ui| {
+                                let arrow = if folded { "▸" } else { "▾" };
+                                if ui.small_button(arrow).clicked() {
+                                    toggle = Some(key.clone());
+                                }
+                                ui.label(
+                                    RichText::new(&group[0].display)
+                                        .size(11.5)
+                                        .strong()
+                                        .color(look.palette.text_secondary),
+                                );
+                                ui.label(
+                                    RichText::new(group.len().to_string())
+                                        .size(10.0)
+                                        .color(look.palette.text_secondary),
+                                );
+                            });
+                            ui.add_space(4.0);
+                        }
+                        if folded {
+                            continue;
+                        }
+                        for platform in group {
+                            ui.push_id(&platform.account_id, |ui| {
+                                if platform.kind == "payg" {
+                                    if let Some(chosen) = cards::balance_card(
+                                        ui,
+                                        look,
+                                        platform,
+                                        range,
+                                        first,
+                                        platform.today_spend.as_ref(),
+                                    ) {
+                                        action = Some(chosen);
+                                    }
+                                    first = false;
+                                } else {
+                                    cards::subscription(ui, look, platform);
+                                }
+                            });
+                        }
                     }
-                }
-                for platform in payload.platforms.iter().filter(|p| p.kind == "package") {
-                    ui.push_id(&platform.account_id, |ui| {
-                        cards::subscription(ui, look, platform);
-                    });
+                    if let Some(key) = toggle {
+                        self.toggle_collapsed(&key);
+                    }
                 }
                 // The activity card covers every subscription, so it comes
                 // after all of them — and only when there is one.

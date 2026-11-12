@@ -570,6 +570,7 @@ mod tests {
             name: "DeepSeek".to_owned(),
             enabled: true,
             billing_day: None,
+            show_in_widget: true,
         });
         config.accounts.push(dsmon_core::config::AccountConfig {
             id: "opencode_go".to_owned(),
@@ -577,6 +578,7 @@ mod tests {
             name: "OpenCode Go".to_owned(),
             enabled: true,
             billing_day: None,
+            show_in_widget: true,
         });
         config
     }

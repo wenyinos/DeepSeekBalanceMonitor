@@ -65,7 +65,12 @@ pub fn show(
         history_action = history::show_summary(&mut columns[0], view, history);
 
         if platform == dsmon_core::storage::KEY_DEEPSEEK {
-            health_card(&mut columns[1], view, snapshot);
+            let selected = of_platform
+                .iter()
+                .find(|account| account.id == history.account)
+                .or_else(|| of_platform.first())
+                .copied();
+            health_card(&mut columns[1], view, snapshot, selected);
         } else if let Some(status) = snapshot.platform_status.get(platform) {
             service_card(&mut columns[1], view, status);
         } else {
@@ -328,7 +333,12 @@ fn connection_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot, acco
     });
 }
 
-fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
+fn health_card(
+    ui: &mut egui::Ui,
+    view: &View<'_>,
+    snapshot: &Snapshot,
+    account: Option<&dsmon_core::config::AccountConfig>,
+) {
     let palette = view.palette;
 
     card(ui, palette, |ui| {
@@ -357,10 +367,7 @@ fn health_card(ui: &mut egui::Ui, view: &View<'_>, snapshot: &Snapshot) {
 
         ui.add_space(6.0);
 
-        match snapshot
-            .consumption_rates
-            .get(dsmon_core::storage::KEY_DEEPSEEK)
-        {
+        match account.and_then(|account| snapshot.consumption_rates.get(&account.id)) {
             Some(rate) => {
                 ui.label(
                     RichText::new(format!(
