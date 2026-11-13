@@ -9,6 +9,8 @@ Windows 与 Linux 桌面应用：常驻系统托盘，替您盯着 DeepSeek 账�
 Windows 上走 D3D12，每个进程常驻约 300 MB 工作集。OpenGL 不可用的机器（远程桌面、部分虚拟机）
 可设 `DSMON_RENDERER=wgpu` 回退。
 
+![概览页与桌面小工具](assets/preview_overview.png)
+
 ## 它做什么
 
 - **读数始终在手边。** 托盘图标上就是余额，颜色随账户状态变化，悬停显示准确数字；单击弹出

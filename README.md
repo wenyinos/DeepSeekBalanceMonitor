@@ -11,6 +11,8 @@ defaults to runs on D3D12 and cost each process about 300 MB of working set on W
 `DSMON_RENDERER=wgpu` to fall back on machines without usable OpenGL (remote desktops, some
 virtual machines).
 
+![Overview and desktop widget](assets/preview_overview.png)
+
 ## What it does
 
 - **The reading is always in sight.** The tray icon carries the balance and turns colour with
