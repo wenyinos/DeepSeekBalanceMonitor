@@ -592,7 +592,7 @@ mod tests {
     /// Every key the interface asks for, written out because the table is a
     /// match statement and cannot be listed from the code. A missing row fails
     /// here rather than showing up as a blank button.
-    const USED_KEYS: [&str; 180] = [
+    const USED_KEYS: [&str; 186] = [
         "alert_mode_label",
         "api_alert_label",
         "api_degraded_msg",
