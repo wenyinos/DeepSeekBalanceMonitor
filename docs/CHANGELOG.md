@@ -12,7 +12,8 @@ All notable changes to DeepSeek Balance Monitor are documented here.
   `/snap-manager/v1/statistics/plugin` — no local proxy, environment variable or
   separate login is involved. The subscription card shows the total, basic,
   on-demand and bonus credit buckets, each with the credits still available,
-  and the total bucket takes part in the package low-line alert.
+  and the total bucket takes part in the package low-line alert. The desktop
+  widget reads the same payload, so the same buckets appear there too.
 
 ## Rust v2.4.1 (2026-11-12)
 

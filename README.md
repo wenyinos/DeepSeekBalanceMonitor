@@ -14,7 +14,7 @@ virtual machines).
 **2.4.2** adds Huawei Cloud CodeArts. Enter only its AK and SK on the settings page; the
 subscription card shows the total, basic, on-demand and bonus credit buckets. The request is
 signed locally with `SDK-HMAC-SHA256` — no local proxy, environment variable or separate login
-is involved.
+is involved. The desktop widget reads the same payload, so the same buckets appear there.
 
 ![Overview and desktop widget](assets/preview_overview.png)
 
