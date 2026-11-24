@@ -279,6 +279,16 @@ impl Tray {
         *published = Some((status.clone(), theme.clone()));
     }
 
+    /// Whether a tray icon was created at all.
+    ///
+    /// This is the question a user-requested close asks: the icon exists and
+    /// can bring the window back, even when the shell will not report its
+    /// rectangle (Windows 11's overflow area is the usual case). `is_registered`
+    /// remains the stricter answer for the automatic hide at start-up.
+    pub fn available(&self) -> bool {
+        self.handle.is_some()
+    }
+
     /// Whether the desktop is really showing the icon.
     ///
     /// The question to ask before anything relies on the tray to reach the

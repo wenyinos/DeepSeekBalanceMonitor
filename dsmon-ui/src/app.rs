@@ -538,10 +538,16 @@ impl App {
 
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
 
-        // Out of sight only while the tray can bring the window back: with no
-        // icon registered, the task bar is the way in, so the window goes there
-        // instead of disappearing.
-        if window_can_hide() && self.tray.is_registered() {
+        // The tray icon is what brings the window back. Asking the shell for
+        // its rectangle is not a reliable answer on Windows 11: an icon in the
+        // overflow area reports no rectangle while the user can still see and
+        // click it, which is how closing turned into "minimize to the task
+        // bar". A close the user asked for therefore hides the window whenever
+        // the tray was created; only a run that has no tray at all falls back
+        // to the task bar. The automatic hide at start-up still waits for
+        // `is_registered()` — see `logic` — because there the icon may simply
+        // not have been taken yet.
+        if window_can_hide() && self.tray.available() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
