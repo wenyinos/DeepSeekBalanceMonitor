@@ -959,6 +959,7 @@ fn gather_packages(
 fn fetch_package(platform: &str, key: &str, proxy: &str) -> Result<PackageQuota, String> {
     match platform {
         "opencode_go" => platforms::opencode_go::fetch_quota(key, proxy),
+        "codearts" => platforms::codearts::fetch_quota(key, proxy),
         "command_code" => platforms::command_code::fetch_quota(key, proxy),
         "glm_coding_cn" | "glm_coding_global" => platforms::glm::fetch_quota(platform, key, proxy),
         "minimax_token_cn"

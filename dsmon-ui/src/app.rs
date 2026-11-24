@@ -315,6 +315,22 @@ impl App {
                     }
                 }
                 storage::KeyInput::Set(secret) => {
+                    // CodeArts signs with an AK/SK pair; a half-filled form is
+                    // not a key this application can use.
+                    if self
+                        .settings
+                        .draft
+                        .accounts
+                        .iter()
+                        .any(|account| account.id == *platform && account.platform == "codearts")
+                    {
+                        if let Err(error) =
+                            dsmon_core::platforms::codearts::split_credentials(secret)
+                        {
+                            failure = Some(error);
+                            break;
+                        }
+                    }
                     // The same key under two names would be the same account
                     // polled twice and two histories for one balance.
                     if let Some(other) = self.settings.draft.accounts.iter().find(|account| {

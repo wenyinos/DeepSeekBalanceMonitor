@@ -2,6 +2,18 @@
 
 All notable changes to DeepSeek Balance Monitor are documented here.
 
+## Rust v2.4.2 (2026-11-24)
+
+### Added
+
+- **Huawei Cloud CodeArts credits.** An account is an AK/SK pair entered on the
+  settings page. The request is signed locally with Huawei's
+  `SDK-HMAC-SHA256` and sent straight to
+  `/snap-manager/v1/statistics/plugin` — no local proxy, environment variable or
+  separate login is involved. The subscription card shows the total, basic,
+  on-demand and bonus credit buckets, each with the credits still available,
+  and the total bucket takes part in the package low-line alert.
+
 ## Rust v2.4.1 (2026-11-12)
 
 ### Fixed

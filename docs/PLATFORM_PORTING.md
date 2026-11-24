@@ -1,7 +1,7 @@
 # 订阅平台移植笔记
 
 Python 版（`main` 分支的 `src/platforms/`）支持 **8 个平台家族、15 个可添加条目**；
-Rust GUI 版已全部接入，与 Python 版一一对应。
+Rust GUI 版已全部接入，并新增 **Huawei CodeArts**（AK/SK 签名，见下文）。
 
 本文件记录各平台的接口细节与实现要点，作为维护依据——改动解析逻辑时先看这里。
 所有内容来自 `main` 分支的 Python 实现，未做改动。
@@ -23,6 +23,7 @@ Rust GUI 版已全部接入，与 Python 版一一对应。
 | DeepSeek | `platforms/deepseek.rs` |
 | OpenCode Go | `platforms/opencode_go.rs` |
 | Command Code | `platforms/command_code.rs` |
+| Huawei CodeArts | `platforms/codearts.rs` |
 | Kimi | `platforms/kimi.rs` |
 | StepFun | `platforms/stepfun.rs` |
 | OpenRouter | `platforms/openrouter.rs` |
@@ -31,6 +32,18 @@ Rust GUI 版已全部接入，与 Python 版一一对应。
 
 额度窗口在 Rust 侧统一为 `model::PackageQuota`（窗口名 → `QuotaWindow`），
 窗口名与各自在 `catalog::PlatformMeta::windows` 里声明的一致。
+
+### Huawei CodeArts
+
+- 认证：AK/SK，华为云 `SDK-HMAC-SHA256`；`GET https://snap-access.cn-north-4.myhuaweicloud.com/snap-manager/v1/statistics/plugin`。
+- 参与签名的头：`agent-type: PromptCenter`、`content-type: application/json`、`host`、
+  `x-language: zh-cn`、`x-sdk-content-sha256`（空 body 的 SHA-256）、`x-sdk-date`
+  （UTC `YYYYMMDDTHHMMSSZ`）。
+- 响应 `data.metrics[]`：`usageTotalPackageCredit` → `total`、`usageBasicPackageCredit` → `basic`、
+  `usageOnDemandPackageCredit` → `on_demand`、`usageBonusPackageCredit` → `bonus`。
+  `package_credit_amount` 是总量，`package_credit_used` / `package_credit_remain` 是已用/剩余。
+- 不经过 `opencode-codearts` 的 17228 代理，也不读取 `CODEARTS_CLI_*` 环境变量；AK/SK 保存在
+  本程序自己的加密库里。
 
 ## 两类指标模型
 

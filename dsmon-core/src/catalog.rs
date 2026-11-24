@@ -53,7 +53,7 @@ pub struct PlatformMeta {
 }
 
 /// Every platform the application lists, implemented or not.
-pub const PLATFORMS: [PlatformMeta; 14] = [
+pub const PLATFORMS: [PlatformMeta; 15] = [
     PlatformMeta {
         key: "deepseek",
         display_name: "DeepSeek",
@@ -76,6 +76,14 @@ pub const PLATFORMS: [PlatformMeta; 14] = [
         mode: Mode::Package,
         windows: &["5h", "weekly", "monthly"],
         console_url: "https://commandcode.ai",
+        implemented: true,
+    },
+    PlatformMeta {
+        key: "codearts",
+        display_name: "Huawei CodeArts",
+        mode: Mode::Package,
+        windows: &["total", "basic", "on_demand", "bonus"],
+        console_url: "https://codearts.huaweicloud.com",
         implemented: true,
     },
     PlatformMeta {
@@ -198,6 +206,10 @@ pub fn window_label_key(window: &str) -> &'static str {
         "5h" => "window_5h",
         "weekly" => "window_weekly",
         "monthly" => "window_monthly",
+        "total" => "window_total",
+        "basic" => "window_basic",
+        "on_demand" => "window_on_demand",
+        "bonus" => "window_bonus",
         _ => "window_unknown",
     }
 }
@@ -252,6 +264,7 @@ mod tests {
                 "deepseek",
                 "opencode_go",
                 "command_code",
+                "codearts",
                 "glm_coding_cn",
                 "glm_coding_global",
                 "kimi_token_cn",

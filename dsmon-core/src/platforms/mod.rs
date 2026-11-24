@@ -1,5 +1,6 @@
 //! Per-platform API clients and the HTTP plumbing they share.
 
+pub mod codearts;
 pub mod command_code;
 pub mod deepseek;
 pub mod glm;

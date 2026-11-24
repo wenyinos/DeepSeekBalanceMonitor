@@ -1,4 +1,4 @@
-# DeepSeek Balance Monitor 2.4.1
+# DeepSeek Balance Monitor 2.4.2
 
 A desktop application for Windows and Linux that keeps an eye on your DeepSeek account — and on
 the other providers it knows — from the system tray. One Rust application, one user interface,
@@ -6,10 +6,15 @@ both platforms.
 
 [中文版](README_zh.md)
 
-**2.4.1** switches both windows to the glow (OpenGL) renderer: the wgpu backend eframe 0.36
+**2.4.1** switched both windows to the glow (OpenGL) renderer: the wgpu backend eframe 0.36
 defaults to runs on D3D12 and cost each process about 300 MB of working set on Windows. Set
 `DSMON_RENDERER=wgpu` to fall back on machines without usable OpenGL (remote desktops, some
 virtual machines).
+
+**2.4.2** adds Huawei Cloud CodeArts. Enter only its AK and SK on the settings page; the
+subscription card shows the total, basic, on-demand and bonus credit buckets. The request is
+signed locally with `SDK-HMAC-SHA256` — no local proxy, environment variable or separate login
+is involved.
 
 ![Overview and desktop widget](assets/preview_overview.png)
 
@@ -18,7 +23,7 @@ virtual machines).
 - **The reading is always in sight.** The tray icon carries the balance and turns colour with
   the state of the account; the tooltip spells out the figure. A click raises a summary: the
   balance, the burn rate, the service state, and how long ago the reading was taken.
-- **Every provider in one window.** Fourteen entries across eight families, in two kinds:
+- **Every provider in one window.** Fifteen entries across nine families, in two kinds:
   accounts with a balance, and plans with quota windows.
 - **Every account on one page.** The overview adds balances up per currency and puts the accounts
   closest to their line first; a card opens the platform page with that account selected.

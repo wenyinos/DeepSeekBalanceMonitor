@@ -56,10 +56,16 @@ pub struct State {
     /// New key material, keyed by account id; empty means "keep what is
     /// stored", and a single `0` asks for the stored secret to be removed.
     pub keys: std::collections::BTreeMap<String, String>,
+    /// CodeArts accounts take two values. The pair is edited here and written
+    /// into `keys` as `AK\nSK`, so the rest of the page still sees one secret.
+    pub codearts_keys: std::collections::BTreeMap<String, (String, String)>,
     /// Platform picked in the "add account" row, one per group heading.
     pub new_platforms: std::collections::BTreeMap<String, String>,
     /// Key typed for the account about to be added.
     pub new_key: String,
+    /// AK and SK typed for a CodeArts account about to be added.
+    pub new_ak: String,
+    pub new_sk: String,
     /// Folder typed into the restore field.
     pub restore_path: String,
     /// Feedback shown under the cards.
@@ -83,8 +89,11 @@ impl State {
         Self {
             draft: config,
             keys: std::collections::BTreeMap::new(),
+            codearts_keys: std::collections::BTreeMap::new(),
             new_platforms: std::collections::BTreeMap::new(),
             new_key: String::new(),
+            new_ak: String::new(),
+            new_sk: String::new(),
             restore_path: String::new(),
             notice: None,
             pending_clear: false,
@@ -274,12 +283,24 @@ fn account_row(
     snapshot: &Snapshot,
 ) {
     let palette = view.palette;
-    let account = &mut state.draft.accounts[index];
+    // Borrow the fields separately: the row edits the account while the key
+    // boxes edit `keys` / `codearts_keys`, and holding `&mut state` would make
+    // those look like overlapping borrows.
+    let State {
+        draft,
+        keys,
+        codearts_keys,
+        stored,
+        ..
+    } = state;
+    let account = &mut draft.accounts[index];
     let platform = dsmon_core::catalog::find(&account.platform)
         .map(|meta| meta.display_name)
         .unwrap_or(account.platform.as_str())
         .to_owned();
-    let key = state.keys.entry(account.id.clone()).or_default();
+    let id = account.id.clone();
+    let is_codearts = account.platform == "codearts";
+    let mut key_text = keys.get(&id).cloned().unwrap_or_default();
 
     ui.horizontal(|ui| {
         ui.add(
@@ -292,17 +313,49 @@ fn account_row(
                 .color(palette.text_secondary)
                 .size(12.0),
         );
-        ui.add(
-            egui::TextEdit::singleline(key)
-                .password(true)
-                .hint_text("••••••••")
-                .desired_width(180.0),
-        );
+        if is_codearts {
+            let pair = codearts_keys
+                .entry(id.clone())
+                .or_insert_with(|| (String::new(), String::new()));
+            ui.add(
+                egui::TextEdit::singleline(&mut pair.0)
+                    .password(true)
+                    .hint_text("AK")
+                    .desired_width(105.0),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut pair.1)
+                    .password(true)
+                    .hint_text("SK")
+                    .desired_width(105.0),
+            );
+            let (ak, sk) = (pair.0.trim().to_owned(), pair.1.trim().to_owned());
+            if ak.is_empty() && sk.is_empty() {
+                keys.remove(&id);
+                key_text.clear();
+            } else if ak == "0" && sk.is_empty() {
+                keys.insert(id.clone(), "0".to_owned());
+                key_text = "0".to_owned();
+            } else {
+                let combined = format!("{ak}\n{sk}");
+                keys.insert(id.clone(), combined.clone());
+                key_text = combined;
+            }
+        } else {
+            let key = keys.entry(id.clone()).or_default();
+            ui.add(
+                egui::TextEdit::singleline(key)
+                    .password(true)
+                    .hint_text("••••••••")
+                    .desired_width(180.0),
+            );
+            key_text = key.clone();
+        }
 
-        let result = snapshot.test_results.get(&account.id);
-        let (status, color) = if !key.is_empty() {
+        let result = snapshot.test_results.get(&id);
+        let (status, color) = if !key_text.is_empty() {
             (
-                if key.trim() == "0" {
+                if key_text.trim() == "0" {
                     view.text("key_status_clear")
                 } else {
                     view.text("key_status_unsaved")
@@ -322,7 +375,7 @@ fn account_row(
                     palette.destructive
                 },
             )
-        } else if state.stored.contains(&account.id) {
+        } else if stored.contains(&account.id) {
             (view.text("key_status_saved"), palette.positive)
         } else {
             (view.text("key_status_missing"), palette.warning)
@@ -407,32 +460,69 @@ fn add_account_row(
                     ui.selectable_value(&mut chosen, meta.key.to_owned(), meta.display_name);
                 }
             });
-        ui.add(
-            egui::TextEdit::singleline(&mut state.new_key)
-                .password(true)
-                .hint_text("••••••••")
-                .desired_width(210.0),
-        );
+        if chosen == "codearts" {
+            ui.add(
+                egui::TextEdit::singleline(&mut state.new_ak)
+                    .password(true)
+                    .hint_text("AK")
+                    .desired_width(100.0),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut state.new_sk)
+                    .password(true)
+                    .hint_text("SK")
+                    .desired_width(100.0),
+            );
+        } else {
+            ui.add(
+                egui::TextEdit::singleline(&mut state.new_key)
+                    .password(true)
+                    .hint_text("••••••••")
+                    .desired_width(210.0),
+            );
+        }
         if ui.button(view.text("add_account")).clicked() {
-            let id = dsmon_core::accounts::new_id(&state.draft);
-            let name = dsmon_core::accounts::next_name(&state.draft, &chosen);
-            state
-                .draft
-                .accounts
-                .push(dsmon_core::config::AccountConfig {
-                    id: id.clone(),
-                    platform: chosen.clone(),
-                    name,
-                    billing_day: None,
-                    show_in_widget: true,
-                    alert_enabled: true,
-                    alert_threshold: 0.0,
-                    monthly_budget: 0.0,
-                });
-            if !state.new_key.trim().is_empty() {
-                state.keys.insert(id, state.new_key.trim().to_owned());
+            let codearts = chosen == "codearts";
+            let (ak, sk) = (
+                state.new_ak.trim().to_owned(),
+                state.new_sk.trim().to_owned(),
+            );
+            if codearts && ak.is_empty() != sk.is_empty() {
+                state.notice = Some(view.text("codearts_needs_both").to_owned());
+            } else {
+                let id = dsmon_core::accounts::new_id(&state.draft);
+                let name = dsmon_core::accounts::next_name(&state.draft, &chosen);
+                state
+                    .draft
+                    .accounts
+                    .push(dsmon_core::config::AccountConfig {
+                        id: id.clone(),
+                        platform: chosen.clone(),
+                        name,
+                        billing_day: None,
+                        show_in_widget: true,
+                        alert_enabled: true,
+                        alert_threshold: 0.0,
+                        monthly_budget: 0.0,
+                    });
+                let secret = if codearts {
+                    if ak.is_empty() && sk.is_empty() {
+                        None
+                    } else if ak == "0" && sk.is_empty() {
+                        Some("0".to_owned())
+                    } else {
+                        Some(format!("{ak}\n{sk}"))
+                    }
+                } else {
+                    Some(state.new_key.trim().to_owned()).filter(|value| !value.is_empty())
+                };
+                if let Some(secret) = secret {
+                    state.keys.insert(id, secret);
+                }
+                state.new_key.clear();
+                state.new_ak.clear();
+                state.new_sk.clear();
             }
-            state.new_key.clear();
         }
     });
     state.new_platforms.insert(heading.to_owned(), chosen);

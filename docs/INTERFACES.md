@@ -42,7 +42,7 @@
 ```json
 {
   "version": 3,
-  "provider": { "name": "dsmon2", "version": "2.4.1" },
+  "provider": { "name": "dsmon2", "version": "2.4.2" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,
@@ -97,8 +97,9 @@
 ### 1.4 不变式 🔒
 
 1. **只含已配置账户**（该账户有密钥，且 `show_in_widget` 为真），顺序按 `config.json` 里 `accounts` 的顺序；同一个 `key` 可以有多条（同一平台的多个 key），一个账户都没有就是空数组。
-2. **窗口名给键、不给成品文案**：`name_key` ∈ {`window_5h`, `window_weekly`, `window_monthly`}，
-   由客户端翻译（客户端与主程序共用同一张 i18n 表）。
+2. **窗口名给键、不给成品文案**：`name_key` ∈ {`window_5h`, `window_weekly`, `window_monthly`,
+   `window_total`, `window_basic`, `window_on_demand`, `window_bonus`}，由客户端翻译（客户端与
+   主程序共用同一张 i18n 表）。
 3. **不传凭据**：响应里没有任何 API Key、密文或密钥材料；客户端不需要提供任何凭据，**接口不做鉴权、
    没有令牌**（本机单用户工具，只绑回环）。任何想给这个接口加认证的方案都不必做。
 4. **除 `/check` 外无写操作**；`/check` 也只是触发一次轮询，不改配置、不改数据。
@@ -297,7 +298,9 @@ secure_settings(key PRIMARY KEY, value BLOB, updated_at)
 ### 7.2 窗口键与 i18n 键 🔒
 
 窗口名到 i18n 键的映射由 `catalog::window_label_key` 给出：`5h` → `window_5h`、`weekly` →
-`window_weekly`、`monthly` → `window_monthly`。数据接口只传键，文案由客户端查表。
+`window_weekly`、`monthly` → `window_monthly`；CodeArts 的积分桶是 `total` → `window_total`、
+`basic` → `window_basic`、`on_demand` → `window_on_demand`、`bonus` → `window_bonus`。数据接口
+只传键，文案由客户端查表。
 
 ### 7.3 客户端形态与币种 ⚙️（返回结构是契约）
 

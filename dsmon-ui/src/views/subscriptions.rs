@@ -188,13 +188,35 @@ fn plan_card(
         match reading {
             Some(Subscription::Loaded(quota)) => {
                 for name in meta.windows {
+                    let usage = usage_of(quota, name);
+                    // CodeArts may have no bonus/on-demand pool at all; an
+                    // absent bucket is not an empty one.
+                    if meta.key == "codearts" && usage.is_none() {
+                        continue;
+                    }
                     window_row(
                         ui,
                         palette,
                         view.text(window_label_key(name)),
-                        usage_of(quota, name),
+                        usage,
                         pace_line(view, palette, snapshot, &account.id, name),
                     );
+                    if meta.key == "codearts" {
+                        if let Some(window) = quota.get(name) {
+                            if let (Some(used), Some(cap)) = (window.used, window.cap) {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {:.0} / {:.0}",
+                                        view.text("credits_left"),
+                                        (cap - used).max(0.0),
+                                        cap
+                                    ))
+                                    .color(palette.text_secondary)
+                                    .size(11.0),
+                                );
+                            }
+                        }
+                    }
                 }
             }
             Some(Subscription::Failed(error)) => {

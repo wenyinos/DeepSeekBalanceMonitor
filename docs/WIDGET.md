@@ -191,7 +191,7 @@ egui/eframe 能把窗口做成 ARGB 透明（`.with_transparent(true)` + `App::c
 ```json
 {
   "version": 3,
-  "provider": { "name": "dsmon2", "version": "2.4.1" },
+  "provider": { "name": "dsmon2", "version": "2.4.2" },
   "generated_at": "2026-09-15 10:42:00",
   "lang": "zh",
   "checking": false,
@@ -425,7 +425,8 @@ ViewportBuilder::default()
 - **共用一张文案表**：小工具与主程序用同一个 `i18n.rs`、同一个 `tr(lang, key)`；新增键必须中英同时加，
   `every_key_the_interface_uses_is_answered` 会拦。
 - **契约只给键、不给成品文案**：`windows[].name_key` 是 `window_5h` / `window_weekly` /
-  `window_monthly` 这类 i18n 键（主程序侧用现成的 `catalog::window_label_key` 生成），由小工具翻译——
+  `window_monthly` / `window_total` / `window_basic` / `window_on_demand` / `window_bonus`
+  这类 i18n 键（主程序侧用现成的 `catalog::window_label_key` 生成），由小工具翻译——
   界面文案只有一处来源，也不会出现「主程序是英文、小工具是中文」的错位。
 - **时间用语言中性的写法**：`format_reset_seconds` 本来就返回 `3h 56m` 这种中性串（主程序也这么用），
   小工具不加「后重置」这类后缀，而是前面挂一个静态标签键 `reset_label`（「重置」/「Reset」，两种语言
