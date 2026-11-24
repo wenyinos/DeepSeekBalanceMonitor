@@ -202,7 +202,7 @@ fn plan_card(
                         pace_line(view, palette, snapshot, &account.id, name),
                     );
                     if meta.key == "codearts" {
-                        if let Some(window) = quota.get(name) {
+                        if let Some(window) = quota.get(*name) {
                             if let (Some(used), Some(cap)) = (window.used, window.cap) {
                                 ui.label(
                                     RichText::new(format!(
