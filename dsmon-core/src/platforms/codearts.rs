@@ -206,7 +206,10 @@ pub fn usage_from_value(value: &Value) -> Result<PackageQuota, String> {
             continue;
         }
 
-        let limit = number(metric.get("package_credit_amount"));
+        let limit = metric
+            .get("package_credit_amount")
+            .map(number)
+            .unwrap_or(0.0);
         if limit <= 0.0 {
             continue;
         }
@@ -226,10 +229,10 @@ pub fn usage_from_value(value: &Value) -> Result<PackageQuota, String> {
     Ok(quota)
 }
 
-fn number(value: Option<&Value>) -> f64 {
+fn number(value: &Value) -> f64 {
     match value {
-        Some(Value::Number(number)) => number.as_f64().unwrap_or(0.0),
-        Some(Value::String(text)) => text.trim().parse().unwrap_or(0.0),
+        Value::Number(number) => number.as_f64().unwrap_or(0.0),
+        Value::String(text) => text.trim().parse().unwrap_or(0.0),
         _ => 0.0,
     }
 }
